@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "description": "V1 placeholder observation schema for the Skillful RAN benchmark skeleton.",
+  "observation": {
+    "stage": "v1_stub",
+    "state": "not_running",
+    "fields": [
+      "run_id",
+      "status",
+      "message"
+    ]
+  },
+  "future_sources": [
+    "json_metrics",
+    "e2_kpm",
+    "websocket_control_outcomes",
+    "zmq_broker_state",
+    "pcap_log_oracle"
+  ]
+}
+

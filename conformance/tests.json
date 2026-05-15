@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "tests": [
+    {
+      "id": "remote_tools_ocudu_root",
+      "name": "Remote tools and OCUDU root",
+      "backend": "ssh",
+      "stage": "v1_stub",
+      "required_for_scoring": true,
+      "status": "stub"
+    },
+    {
+      "id": "websocket_command_path",
+      "name": "WebSocket command path",
+      "backend": "websocket",
+      "stage": "v1_stub",
+      "required_for_scoring": true,
+      "status": "stub"
+    },
+    {
+      "id": "json_metrics_stream",
+      "name": "JSON metrics stream",
+      "backend": "json_metrics",
+      "stage": "v1_stub",
+      "required_for_scoring": true,
+      "status": "stub"
+    },
+    {
+      "id": "e2_kpm",
+      "name": "E2 setup and KPM indication path",
+      "backend": "e2_kpm",
+      "stage": "v1_stub",
+      "required_for_scoring": false,
+      "status": "stub"
+    },
+    {
+      "id": "e2_rc_ccc",
+      "name": "E2 RC and CCC control paths",
+      "backend": "e2_control",
+      "stage": "v1_stub",
+      "required_for_scoring": false,
+      "status": "stub"
+    },
+    {
+      "id": "zmq_rf_path",
+      "name": "ZMQ RF path",
+      "backend": "zmq",
+      "stage": "v1_stub",
+      "required_for_scoring": false,
+      "status": "stub"
+    },
+    {
+      "id": "pcap_log_oracle",
+      "name": "PCAP and log oracle",
+      "backend": "pcap_log",
+      "stage": "v1_stub",
+      "required_for_scoring": false,
+      "status": "stub"
+    }
+  ]
+}
+

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "description": "V1 placeholder action schema for the Skillful RAN benchmark skeleton.",
+  "actions": [
+    {
+      "type": "STUB_NOOP",
+      "stub": true,
+      "description": "Only accepted action in the v1 skeleton. Runtime OCUDU actions are added in later stages."
+    },
+    {
+      "type": "SET_PRB_POLICY_RATIO_WS",
+      "stage": "v3",
+      "description": "Future WebSocket PRB policy action. Min/max ratios are scored; dedicated ratio is validity-only."
+    },
+    {
+      "type": "SET_PRB_POLICY_RATIO_CCC",
+      "stage": "v4",
+      "description": "Future E2SM-CCC PRB policy action."
+    },
+    {
+      "type": "SET_PRB_POLICY_RATIO_RC_DU",
+      "stage": "v4",
+      "description": "Future E2SM-RC DU PRB policy action."
+    }
+  ]
+}
+
