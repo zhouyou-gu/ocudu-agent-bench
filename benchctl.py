@@ -34,6 +34,7 @@ from benchmark.benchmark_api.episode import (
     run_episode,
 )
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
+from benchmark.benchmark_api.suite import BUILTIN_AGENTS, run_suite, suite_exit_code
 
 
 V3_EPISODE_GATE_CHECKS = {
@@ -187,6 +188,28 @@ def cmd_episode_cleanup(args: argparse.Namespace) -> int:
     return 0 if result.get("status") == "ok" else 1
 
 
+def cmd_episode_suite(args: argparse.Namespace) -> int:
+    manager = remote_manager(args)
+    result = run_suite(
+        remote=manager,
+        repo_root=ROOT,
+        specs_path=ROOT / "benchmark" / "conformance" / "tests.json",
+        suite_id=args.suite_id,
+        task=args.task,
+        agent=args.agent,
+        runs=args.runs,
+        duration=args.duration,
+        seed=args.seed,
+        ws_port=args.ws_port,
+        launch_timeout=args.launch_timeout,
+        attach_timeout=args.attach_timeout,
+        probe_timeout=args.probe_timeout,
+        skip_conformance=args.skip_conformance,
+    )
+    emit(result, args.json)
+    return suite_exit_code(result)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Skillful RAN benchmark control CLI")
     subparsers = parser.add_subparsers(dest="command_group", required=True)
@@ -285,6 +308,43 @@ def build_parser() -> argparse.ArgumentParser:
     episode_cleanup.add_argument("--run-id", required=True, help="Episode run id")
     episode_cleanup.add_argument("--json", action="store_true", help="Emit JSON output")
     episode_cleanup.set_defaults(func=cmd_episode_cleanup)
+
+    episode_suite = episode_sub.add_parser("suite", help="Run a repeated benchmark suite")
+    episode_suite.add_argument("--config", default=".config", help="Path to local remote config")
+    episode_suite.add_argument("--task", default=TASK_WS_PRB_PING_V1, help="Benchmark task id")
+    episode_suite.add_argument(
+        "--agent", choices=sorted(BUILTIN_AGENTS), default="fixed_prb", help="Built-in baseline agent"
+    )
+    episode_suite.add_argument("--runs", type=int, default=3, help="Number of suite episodes")
+    episode_suite.add_argument("--duration", type=int, default=DEFAULT_EPISODE_DURATION, help="Episode duration in seconds")
+    episode_suite.add_argument("--seed", type=int, default=1, help="Deterministic baseline seed")
+    episode_suite.add_argument("--suite-id", default=None, help="Suite id; run ids use <suite-id>-rNNN")
+    episode_suite.add_argument("--json", action="store_true", help="Emit JSON output")
+    episode_suite.add_argument("--ws-port", type=int, default=DEFAULT_EPISODE_WS_PORT, help="Remote-control WebSocket port")
+    episode_suite.add_argument(
+        "--launch-timeout",
+        type=int,
+        default=DEFAULT_EPISODE_LAUNCH_TIMEOUT,
+        help="Seconds to wait for Open5GS/gNB readiness",
+    )
+    episode_suite.add_argument(
+        "--attach-timeout",
+        type=int,
+        default=DEFAULT_EPISODE_ATTACH_TIMEOUT,
+        help="Seconds to wait for srsUE attach evidence",
+    )
+    episode_suite.add_argument(
+        "--probe-timeout",
+        type=int,
+        default=DEFAULT_EPISODE_PROBE_TIMEOUT,
+        help="Seconds to wait for WebSocket probes",
+    )
+    episode_suite.add_argument(
+        "--skip-conformance",
+        action="store_true",
+        help="Run without the required v3 conformance gate and mark the suite unscored",
+    )
+    episode_suite.set_defaults(func=cmd_episode_suite)
 
     return parser
 

@@ -128,6 +128,7 @@ class RemoteManager:
             "benchmark_api/env.py",
             "benchmark_api/episode.py",
             "benchmark_api/remote.py",
+            "benchmark_api/suite.py",
             "benchmark_api/websocket_client.py",
             "conformance/tests.json",
             "schemas/actions.schema.json",

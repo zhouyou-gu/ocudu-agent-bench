@@ -169,6 +169,60 @@ class BenchctlTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(stdout.getvalue())["run_id"], "unit-ep")
 
+    def test_episode_suite_parses_options_and_wraps_runner(self) -> None:
+        original_remote_manager = benchctl.remote_manager
+        original_run_suite = benchctl.run_suite
+
+        def fake_remote_manager(args):
+            return {"remote": "manager"}
+
+        def fake_run_suite(**kwargs):
+            self.assertEqual(kwargs["task"], "ws_prb_ping_v1")
+            self.assertEqual(kwargs["agent"], "invalid_then_fixed")
+            self.assertEqual(kwargs["runs"], 4)
+            self.assertEqual(kwargs["duration"], 7)
+            self.assertEqual(kwargs["seed"], 11)
+            self.assertEqual(kwargs["suite_id"], "unit-suite")
+            self.assertEqual(kwargs["ws_port"], 9002)
+            self.assertTrue(kwargs["skip_conformance"])
+            return {"status": "ok", "suite_id": kwargs["suite_id"], "scored_runs": 1}
+
+        benchctl.remote_manager = fake_remote_manager
+        benchctl.run_suite = fake_run_suite
+        stdout = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout):
+                code = benchctl.main(
+                    [
+                        "episode",
+                        "suite",
+                        "--config",
+                        "unit.config",
+                        "--task",
+                        "ws_prb_ping_v1",
+                        "--agent",
+                        "invalid_then_fixed",
+                        "--runs",
+                        "4",
+                        "--duration",
+                        "7",
+                        "--seed",
+                        "11",
+                        "--suite-id",
+                        "unit-suite",
+                        "--ws-port",
+                        "9002",
+                        "--skip-conformance",
+                        "--json",
+                    ]
+                )
+        finally:
+            benchctl.remote_manager = original_remote_manager
+            benchctl.run_suite = original_run_suite
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(stdout.getvalue())["suite_id"], "unit-suite")
+
 
 if __name__ == "__main__":
     unittest.main()
