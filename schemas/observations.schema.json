@@ -1,16 +1,34 @@
 {
   "version": 1,
-  "description": "V1 placeholder observation schema for the Skillful RAN benchmark skeleton.",
+  "description": "Benchmark observation catalog for agent-facing episode frames.",
   "observation": {
-    "stage": "v1_stub",
-    "state": "not_running",
-    "fields": [
-      "run_id",
-      "status",
-      "message"
-    ]
+    "stage": "v3_episode",
+    "task": "ws_prb_ping_v1",
+    "state": "running",
+    "fields": {
+      "ping": [
+        "packets_transmitted",
+        "packets_received",
+        "reply_lines",
+        "loss_percent",
+        "success_ratio"
+      ],
+      "metrics": [
+        "present",
+        "component_keys",
+        "timestamp",
+        "raw",
+        "error"
+      ],
+      "backend": [
+        "websocket",
+        "ping"
+      ],
+      "last_action": "most recent local validation and WebSocket dispatch result"
+    }
   },
-  "future_sources": [
+  "other_sources": [
+    "v1_stub",
     "json_metrics",
     "e2_kpm",
     "websocket_control_outcomes",
@@ -18,4 +36,3 @@
     "pcap_log_oracle"
   ]
 }
-

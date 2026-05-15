@@ -2,6 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
+import benchmark.benchmark_api.conformance as conformance_module
 from benchmark.benchmark_api.config import RemoteConfig
 from benchmark.benchmark_api.conformance import (
     ConformanceCheckResult,
@@ -110,6 +111,11 @@ class ConformanceTests(unittest.TestCase):
             "websocket_command_path",
             "json_metrics_stream",
             "artifact_paths",
+            "docker_e2e_assets",
+            "open5gs_core_health",
+            "srsue_zmq_attach",
+            "ping_traffic_path",
+            "websocket_prb_policy_action",
         ]:
             self.assertTrue(by_id[check_id].executable)
             self.assertEqual(by_id[check_id].status, "executable")
@@ -254,6 +260,69 @@ class ConformanceTests(unittest.TestCase):
         self.assertEqual(by_id["artifact_paths"]["status"], "pass")
         self.assertEqual(by_id["artifact_paths"]["details"]["missing_setup"], [])
         self.assertEqual(by_id["artifact_paths"]["details"]["launch_artifacts_status"], "blocked")
+
+    def test_v3_docker_checks_use_episode_runtime_adapter(self) -> None:
+        original_runtime = conformance_module.EpisodeRuntime
+
+        class FakeEpisodeRuntime:
+            def __init__(self, remote, repo_root=None) -> None:
+                self.remote = remote
+                self.repo_root = repo_root
+                self.options = None
+
+            def check_docker_assets(self):
+                return {"status": "pass", "summary": "assets ok", "details": {}}
+
+            def start(self, options):
+                self.options = options
+                return {"status": "ok", "stage": "v3_episode", "run_id": options.run_id}
+
+            def observe(self):
+                return {
+                    "status": "ok",
+                    "observation": {
+                        "ping": {"packets_received": 1},
+                        "metrics": {"present": True},
+                    },
+                }
+
+            def act(self, action):
+                if action.get("min_prb_policy_ratio", 0) > action.get("max_prb_policy_ratio", 100):
+                    return {"status": "rejected", "accepted": False}
+                return {"status": "ok", "accepted": True}
+
+            def cleanup(self, run_id):
+                return {"status": "ok", "run_id": run_id}
+
+            def finalize(self, unscored_reason=None, cleanup_success=True):
+                return {"status": "ok", "scored": cleanup_success}
+
+        conformance_module.EpisodeRuntime = FakeEpisodeRuntime
+        try:
+            runner = ConformanceRunner(
+                remote=FakeRemoteManager(),
+                repo_root=Path(".").resolve(),
+                specs_path=Path("benchmark/conformance/tests.json"),
+            )
+            result = runner.run(
+                options=ConformanceOptions(
+                    run_id="unit-v3-docker",
+                    checks={"websocket_prb_policy_action", "ping_traffic_path"},
+                    ws_port=8001,
+                    launch_timeout=1,
+                    probe_timeout=1,
+                )
+            )
+        finally:
+            conformance_module.EpisodeRuntime = original_runtime
+
+        by_id = {check["id"]: check for check in result["checks"]}
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(by_id["docker_e2e_assets"]["status"], "pass")
+        self.assertEqual(by_id["open5gs_core_health"]["status"], "pass")
+        self.assertEqual(by_id["srsue_zmq_attach"]["status"], "pass")
+        self.assertEqual(by_id["ping_traffic_path"]["status"], "pass")
+        self.assertEqual(by_id["websocket_prb_policy_action"]["status"], "pass")
 
 
 if __name__ == "__main__":

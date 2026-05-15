@@ -72,6 +72,103 @@ class BenchctlTests(unittest.TestCase):
         self.assertEqual(output["status"], "fail")
         self.assertEqual(output["run_id"], "unit-cli")
 
+    def test_episode_run_invokes_conformance_gate_and_runtime(self) -> None:
+        original_remote_manager = benchctl.remote_manager
+        original_run_conformance = benchctl.run_conformance
+        original_run_episode = benchctl.run_episode
+
+        def fake_remote_manager(args):
+            return {"remote": "manager"}
+
+        def fake_run_conformance(**kwargs):
+            self.assertEqual(kwargs["checks"], benchctl.V3_EPISODE_GATE_CHECKS)
+            return {"status": "pass", "checks": []}
+
+        def fake_run_episode(**kwargs):
+            self.assertEqual(kwargs["task"], "ws_prb_ping_v1")
+            self.assertEqual(kwargs["duration"], 1)
+            return {"status": "ok", "summary": {"scored": True}}
+
+        benchctl.remote_manager = fake_remote_manager
+        benchctl.run_conformance = fake_run_conformance
+        benchctl.run_episode = fake_run_episode
+        stdout = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout):
+                code = benchctl.main(
+                    [
+                        "episode",
+                        "run",
+                        "--config",
+                        "unit.config",
+                        "--task",
+                        "ws_prb_ping_v1",
+                        "--duration",
+                        "1",
+                        "--json",
+                    ]
+                )
+        finally:
+            benchctl.remote_manager = original_remote_manager
+            benchctl.run_conformance = original_run_conformance
+            benchctl.run_episode = original_run_episode
+
+        self.assertEqual(code, 0)
+        output = json.loads(stdout.getvalue())
+        self.assertEqual(output["status"], "ok")
+        self.assertTrue(output["summary"]["scored"])
+        self.assertEqual(output["conformance"]["status"], "pass")
+
+    def test_episode_run_skip_conformance_marks_unscored(self) -> None:
+        original_remote_manager = benchctl.remote_manager
+        original_run_episode = benchctl.run_episode
+
+        def fake_remote_manager(args):
+            return object()
+
+        def fake_run_episode(**kwargs):
+            self.assertEqual(kwargs["unscored_reason"], "conformance skipped")
+            return {"status": "error", "summary": {"scored": False, "unscored_reason": kwargs["unscored_reason"]}}
+
+        benchctl.remote_manager = fake_remote_manager
+        benchctl.run_episode = fake_run_episode
+        stdout = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout):
+                code = benchctl.main(["episode", "run", "--config", "unit.config", "--skip-conformance", "--json"])
+        finally:
+            benchctl.remote_manager = original_remote_manager
+            benchctl.run_episode = original_run_episode
+
+        self.assertEqual(code, 1)
+        output = json.loads(stdout.getvalue())
+        self.assertFalse(output["summary"]["scored"])
+        self.assertEqual(output["summary"]["unscored_reason"], "conformance skipped")
+
+    def test_episode_cleanup_wraps_runtime_cleanup(self) -> None:
+        original_remote_manager = benchctl.remote_manager
+        original_cleanup_episode = benchctl.cleanup_episode
+
+        def fake_remote_manager(args):
+            return object()
+
+        def fake_cleanup_episode(**kwargs):
+            self.assertEqual(kwargs["run_id"], "unit-ep")
+            return {"status": "ok", "run_id": kwargs["run_id"]}
+
+        benchctl.remote_manager = fake_remote_manager
+        benchctl.cleanup_episode = fake_cleanup_episode
+        stdout = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout):
+                code = benchctl.main(["episode", "cleanup", "--config", "unit.config", "--run-id", "unit-ep", "--json"])
+        finally:
+            benchctl.remote_manager = original_remote_manager
+            benchctl.cleanup_episode = original_cleanup_episode
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(stdout.getvalue())["run_id"], "unit-ep")
+
 
 if __name__ == "__main__":
     unittest.main()

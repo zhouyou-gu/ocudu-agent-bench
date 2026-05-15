@@ -22,7 +22,27 @@ from benchmark.benchmark_api.conformance import (
     parse_checks,
     run_conformance,
 )
+from benchmark.benchmark_api.episode import (
+    DEFAULT_ATTACH_TIMEOUT as DEFAULT_EPISODE_ATTACH_TIMEOUT,
+    DEFAULT_EPISODE_DURATION,
+    DEFAULT_LAUNCH_TIMEOUT as DEFAULT_EPISODE_LAUNCH_TIMEOUT,
+    DEFAULT_PROBE_TIMEOUT as DEFAULT_EPISODE_PROBE_TIMEOUT,
+    DEFAULT_WS_PORT as DEFAULT_EPISODE_WS_PORT,
+    TASK_WS_PRB_PING_V1,
+    cleanup_episode,
+    episode_exit_code,
+    run_episode,
+)
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
+
+
+V3_EPISODE_GATE_CHECKS = {
+    "docker_e2e_assets",
+    "open5gs_core_health",
+    "srsue_zmq_attach",
+    "ping_traffic_path",
+    "websocket_prb_policy_action",
+}
 
 
 def emit(data: dict[str, Any], as_json: bool) -> None:
@@ -113,6 +133,60 @@ def cmd_conformance_run(args: argparse.Namespace) -> int:
     return conformance_exit_code(result)
 
 
+def cmd_episode_run(args: argparse.Namespace) -> int:
+    manager = remote_manager(args)
+    conformance: dict[str, Any] | None = None
+    if not args.skip_conformance:
+        conformance = run_conformance(
+            remote=manager,
+            repo_root=ROOT,
+            specs_path=ROOT / "benchmark" / "conformance" / "tests.json",
+            run_id=f"{args.run_id}-gate" if args.run_id else None,
+            checks=V3_EPISODE_GATE_CHECKS,
+            ws_port=args.ws_port,
+            launch_timeout=args.launch_timeout,
+            probe_timeout=args.probe_timeout,
+        )
+        if conformance.get("status") != "pass":
+            result = {
+                "status": "error",
+                "stage": "v3_episode",
+                "task": args.task,
+                "run_id": args.run_id,
+                "scored": False,
+                "unscored_reason": "required conformance failed",
+                "conformance": conformance,
+            }
+            emit(result, args.json)
+            return 1
+
+    result = run_episode(
+        remote=manager,
+        run_id=args.run_id,
+        task=args.task,
+        duration=args.duration,
+        ws_port=args.ws_port,
+        launch_timeout=args.launch_timeout,
+        attach_timeout=args.attach_timeout,
+        probe_timeout=args.probe_timeout,
+        unscored_reason="conformance skipped" if args.skip_conformance else None,
+    )
+    result["conformance"] = conformance or {
+        "status": "skip",
+        "scored": False,
+        "reason": "--skip-conformance was used; episode result is for debugging only",
+    }
+    emit(result, args.json)
+    return episode_exit_code(result)
+
+
+def cmd_episode_cleanup(args: argparse.Namespace) -> int:
+    manager = remote_manager(args)
+    result = cleanup_episode(remote=manager, run_id=args.run_id)
+    emit(result, args.json)
+    return 0 if result.get("status") == "ok" else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Skillful RAN benchmark control CLI")
     subparsers = parser.add_subparsers(dest="command_group", required=True)
@@ -170,6 +244,47 @@ def build_parser() -> argparse.ArgumentParser:
         "--probe-timeout", type=int, default=DEFAULT_PROBE_TIMEOUT, help="Seconds to wait for WebSocket probes"
     )
     run_cmd.set_defaults(func=cmd_conformance_run)
+
+    episode = subparsers.add_parser("episode", help="Scored episode helpers")
+    episode_sub = episode.add_subparsers(dest="episode_command", required=True)
+
+    episode_run = episode_sub.add_parser("run", help="Run a benchmark episode")
+    episode_run.add_argument("--config", default=".config", help="Path to local remote config")
+    episode_run.add_argument("--task", default=TASK_WS_PRB_PING_V1, help="Benchmark task id")
+    episode_run.add_argument("--duration", type=int, default=DEFAULT_EPISODE_DURATION, help="Episode duration in seconds")
+    episode_run.add_argument("--json", action="store_true", help="Emit JSON output")
+    episode_run.add_argument("--run-id", default=None, help="Episode run id")
+    episode_run.add_argument("--ws-port", type=int, default=DEFAULT_EPISODE_WS_PORT, help="Remote-control WebSocket port")
+    episode_run.add_argument(
+        "--launch-timeout",
+        type=int,
+        default=DEFAULT_EPISODE_LAUNCH_TIMEOUT,
+        help="Seconds to wait for Open5GS/gNB readiness",
+    )
+    episode_run.add_argument(
+        "--attach-timeout",
+        type=int,
+        default=DEFAULT_EPISODE_ATTACH_TIMEOUT,
+        help="Seconds to wait for srsUE attach evidence",
+    )
+    episode_run.add_argument(
+        "--probe-timeout",
+        type=int,
+        default=DEFAULT_EPISODE_PROBE_TIMEOUT,
+        help="Seconds to wait for WebSocket probes",
+    )
+    episode_run.add_argument(
+        "--skip-conformance",
+        action="store_true",
+        help="Run without the required v3 conformance gate and mark the run unscored",
+    )
+    episode_run.set_defaults(func=cmd_episode_run)
+
+    episode_cleanup = episode_sub.add_parser("cleanup", help="Cleanup a remote episode by run id")
+    episode_cleanup.add_argument("--config", default=".config", help="Path to local remote config")
+    episode_cleanup.add_argument("--run-id", required=True, help="Episode run id")
+    episode_cleanup.add_argument("--json", action="store_true", help="Emit JSON output")
+    episode_cleanup.set_defaults(func=cmd_episode_cleanup)
 
     return parser
 

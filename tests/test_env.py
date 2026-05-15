@@ -139,6 +139,172 @@ remote:
         self.assertEqual(reset["reason"], "required conformance failed")
         self.assertEqual(reset["conformance"]["status"], "fail")
 
+    def test_v3_episode_lifecycle_uses_runtime_adapter(self) -> None:
+        original_run_conformance = env_module.run_conformance
+        original_episode_runtime = env_module.EpisodeRuntime
+
+        class FakeEpisodeRuntime:
+            def __init__(self, remote, repo_root=None) -> None:
+                self.remote = remote
+                self.repo_root = repo_root
+                self.started = None
+                self.actions = []
+
+            def start(self, options):
+                self.started = options
+                return {"status": "ok", "stage": "v3_episode", "run_id": options.run_id}
+
+            def observe(self):
+                return {
+                    "status": "ok",
+                    "stage": "v3_episode",
+                    "run_id": self.started.run_id,
+                    "state": "running",
+                    "observation": {"type": "ws_prb_ping_v1", "ping": {"packets_received": 1}},
+                }
+
+            def act(self, action):
+                self.actions.append(action)
+                return {"status": "ok", "stage": "v3_episode", "accepted": True, "reason": "accepted"}
+
+            def cleanup(self, run_id):
+                return {"status": "ok", "run_id": run_id}
+
+            def finalize(self, unscored_reason=None, cleanup_success=True):
+                return {"status": "ok", "stage": "v3_episode", "scored": cleanup_success, "unscored_reason": unscored_reason}
+
+        def fake_run_conformance(**kwargs):
+            self.assertEqual(kwargs["checks"], env_module.V3_EPISODE_GATE_CHECKS)
+            return {
+                "status": "pass",
+                "backend_enablement": {
+                    "ssh": True,
+                    "websocket": True,
+                    "json_metrics": True,
+                    "docker_e2e": True,
+                },
+                "checks": [],
+            }
+
+        env_module.run_conformance = fake_run_conformance
+        env_module.EpisodeRuntime = FakeEpisodeRuntime
+        try:
+            env = BenchmarkEnv(self.config_path, remote_manager_factory=FakeRemoteManager)
+            reset = env.reset(
+                {
+                    "run_id": "v3-unit",
+                    "task": "ws_prb_ping_v1",
+                    "conformance": "required",
+                    "duration": 1,
+                }
+            )
+            observation = env.observe()
+            action = env.act(
+                {
+                    "type": "SET_PRB_POLICY_RATIO_WS",
+                    "min_prb_policy_ratio": 10,
+                    "max_prb_policy_ratio": 90,
+                }
+            )
+            close = env.close()
+        finally:
+            env_module.run_conformance = original_run_conformance
+            env_module.EpisodeRuntime = original_episode_runtime
+
+        self.assertEqual(reset["stage"], "v3_episode")
+        self.assertEqual(reset["state"], "running")
+        self.assertEqual(observation["stage"], "v3_episode")
+        self.assertTrue(action["accepted"])
+        self.assertEqual(close["stage"], "v3_episode")
+        self.assertTrue(close["summary"]["scored"])
+
+    def test_v3_observe_conformance_failure_marks_close_unscored(self) -> None:
+        original_run_conformance = env_module.run_conformance
+        original_episode_runtime = env_module.EpisodeRuntime
+
+        class FakeEpisodeRuntime:
+            def __init__(self, remote, repo_root=None) -> None:
+                self.started = None
+                self.finalize_args = None
+
+            def start(self, options):
+                self.started = options
+                return {"status": "ok", "stage": "v3_episode"}
+
+            def observe(self):
+                return {"status": "ok", "stage": "v3_episode", "observation": {"type": "ws_prb_ping_v1"}}
+
+            def cleanup(self, run_id):
+                return {"status": "ok", "run_id": run_id}
+
+            def finalize(self, unscored_reason=None, cleanup_success=True):
+                self.finalize_args = (unscored_reason, cleanup_success)
+                return {"status": "ok", "scored": unscored_reason is None, "unscored_reason": unscored_reason}
+
+        def fake_run_conformance(**kwargs):
+            return {
+                "status": "fail",
+                "backend_enablement": {"ssh": True, "docker_e2e": False},
+                "checks": [],
+            }
+
+        env_module.run_conformance = fake_run_conformance
+        env_module.EpisodeRuntime = FakeEpisodeRuntime
+        try:
+            env = BenchmarkEnv(self.config_path, remote_manager_factory=FakeRemoteManager)
+            reset = env.reset({"run_id": "v3-observe", "task": "ws_prb_ping_v1", "conformance": "observe"})
+            close = env.close()
+        finally:
+            env_module.run_conformance = original_run_conformance
+            env_module.EpisodeRuntime = original_episode_runtime
+
+        self.assertEqual(reset["status"], "ok")
+        self.assertFalse(reset["scored"])
+        self.assertEqual(reset["unscored_reason"], "conformance observe failed")
+        self.assertFalse(close["summary"]["scored"])
+        self.assertEqual(close["summary"]["unscored_reason"], "conformance observe failed")
+
+    def test_v3_reset_cleans_up_when_initial_observe_fails(self) -> None:
+        original_run_conformance = env_module.run_conformance
+        original_episode_runtime = env_module.EpisodeRuntime
+
+        class FakeEpisodeRuntime:
+            cleaned = False
+            finalized = None
+
+            def __init__(self, remote, repo_root=None) -> None:
+                pass
+
+            def start(self, options):
+                return {"status": "ok", "stage": "v3_episode"}
+
+            def observe(self):
+                raise RuntimeError("initial observe failed")
+
+            def cleanup(self, run_id):
+                type(self).cleaned = True
+                return {"status": "ok", "run_id": run_id}
+
+            def finalize(self, unscored_reason=None, cleanup_success=True):
+                type(self).finalized = (unscored_reason, cleanup_success)
+                return {"status": "ok", "scored": False, "unscored_reason": unscored_reason}
+
+        def fake_run_conformance(**kwargs):
+            return {"status": "pass", "backend_enablement": {"ssh": True}, "checks": []}
+
+        env_module.run_conformance = fake_run_conformance
+        env_module.EpisodeRuntime = FakeEpisodeRuntime
+        try:
+            env = BenchmarkEnv(self.config_path, remote_manager_factory=FakeRemoteManager)
+            reset = env.reset({"run_id": "v3-observe-fail", "task": "ws_prb_ping_v1", "conformance": "required"})
+        finally:
+            env_module.run_conformance = original_run_conformance
+            env_module.EpisodeRuntime = original_episode_runtime
+
+        self.assertEqual(reset["status"], "error")
+        self.assertTrue(FakeEpisodeRuntime.cleaned)
+        self.assertEqual(FakeEpisodeRuntime.finalized, ("initial observe failed", True))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "V1 placeholder action schema for the Skillful RAN benchmark skeleton.",
+  "description": "Benchmark action catalog for local validation before dispatch to OCUDU runtime interfaces.",
   "actions": [
     {
       "type": "STUB_NOOP",
@@ -10,7 +10,24 @@
     {
       "type": "SET_PRB_POLICY_RATIO_WS",
       "stage": "v3",
-      "description": "Future WebSocket PRB policy action. Min/max ratios are scored; dedicated ratio is validity-only."
+      "task": "ws_prb_ping_v1",
+      "description": "WebSocket PRB policy action. Min/max ratios are scored; dedicated ratio is validity-only.",
+      "required_fields": [
+        "min_prb_policy_ratio",
+        "max_prb_policy_ratio"
+      ],
+      "defaults": {
+        "plmn": "00101",
+        "sst": 1,
+        "sd": null,
+        "dedicated_ratio": null
+      },
+      "constraints": {
+        "min_prb_policy_ratio": "integer in [0, 100]",
+        "max_prb_policy_ratio": "integer in [0, 100]",
+        "ordering": "min_prb_policy_ratio <= max_prb_policy_ratio"
+      },
+      "wire_command": "rrm_policy_ratio_set"
     },
     {
       "type": "SET_PRB_POLICY_RATIO_CCC",
@@ -24,4 +41,3 @@
     }
   ]
 }
-

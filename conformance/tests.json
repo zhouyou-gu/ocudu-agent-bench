@@ -72,6 +72,56 @@
       "launch_required": true
     },
     {
+      "id": "docker_e2e_assets",
+      "name": "Docker e2e runtime assets",
+      "backend": "docker_e2e",
+      "stage": "v3",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": false
+    },
+    {
+      "id": "open5gs_core_health",
+      "name": "Open5GS Docker core health",
+      "backend": "docker_e2e",
+      "stage": "v3",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": true
+    },
+    {
+      "id": "srsue_zmq_attach",
+      "name": "srsUE ZMQ attach",
+      "backend": "zmq",
+      "stage": "v3",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": true
+    },
+    {
+      "id": "ping_traffic_path",
+      "name": "UE ping traffic path",
+      "backend": "traffic",
+      "stage": "v3",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": true
+    },
+    {
+      "id": "websocket_prb_policy_action",
+      "name": "WebSocket PRB policy action",
+      "backend": "websocket",
+      "stage": "v3",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": true
+    },
+    {
       "id": "e2_kpm",
       "name": "E2 setup and KPM indication path",
       "backend": "e2_kpm",

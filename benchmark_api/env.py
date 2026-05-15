@@ -8,7 +8,26 @@ from typing import Any
 
 from benchmark.benchmark_api.conformance import parse_checks, run_conformance
 from benchmark.benchmark_api.config import RemoteConfig, parse_config
+from benchmark.benchmark_api.episode import (
+    DEFAULT_ATTACH_TIMEOUT,
+    DEFAULT_EPISODE_DURATION,
+    DEFAULT_LAUNCH_TIMEOUT,
+    DEFAULT_PROBE_TIMEOUT,
+    DEFAULT_WS_PORT,
+    TASK_WS_PRB_PING_V1,
+    EpisodeOptions,
+    EpisodeRuntime,
+)
 from benchmark.benchmark_api.remote import RemoteManager
+
+
+V3_EPISODE_GATE_CHECKS = {
+    "docker_e2e_assets",
+    "open5gs_core_health",
+    "srsue_zmq_attach",
+    "ping_traffic_path",
+    "websocket_prb_policy_action",
+}
 
 
 class BenchmarkEnv:
@@ -25,17 +44,25 @@ class BenchmarkEnv:
         self.started_at: float | None = None
         self.closed_at: float | None = None
         self.adapters: dict[str, str] = {}
+        self.task: str | None = None
+        self.episode_runtime: EpisodeRuntime | None = None
+        self.last_observation: dict[str, Any] | None = None
+        self.unscored_reason: str | None = None
 
     def reset(self, config: dict[str, Any] | None = None) -> dict[str, Any]:
         config = config or {}
         if not isinstance(config, dict):
             raise ValueError("reset config must be a dictionary")
         self.remote_config = parse_config(self.config_path)
-        self.run_id = str(config.get("run_id") or f"v1-{int(time.time())}")
+        self.task = str(config.get("task", "v1_stub"))
+        self.run_id = str(config.get("run_id") or (f"ep-{int(time.time())}" if self.task == TASK_WS_PRB_PING_V1 else f"v1-{int(time.time())}"))
         self.remote = self.remote_manager_factory(self.remote_config)
         self.actions = []
         self.started_at = time.time()
         self.closed_at = None
+        self.episode_runtime = None
+        self.last_observation = None
+        self.unscored_reason = None
         self.adapters = {
             "ssh": "ready",
             "websocket": "stub",
@@ -115,7 +142,9 @@ class BenchmarkEnv:
             raise ValueError("conformance must be one of: skip, observe, required")
         if conformance_mode in {"observe", "required"}:
             check_value = config.get("conformance_checks")
-            if isinstance(check_value, str) or check_value is None:
+            if self.task == TASK_WS_PRB_PING_V1 and check_value is None:
+                checks = set(V3_EPISODE_GATE_CHECKS)
+            elif isinstance(check_value, str) or check_value is None:
                 checks = parse_checks(check_value)
             elif isinstance(check_value, list):
                 checks = {str(item) for item in check_value}
@@ -134,6 +163,8 @@ class BenchmarkEnv:
             backend_enablement = conformance_result.get("backend_enablement", {})
             for backend, enabled in backend_enablement.items():
                 self.adapters[backend] = "ready" if enabled else "disabled"
+            if conformance_mode == "observe" and conformance_result.get("status") != "pass":
+                self.unscored_reason = "conformance observe failed"
             if conformance_mode == "required" and conformance_result.get("status") != "pass":
                 self.state = "error"
                 return {
@@ -147,6 +178,92 @@ class BenchmarkEnv:
                     "run_metadata": run_metadata,
                     "conformance": conformance_result,
                 }
+
+        if self.task == TASK_WS_PRB_PING_V1:
+            if conformance_mode == "skip":
+                self.state = "error"
+                return {
+                    "status": "error",
+                    "stage": "v3_episode",
+                    "run_id": self.run_id,
+                    "state": self.state,
+                    "reason": "ws_prb_ping_v1 reset requires conformance='required' or conformance='observe'",
+                    "remote_check": remote_check,
+                    "workspace_init": workspace_init,
+                    "run_metadata": run_metadata,
+                    "conformance": conformance_result,
+                }
+            self.episode_runtime = EpisodeRuntime(self.remote, repo_root=Path(__file__).resolve().parents[2])
+            options = EpisodeOptions(
+                run_id=self.run_id,
+                task=self.task,
+                duration=int(config.get("duration", DEFAULT_EPISODE_DURATION)),
+                ws_port=int(config.get("ws_port", DEFAULT_WS_PORT)),
+                launch_timeout=int(config.get("launch_timeout", DEFAULT_LAUNCH_TIMEOUT)),
+                attach_timeout=int(config.get("attach_timeout", DEFAULT_ATTACH_TIMEOUT)),
+                probe_timeout=int(config.get("probe_timeout", DEFAULT_PROBE_TIMEOUT)),
+            )
+            try:
+                start = self.episode_runtime.start(options)
+                if start.get("status") != "ok":
+                    self.state = "error"
+                    cleanup = self._cleanup_episode_runtime()
+                    summary = self._finalize_episode_runtime(
+                        reason=start.get("summary", "episode start failed"),
+                        cleanup_success=cleanup.get("status") == "ok",
+                    )
+                    return {
+                        "status": "error",
+                        "stage": "v3_episode",
+                        "run_id": self.run_id,
+                        "state": self.state,
+                        "reason": start.get("summary", "episode start failed"),
+                        "remote_check": remote_check,
+                        "workspace_init": workspace_init,
+                        "run_metadata": run_metadata,
+                        "conformance": conformance_result,
+                        "start": start,
+                        "cleanup": cleanup,
+                        "summary": summary,
+                    }
+                self.state = "running"
+                self.last_observation = self.episode_runtime.observe()
+            except Exception as exc:
+                self.state = "error"
+                cleanup = self._cleanup_episode_runtime()
+                summary = self._finalize_episode_runtime(
+                    reason=str(exc),
+                    cleanup_success=cleanup.get("status") == "ok",
+                )
+                return {
+                    "status": "error",
+                    "stage": "v3_episode",
+                    "run_id": self.run_id,
+                    "state": self.state,
+                    "reason": str(exc),
+                    "remote_check": remote_check,
+                    "workspace_init": workspace_init,
+                    "run_metadata": run_metadata,
+                    "conformance": conformance_result,
+                    "cleanup": cleanup,
+                    "summary": summary,
+                }
+            return {
+                "status": "ok",
+                "stage": "v3_episode",
+                "task": self.task,
+                "run_id": self.run_id,
+                "state": self.state,
+                "scored": self.unscored_reason is None,
+                "unscored_reason": self.unscored_reason,
+                "remote_check": remote_check,
+                "workspace_init": workspace_init,
+                "run_metadata": run_metadata,
+                "conformance": conformance_result,
+                "start": start,
+                "observation": self.last_observation.get("observation"),
+                "adapters": self.adapters,
+            }
 
         self.state = "ready"
         return {
@@ -176,6 +293,17 @@ class BenchmarkEnv:
                 "state": self.state,
                 "reason": "reset required before observe",
             }
+        if self.state == "closed":
+            return {
+                "status": "error",
+                "stage": "v3_episode" if self.task == TASK_WS_PRB_PING_V1 else "v1_stub",
+                "run_id": self.run_id,
+                "state": self.state,
+                "reason": "episode is closed",
+            }
+        if self.task == TASK_WS_PRB_PING_V1 and self.episode_runtime is not None:
+            self.last_observation = self.episode_runtime.observe()
+            return self.last_observation
         return {
             "status": "ok",
             "stage": "v1_stub",
@@ -196,6 +324,14 @@ class BenchmarkEnv:
                 "accepted": False,
                 "reason": "reset required before act",
             }
+        if self.state == "closed":
+            return {
+                "status": "rejected",
+                "stage": "v3_episode" if self.task == TASK_WS_PRB_PING_V1 else "v1_stub",
+                "run_id": self.run_id,
+                "accepted": False,
+                "reason": "episode is closed",
+            }
         if not isinstance(action, dict):
             return {
                 "status": "rejected",
@@ -204,6 +340,17 @@ class BenchmarkEnv:
                 "accepted": False,
                 "reason": "action must be a dictionary",
             }
+        if self.task == TASK_WS_PRB_PING_V1 and self.episode_runtime is not None:
+            result = self.episode_runtime.act(action)
+            self.actions.append(
+                {
+                    "action": action,
+                    "accepted": bool(result.get("accepted")),
+                    "reason": result.get("reason", ""),
+                    "timestamp": time.time(),
+                }
+            )
+            return result
         accepted = action.get("type") == "STUB_NOOP" and action.get("stub") is True
         record = {
             "action": action,
@@ -222,6 +369,21 @@ class BenchmarkEnv:
 
     def close(self) -> dict[str, Any]:
         self.closed_at = time.time()
+        if self.task == TASK_WS_PRB_PING_V1 and self.episode_runtime is not None and self.run_id is not None:
+            cleanup = self._cleanup_episode_runtime()
+            summary = self._finalize_episode_runtime(
+                reason=self.unscored_reason,
+                cleanup_success=cleanup.get("status") == "ok",
+            )
+            self.state = "closed"
+            return {
+                "status": "ok" if cleanup.get("status") == "ok" else "error",
+                "stage": "v3_episode",
+                "run_id": self.run_id,
+                "state": self.state,
+                "cleanup": cleanup,
+                "summary": summary,
+            }
         self.state = "closed"
         return {
             "status": "ok",
@@ -232,3 +394,32 @@ class BenchmarkEnv:
             "actions": len(self.actions),
             "accepted_actions": sum(1 for action in self.actions if action["accepted"]),
         }
+
+    def _cleanup_episode_runtime(self) -> dict[str, Any]:
+        if self.episode_runtime is None or self.run_id is None:
+            return {"status": "ok", "run_id": self.run_id, "commands": []}
+        try:
+            return self.episode_runtime.cleanup(self.run_id)
+        except Exception as exc:
+            return {"status": "error", "run_id": self.run_id, "errors": [str(exc)], "commands": []}
+
+    def _finalize_episode_runtime(self, reason: str | None, cleanup_success: bool) -> dict[str, Any]:
+        if self.episode_runtime is None:
+            return {
+                "status": "error",
+                "stage": "v3_episode",
+                "run_id": self.run_id,
+                "scored": False,
+                "unscored_reason": reason or "episode runtime unavailable",
+            }
+        try:
+            return self.episode_runtime.finalize(unscored_reason=reason, cleanup_success=cleanup_success)
+        except Exception as exc:
+            return {
+                "status": "error",
+                "stage": "v3_episode",
+                "run_id": self.run_id,
+                "scored": False,
+                "unscored_reason": reason or str(exc),
+                "finalize_error": str(exc),
+            }

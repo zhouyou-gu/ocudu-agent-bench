@@ -9,6 +9,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from benchmark.benchmark_api.episode import (
+    DEFAULT_ATTACH_TIMEOUT as DEFAULT_EPISODE_ATTACH_TIMEOUT,
+    DEFAULT_LAUNCH_TIMEOUT as DEFAULT_EPISODE_LAUNCH_TIMEOUT,
+    DEFAULT_PROBE_TIMEOUT as DEFAULT_EPISODE_PROBE_TIMEOUT,
+    DEFAULT_WS_PORT as DEFAULT_EPISODE_WS_PORT,
+    TASK_WS_PRB_PING_V1,
+    EpisodeOptions,
+    EpisodeRuntime,
+)
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
 from benchmark.benchmark_api.websocket_client import WebSocketClient, WebSocketFrame, WebSocketProtocolError
 
@@ -37,6 +46,18 @@ CHECK_DEPENDENCIES = {
     "websocket_command_path": SETUP_CHECKS | {"ocudu_launch"},
     "json_metrics_stream": SETUP_CHECKS | {"ocudu_launch", "websocket_command_path"},
     "artifact_paths": SETUP_CHECKS | {"ocudu_launch"},
+    "docker_e2e_assets": {"remote_tools_ocudu_root", "remote_workspace_artifacts"},
+    "open5gs_core_health": {"docker_e2e_assets"},
+    "srsue_zmq_attach": {"open5gs_core_health"},
+    "ping_traffic_path": {"srsue_zmq_attach"},
+    "websocket_prb_policy_action": {"srsue_zmq_attach"},
+}
+V3_DOCKER_CHECKS = {
+    "docker_e2e_assets",
+    "open5gs_core_health",
+    "srsue_zmq_attach",
+    "ping_traffic_path",
+    "websocket_prb_policy_action",
 }
 
 
@@ -153,12 +174,16 @@ def compute_backend_enablement(results: list[ConformanceCheckResult]) -> dict[st
     return {
         "ssh": by_id.get("remote_tools_ocudu_root") == RESULT_PASS
         and by_id.get("remote_workspace_artifacts") == RESULT_PASS,
-        "websocket": by_id.get("websocket_command_path") == RESULT_PASS,
+        "websocket": by_id.get("websocket_command_path") == RESULT_PASS
+        or by_id.get("websocket_prb_policy_action") == RESULT_PASS,
         "json_metrics": by_id.get("json_metrics_stream") == RESULT_PASS,
         "e2_kpm": by_id.get("e2_kpm") == RESULT_PASS,
         "e2_control": by_id.get("e2_rc_ccc") == RESULT_PASS,
-        "zmq": by_id.get("zmq_rf_path") == RESULT_PASS,
+        "zmq": by_id.get("zmq_rf_path") == RESULT_PASS or by_id.get("srsue_zmq_attach") == RESULT_PASS,
         "pcap_log": by_id.get("pcap_log_oracle") == RESULT_PASS,
+        "docker_e2e": by_id.get("docker_e2e_assets") == RESULT_PASS,
+        "ue_traffic": by_id.get("ping_traffic_path") == RESULT_PASS,
+        "v3_websocket_prb": by_id.get("websocket_prb_policy_action") == RESULT_PASS,
     }
 
 
@@ -224,6 +249,9 @@ class ConformanceRunner:
                         results.append(self._blocked_result("websocket_command_path", "OCUDU launch did not pass"))
                     if "json_metrics_stream" in run_ids:
                         results.append(self._blocked_result("json_metrics_stream", "OCUDU launch did not pass"))
+
+            if run_ids & V3_DOCKER_CHECKS:
+                results.extend(self._run_v3_docker_checks(options, run_ids, results))
         except Exception as exc:  # Keep the CLI returning structured JSON.
             results.append(self._error_result("conformance_runner", str(exc)))
         finally:
@@ -625,6 +653,134 @@ print(json.dumps({{
             summary = "Conformance setup artifacts are present; launch artifacts were blocked"
         return self._result("artifact_paths", status, summary, data)
 
+    def _run_v3_docker_checks(
+        self,
+        options: ConformanceOptions,
+        run_ids: set[str],
+        existing: list[ConformanceCheckResult],
+    ) -> list[ConformanceCheckResult]:
+        results: list[ConformanceCheckResult] = []
+        runtime = EpisodeRuntime(self.remote, repo_root=self.repo_root)
+
+        if "docker_e2e_assets" in run_ids:
+            if self._all_results_passed(existing, {"remote_tools_ocudu_root", "remote_workspace_artifacts"}):
+                assets = runtime.check_docker_assets()
+                status = RESULT_PASS if assets.get("status") == RESULT_PASS else RESULT_FAIL
+                results.append(
+                    self._result("docker_e2e_assets", status, assets.get("summary", "Docker e2e asset check failed"), assets)
+                )
+            else:
+                results.append(self._blocked_result("docker_e2e_assets", "Remote tools/workspace checks did not pass"))
+
+        need_episode = bool(run_ids & {"open5gs_core_health", "srsue_zmq_attach", "ping_traffic_path", "websocket_prb_policy_action"})
+        if not need_episode:
+            return results
+
+        combined = existing + results
+        if not self._result_passed(combined, "docker_e2e_assets"):
+            for check_id in ["open5gs_core_health", "srsue_zmq_attach", "ping_traffic_path", "websocket_prb_policy_action"]:
+                if check_id in run_ids:
+                    results.append(self._blocked_result(check_id, "Docker e2e assets check did not pass"))
+            return results
+
+        episode_options = EpisodeOptions(
+            run_id=f"{options.run_id}-v3",
+            task=TASK_WS_PRB_PING_V1,
+            duration=0,
+            ws_port=options.ws_port or DEFAULT_EPISODE_WS_PORT,
+            launch_timeout=max(options.launch_timeout, DEFAULT_EPISODE_LAUNCH_TIMEOUT),
+            attach_timeout=DEFAULT_EPISODE_ATTACH_TIMEOUT,
+            probe_timeout=max(options.probe_timeout, DEFAULT_EPISODE_PROBE_TIMEOUT),
+        )
+        cleanup_success = False
+        start: dict[str, Any] | None = None
+        try:
+            start = runtime.start(episode_options)
+            if start.get("status") == "ok":
+                if "open5gs_core_health" in run_ids:
+                    results.append(self._result("open5gs_core_health", RESULT_PASS, "Open5GS core became healthy", start))
+                if "srsue_zmq_attach" in run_ids:
+                    results.append(self._result("srsue_zmq_attach", RESULT_PASS, "srsUE attached and started UE traffic", start))
+                time.sleep(2.0)
+                observation = runtime.observe()
+                ping = observation.get("observation", {}).get("ping", {})
+                if "ping_traffic_path" in run_ids:
+                    status = RESULT_PASS if ping.get("packets_received", 0) > 0 else RESULT_FAIL
+                    summary = "UE ping traffic received replies" if status == RESULT_PASS else "UE ping traffic did not receive replies"
+                    results.append(self._result("ping_traffic_path", status, summary, {"observation": observation}))
+                if "websocket_prb_policy_action" in run_ids:
+                    invalid = runtime.act(
+                        {"type": "SET_PRB_POLICY_RATIO_WS", "min_prb_policy_ratio": 90, "max_prb_policy_ratio": 10}
+                    )
+                    valid = runtime.act(
+                        {
+                            "type": "SET_PRB_POLICY_RATIO_WS",
+                            "plmn": "00101",
+                            "sst": 1,
+                            "sd": 0xFFFFFF,
+                            "min_prb_policy_ratio": 10,
+                            "max_prb_policy_ratio": 90,
+                            "dedicated_ratio": 0,
+                        }
+                    )
+                    ok = invalid.get("status") == "rejected" and valid.get("accepted") is True
+                    results.append(
+                        self._result(
+                            "websocket_prb_policy_action",
+                            RESULT_PASS if ok else RESULT_FAIL,
+                            "PRB policy action rejects invalid input locally and accepts valid WebSocket command"
+                            if ok
+                            else "PRB policy action validation or WebSocket dispatch failed",
+                            {"invalid": invalid, "valid": valid},
+                        )
+                    )
+            else:
+                stage = str(start.get("stage", "v3_episode"))
+                self._append_v3_start_failure(results, run_ids, stage, start)
+        finally:
+            try:
+                cleanup = runtime.cleanup(episode_options.run_id)
+                cleanup_success = cleanup.get("status") == "ok"
+            except Exception:
+                cleanup_success = False
+            try:
+                if runtime.options is not None:
+                    runtime.finalize(
+                        unscored_reason=None if start and start.get("status") == "ok" else "v3 conformance setup failed",
+                        cleanup_success=cleanup_success,
+                    )
+            except Exception:
+                pass
+        return results
+
+    def _append_v3_start_failure(
+        self,
+        results: list[ConformanceCheckResult],
+        run_ids: set[str],
+        stage: str,
+        start: dict[str, Any],
+    ) -> None:
+        if "open5gs_core_health" in run_ids:
+            status = RESULT_FAIL if stage == "open5gs_core_health" else RESULT_PASS
+            summary = start.get("summary", "Open5GS startup failed") if status == RESULT_FAIL else "Open5GS core started"
+            results.append(self._result("open5gs_core_health", status, summary, start))
+        if "srsue_zmq_attach" in run_ids:
+            if stage in {"open5gs_core_health", "ocudu_launch"}:
+                results.append(self._blocked_result("srsue_zmq_attach", "gNB/Open5GS startup did not pass"))
+            elif stage == "srsue_zmq_attach":
+                results.append(self._result("srsue_zmq_attach", RESULT_FAIL, start.get("summary", "srsUE attach failed"), start))
+            else:
+                results.append(self._result("srsue_zmq_attach", RESULT_PASS, "srsUE attached before later startup failure", start))
+        if "ping_traffic_path" in run_ids and stage == "ping_traffic_path":
+            results.append(self._result("ping_traffic_path", RESULT_FAIL, start.get("summary", "ping traffic failed"), start))
+        for check_id, reason in [
+            ("websocket_prb_policy_action", "srsUE/gNB startup did not pass"),
+        ]:
+            if check_id in run_ids:
+                results.append(self._blocked_result(check_id, reason))
+        if "ping_traffic_path" in run_ids and stage != "ping_traffic_path":
+            results.append(self._blocked_result("ping_traffic_path", "srsUE attach did not pass"))
+
     def _terminate_gnb(self, options: ConformanceOptions) -> None:
         payload = {
             "port": options.ws_port,
@@ -702,9 +858,12 @@ print(json.dumps({{"written": payload["path"]}}))
         ordered = self._order_results(results)
         status = compute_overall_status(ordered)
         remote_state = (self.remote_check or {}).get("remote", {})
+        stage = "v3_conformance" if any(
+            self.spec_by_id.get(result.id) and self.spec_by_id[result.id].stage == "v3" for result in ordered
+        ) else "v2_conformance"
         return {
             "status": status,
-            "stage": "v2_conformance",
+            "stage": stage,
             "run_id": options.run_id,
             "remote": {
                 "ssh": self.remote.config.ssh_target,
