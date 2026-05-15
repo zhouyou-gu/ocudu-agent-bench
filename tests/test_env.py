@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import benchmark.benchmark_api.env as env_module
 from benchmark.benchmark_api import BenchmarkEnv
 
 
@@ -94,6 +95,49 @@ remote:
         malformed = env.act("not a dict")
         self.assertEqual(malformed["status"], "rejected")
         self.assertEqual(malformed["reason"], "action must be a dictionary")
+
+    def test_conformance_observe_mode_attaches_results_without_failing_reset(self) -> None:
+        original = env_module.run_conformance
+
+        def fake_run_conformance(**kwargs):
+            return {
+                "status": "fail",
+                "backend_enablement": {"ssh": True, "websocket": False, "json_metrics": False},
+                "checks": [],
+            }
+
+        env_module.run_conformance = fake_run_conformance
+        try:
+            env = BenchmarkEnv(self.config_path, remote_manager_factory=FakeRemoteManager)
+            reset = env.reset({"run_id": "test-run", "conformance": "observe"})
+        finally:
+            env_module.run_conformance = original
+
+        self.assertEqual(reset["status"], "ok")
+        self.assertEqual(reset["conformance"]["status"], "fail")
+        self.assertEqual(reset["adapters"]["ssh"], "ready")
+        self.assertEqual(reset["adapters"]["websocket"], "disabled")
+
+    def test_conformance_required_mode_fails_reset_on_conformance_failure(self) -> None:
+        original = env_module.run_conformance
+
+        def fake_run_conformance(**kwargs):
+            return {
+                "status": "fail",
+                "backend_enablement": {"ssh": True, "websocket": False, "json_metrics": False},
+                "checks": [],
+            }
+
+        env_module.run_conformance = fake_run_conformance
+        try:
+            env = BenchmarkEnv(self.config_path, remote_manager_factory=FakeRemoteManager)
+            reset = env.reset({"run_id": "test-run", "conformance": "required"})
+        finally:
+            env_module.run_conformance = original
+
+        self.assertEqual(reset["status"], "error")
+        self.assertEqual(reset["reason"], "required conformance failed")
+        self.assertEqual(reset["conformance"]["status"], "fail")
 
 
 if __name__ == "__main__":

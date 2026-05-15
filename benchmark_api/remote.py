@@ -12,6 +12,16 @@ from typing import Any
 
 from benchmark.benchmark_api.config import RemoteConfig, parse_config
 
+RUNTIME_DEP_PACKAGES = [
+    "libzmq5",
+    "libmbedcrypto7t64",
+    "libsctp1",
+    "libyaml-cpp0.8",
+    "libsodium23",
+    "libpgm-5.3-0t64",
+    "libnorm1t64",
+]
+
 
 class RemoteCommandError(RuntimeError):
     """Raised when local remote-command construction or execution fails."""
@@ -117,6 +127,7 @@ class RemoteManager:
             "benchmark_api/conformance.py",
             "benchmark_api/env.py",
             "benchmark_api/remote.py",
+            "benchmark_api/websocket_client.py",
             "conformance/tests.json",
             "schemas/actions.schema.json",
             "schemas/observations.schema.json",
@@ -125,10 +136,12 @@ class RemoteManager:
         return sorted(files, key=lambda path: path.as_posix())
 
     def sync_manifest(self, repo_root: Path, source: Path) -> tuple[list[Path], str]:
-        files = self._git_tracked_files(repo_root=repo_root, source=source)
-        if files:
-            return files, "git_tracked"
-        files = self._bootstrap_manifest_files(repo_root=repo_root, source=source)
+        tracked = self._git_tracked_files(repo_root=repo_root, source=source)
+        bootstrap = self._bootstrap_manifest_files(repo_root=repo_root, source=source)
+        files = sorted(set(tracked) | set(bootstrap), key=lambda path: path.as_posix())
+        if files and tracked:
+            source_policy = "git_tracked" if files == tracked else "git_tracked_plus_bootstrap_manifest"
+            return files, source_policy
         if files:
             return files, "bootstrap_manifest"
         raise RemoteCommandError(f"No tracked benchmark files found under {source}")
@@ -137,7 +150,7 @@ class RemoteManager:
         script = r"""
 echo host=$(hostname 2>/dev/null || true)
 echo home=${HOME:-}
-for tool in python3 git rsync; do
+        for tool in python3 git rsync ss ldd; do
   path=$(command -v "$tool" 2>/dev/null || true)
   echo tool_${tool}=$path
 done
@@ -172,6 +185,8 @@ fi
             "python3": data.get("tool_python3", ""),
             "git": data.get("tool_git", ""),
             "rsync": data.get("tool_rsync", ""),
+            "ss": data.get("tool_ss", ""),
+            "ldd": data.get("tool_ldd", ""),
         }
         status = "ok" if proc.returncode == 0 else "error"
         return {
@@ -274,6 +289,62 @@ echo metadata=$BENCHMARK_WORKSPACE/metadata.json
             "stderr": proc.stderr.strip(),
         }
 
+    def prepare_runtime_deps(self, dry_run: bool = False) -> dict[str, Any]:
+        packages = RUNTIME_DEP_PACKAGES
+        package_args = " ".join(shlex.quote(package) for package in packages)
+        metadata = {
+            "runtime_deps_kind": "workspace-local-apt-extract",
+            "packages": packages,
+            "workspace": self.config.workspace,
+        }
+        script = f"""
+set -eu
+LIB_ROOT="$BENCHMARK_WORKSPACE/runtime-libs"
+mkdir -p "$LIB_ROOT/downloads" "$LIB_ROOT/root"
+cd "$LIB_ROOT/downloads"
+apt-get download {package_args}
+for deb in *.deb; do
+  dpkg-deb -x "$deb" "$LIB_ROOT/root"
+done
+cat > "$LIB_ROOT/metadata.json" <<'JSON'
+{json.dumps(metadata, indent=2, sort_keys=True)}
+JSON
+echo runtime_root=$LIB_ROOT/root
+echo metadata=$LIB_ROOT/metadata.json
+echo package_count={len(packages)}
+echo library_count=$(find "$LIB_ROOT/root" \\( -type f -o -type l \\) | grep -E '/lib[^/]*\\.so(\\.|$)' | wc -l | tr -d ' ')
+"""
+        remote_command = self._remote_shell(script)
+        if dry_run:
+            return {
+                "status": "ok",
+                "dry_run": True,
+                "packages": packages,
+                "runtime_root": f"{self.config.workspace}/runtime-libs/root",
+                "planned_remote_command": remote_command,
+            }
+        init_result = self.init_workspace()
+        if init_result.get("status") != "ok":
+            return {
+                "status": "error",
+                "returncode": init_result.get("returncode", 1),
+                "packages": packages,
+                "runtime_root": f"{self.config.workspace}/runtime-libs/root",
+                "init": init_result,
+                "stdout": "",
+                "stderr": "remote workspace init failed",
+            }
+        proc = self._run(self.ssh_argv(remote_command))
+        return {
+            "status": "ok" if proc.returncode == 0 else "error",
+            "returncode": proc.returncode,
+            "packages": packages,
+            "runtime_root": f"{self.config.workspace}/runtime-libs/root",
+            "init": init_result,
+            "stdout": proc.stdout.strip(),
+            "stderr": proc.stderr.strip(),
+        }
+
     def create_run_metadata(self, run_id: str, metadata: dict[str, Any], dry_run: bool = False) -> dict[str, Any]:
         if not run_id or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" for char in run_id):
             raise RemoteCommandError(f"Invalid run_id for remote metadata path: {run_id!r}")
@@ -317,6 +388,7 @@ echo metadata={run_dir}/metadata.json
         script = (
             f"cd {shlex.quote(self.config.workspace)} && "
             f"export OCUDU_ROOT={shlex.quote(self.config.ocudu_root)} && "
+            f"export BENCHMARK_WORKSPACE={shlex.quote(self.config.workspace)} && "
             f"{command_text}"
         )
         proc = self._run(self.ssh_argv(script))

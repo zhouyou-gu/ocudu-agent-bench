@@ -13,7 +13,15 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from benchmark.benchmark_api.conformance import load_conformance_specs
+from benchmark.benchmark_api.conformance import (
+    DEFAULT_LAUNCH_TIMEOUT,
+    DEFAULT_PROBE_TIMEOUT,
+    DEFAULT_WS_PORT,
+    conformance_exit_code,
+    load_conformance_specs,
+    parse_checks,
+    run_conformance,
+)
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
 
 
@@ -57,6 +65,13 @@ def cmd_remote_sync(args: argparse.Namespace) -> int:
     return 0 if result.get("status") == "ok" else 1
 
 
+def cmd_remote_deps(args: argparse.Namespace) -> int:
+    manager = remote_manager(args)
+    result = manager.prepare_runtime_deps(dry_run=args.dry_run)
+    emit(result, args.json)
+    return 0 if result.get("status") == "ok" else 1
+
+
 def cmd_remote_exec(args: argparse.Namespace) -> int:
     command = args.command
     if command and command[0] == "--":
@@ -80,6 +95,22 @@ def cmd_conformance_list(args: argparse.Namespace) -> int:
     }
     emit(data, args.json)
     return 0
+
+
+def cmd_conformance_run(args: argparse.Namespace) -> int:
+    manager = remote_manager(args)
+    result = run_conformance(
+        remote=manager,
+        repo_root=ROOT,
+        specs_path=ROOT / "benchmark" / "conformance" / "tests.json",
+        run_id=args.run_id,
+        checks=parse_checks(args.checks),
+        ws_port=args.ws_port,
+        launch_timeout=args.launch_timeout,
+        probe_timeout=args.probe_timeout,
+    )
+    emit(result, args.json)
+    return conformance_exit_code(result)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -106,6 +137,12 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--dry-run", action="store_true", help="Show planned rsync command without executing it")
     sync.set_defaults(func=cmd_remote_sync)
 
+    deps = remote_sub.add_parser("deps", help="Prepare workspace-local OCUDU runtime dependencies")
+    deps.add_argument("--config", default=".config", help="Path to local remote config")
+    deps.add_argument("--json", action="store_true", help="Emit JSON output")
+    deps.add_argument("--dry-run", action="store_true", help="Show planned dependency preparation without executing it")
+    deps.set_defaults(func=cmd_remote_deps)
+
     exec_parser = remote_sub.add_parser("exec", help="Run a command in the remote benchmark workspace")
     exec_parser.add_argument("--config", default=".config", help="Path to local remote config")
     exec_parser.add_argument("--json", action="store_true", help="Emit JSON output")
@@ -119,6 +156,20 @@ def build_parser() -> argparse.ArgumentParser:
     list_cmd = conformance_sub.add_parser("list", help="List conformance test stubs")
     list_cmd.add_argument("--json", action="store_true", help="Emit JSON output")
     list_cmd.set_defaults(func=cmd_conformance_list)
+
+    run_cmd = conformance_sub.add_parser("run", help="Run executable conformance checks")
+    run_cmd.add_argument("--config", default=".config", help="Path to local remote config")
+    run_cmd.add_argument("--json", action="store_true", help="Emit JSON output")
+    run_cmd.add_argument("--run-id", default=None, help="Conformance run id")
+    run_cmd.add_argument("--checks", default=None, help="Comma-separated conformance check ids")
+    run_cmd.add_argument("--ws-port", type=int, default=DEFAULT_WS_PORT, help="Remote-control WebSocket port")
+    run_cmd.add_argument(
+        "--launch-timeout", type=int, default=DEFAULT_LAUNCH_TIMEOUT, help="Seconds to wait for gNB readiness"
+    )
+    run_cmd.add_argument(
+        "--probe-timeout", type=int, default=DEFAULT_PROBE_TIMEOUT, help="Seconds to wait for WebSocket probes"
+    )
+    run_cmd.set_defaults(func=cmd_conformance_run)
 
     return parser
 

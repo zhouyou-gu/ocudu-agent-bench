@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from benchmark.benchmark_api.conformance import parse_checks, run_conformance
 from benchmark.benchmark_api.config import RemoteConfig, parse_config
 from benchmark.benchmark_api.remote import RemoteManager
 
@@ -51,6 +52,7 @@ class BenchmarkEnv:
         remote_check: dict[str, Any] | None = None
         workspace_init: dict[str, Any] | None = None
         run_metadata: dict[str, Any] | None = None
+        conformance_result: dict[str, Any] | None = None
 
         if check_remote:
             remote_check = self.remote.check()
@@ -108,6 +110,44 @@ class BenchmarkEnv:
                         "run_metadata": run_metadata,
                     }
 
+        conformance_mode = str(config.get("conformance", "skip"))
+        if conformance_mode not in {"skip", "observe", "required"}:
+            raise ValueError("conformance must be one of: skip, observe, required")
+        if conformance_mode in {"observe", "required"}:
+            check_value = config.get("conformance_checks")
+            if isinstance(check_value, str) or check_value is None:
+                checks = parse_checks(check_value)
+            elif isinstance(check_value, list):
+                checks = {str(item) for item in check_value}
+            else:
+                raise ValueError("conformance_checks must be a comma-separated string or a list")
+            conformance_result = run_conformance(
+                remote=self.remote,
+                repo_root=Path(__file__).resolve().parents[2],
+                specs_path=Path(__file__).resolve().parents[1] / "conformance" / "tests.json",
+                run_id=self.run_id,
+                checks=checks,
+                ws_port=int(config.get("ws_port", 8001)),
+                launch_timeout=int(config.get("launch_timeout", 20)),
+                probe_timeout=int(config.get("probe_timeout", 10)),
+            )
+            backend_enablement = conformance_result.get("backend_enablement", {})
+            for backend, enabled in backend_enablement.items():
+                self.adapters[backend] = "ready" if enabled else "disabled"
+            if conformance_mode == "required" and conformance_result.get("status") != "pass":
+                self.state = "error"
+                return {
+                    "status": "error",
+                    "stage": "v1_stub",
+                    "run_id": self.run_id,
+                    "state": self.state,
+                    "reason": "required conformance failed",
+                    "remote_check": remote_check,
+                    "workspace_init": workspace_init,
+                    "run_metadata": run_metadata,
+                    "conformance": conformance_result,
+                }
+
         self.state = "ready"
         return {
             "status": "ok",
@@ -118,6 +158,7 @@ class BenchmarkEnv:
             "remote_check": remote_check,
             "workspace_init": workspace_init,
             "run_metadata": run_metadata,
+            "conformance": conformance_result,
             "adapters": self.adapters,
             "remote": {
                 "ssh": self.remote_config.ssh_target,
