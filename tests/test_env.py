@@ -40,8 +40,22 @@ class BenchmarkEnvTests(unittest.TestCase):
         tmp.write(
             """
 remote:
-    ssh zhouyou@10.34.23.184
-    ssh-key ~/.ssh/zhouyou5090pc
+    ssh user@host
+    ssh-key ~/.ssh/ocudu-benchmark
+    workspace ~/skillful-ran-benchmark-workspace
+    ocudu-root ~/skillful-ran-benchmark-workspace/ocudu
+runtime:
+    open5gs-compose ~/skillful-ran-benchmark-workspace/assets/open5gs-core/compose/docker-compose.open5gs.yml
+    e2e-config-dir ~/skillful-ran-benchmark-workspace/assets/ocudu-zmq-open5gs-e2e/config
+    open5gs-image skillful-ran/open5gs:v2.7.0
+    gnb-image skillful-ran/srsran-project-build:release_25_10
+    ue-image skillful-ran/srsran-4g-ue-build:release_23_11
+sources:
+    srsran-project-repo https://github.com/srsran/srsRAN_Project.git
+    srsran-project-ref release_25_10
+    srsran-4g-repo https://github.com/srsran/srsRAN_4G.git
+    srsran-4g-ref release_23_11
+    open5gs-ref v2.7.0
 """
         )
         tmp.close()
@@ -216,6 +230,77 @@ remote:
         self.assertEqual(observation["stage"], "v3_episode")
         self.assertTrue(action["accepted"])
         self.assertEqual(close["stage"], "v3_episode")
+        self.assertTrue(close["summary"]["scored"])
+
+    def test_v4_episode_lifecycle_uses_v4_conformance_gate(self) -> None:
+        original_run_conformance = env_module.run_conformance
+        original_episode_runtime = env_module.EpisodeRuntime
+
+        class FakeEpisodeRuntime:
+            def __init__(self, remote, repo_root=None) -> None:
+                self.started = None
+
+            def start(self, options):
+                self.started = options
+                return {"status": "ok", "stage": "v4_episode", "run_id": options.run_id}
+
+            def observe(self):
+                return {
+                    "status": "ok",
+                    "stage": "v3_episode",
+                    "run_id": self.started.run_id,
+                    "state": "running",
+                    "observation": {
+                        "type": "e2_kpm_prb_ping_v1",
+                        "ping": {"packets_received": 1},
+                        "e2": {"kpm_indications": 3},
+                    },
+                }
+
+            def act(self, action):
+                return {"status": "ok", "stage": "v3_episode", "accepted": True, "reason": "accepted"}
+
+            def cleanup(self, run_id):
+                return {"status": "ok", "run_id": run_id, "ric_port_open": False}
+
+            def finalize(self, unscored_reason=None, cleanup_success=True):
+                return {"status": "ok", "stage": "v3_episode", "scored": cleanup_success, "unscored_reason": unscored_reason}
+
+        def fake_run_conformance(**kwargs):
+            self.assertEqual(kwargs["checks"], env_module.V4_EPISODE_GATE_CHECKS)
+            return {
+                "status": "pass",
+                "backend_enablement": {
+                    "ssh": True,
+                    "websocket": True,
+                    "json_metrics": True,
+                    "e2_kpm": True,
+                    "pcap_log": True,
+                },
+                "checks": [],
+            }
+
+        env_module.run_conformance = fake_run_conformance
+        env_module.EpisodeRuntime = FakeEpisodeRuntime
+        try:
+            env = BenchmarkEnv(self.config_path, remote_manager_factory=FakeRemoteManager)
+            reset = env.reset(
+                {
+                    "run_id": "v4-unit",
+                    "task": "e2_kpm_prb_ping_v1",
+                    "conformance": "required",
+                    "duration": 1,
+                }
+            )
+            close = env.close()
+        finally:
+            env_module.run_conformance = original_run_conformance
+            env_module.EpisodeRuntime = original_episode_runtime
+
+        self.assertEqual(reset["stage"], "v4_episode")
+        self.assertEqual(reset["observation"]["type"], "e2_kpm_prb_ping_v1")
+        self.assertEqual(reset["adapters"]["e2_kpm"], "ready")
+        self.assertEqual(close["stage"], "v4_episode")
         self.assertTrue(close["summary"]["scored"])
 
     def test_v3_observe_conformance_failure_marks_close_unscored(self) -> None:

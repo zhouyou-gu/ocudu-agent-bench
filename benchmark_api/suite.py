@@ -15,6 +15,7 @@ from benchmark.benchmark_api.episode import (
     DEFAULT_LAUNCH_TIMEOUT,
     DEFAULT_PROBE_TIMEOUT,
     DEFAULT_WS_PORT,
+    TASK_E2_KPM_PRB_PING_V1,
     TASK_WS_PRB_PING_V1,
     EpisodeOptions,
     EpisodeRuntime,
@@ -22,6 +23,7 @@ from benchmark.benchmark_api.episode import (
     safe_run_id,
 )
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
+from benchmark.benchmark_api.ric import v4_checks_for_provider
 
 
 BUILTIN_AGENTS = {"fixed_prb", "sweep_prb", "invalid_then_fixed"}
@@ -32,6 +34,15 @@ V3_SUITE_CONFORMANCE_CHECKS = {
     "ping_traffic_path",
     "websocket_prb_policy_action",
 }
+V4_SUITE_CONFORMANCE_CHECKS = {
+    "flexric_docker_assets",
+    "near_rt_ric_health",
+    "ocudu_e2_config",
+    "e2_setup_path",
+    "e2_kpm_subscription",
+    "e2_pcap_log_oracle",
+}
+SUPPORTED_SUITE_TASKS = {TASK_WS_PRB_PING_V1, TASK_E2_KPM_PRB_PING_V1}
 
 
 @dataclass(frozen=True)
@@ -67,6 +78,14 @@ def suite_paths(workspace: str, suite_id: str) -> dict[str, str]:
         "suite_dir": suite_dir,
         "summary": f"{suite_dir}/summary.json",
     }
+
+
+def suite_stage(task: str) -> str:
+    return "v4_suite" if task == TASK_E2_KPM_PRB_PING_V1 else "v3_1_suite"
+
+
+def episode_stage(task: str) -> str:
+    return "v4_episode" if task == TASK_E2_KPM_PRB_PING_V1 else "v3_episode"
 
 
 class BaselineAgent:
@@ -147,11 +166,12 @@ def aggregate_suite(
         if result.get("cleanup", {}).get("status") not in {"ok", "skip"}
         or result.get("cleanup", {}).get("leftover_containers")
         or result.get("cleanup", {}).get("ws_port_open")
+        or result.get("cleanup", {}).get("ric_port_open")
     ]
     remote_state = conformance.get("remote", {})
     return {
         "status": "ok" if len(scored) == options.runs and not cleanup_failures else "error",
-        "stage": "v3_1_suite",
+        "stage": suite_stage(options.task),
         "suite_id": options.suite_id,
         "task": options.task,
         "agent": options.agent,
@@ -176,6 +196,7 @@ def aggregate_suite(
                     "reason": result.get("cleanup", {}).get("reason"),
                     "leftover_containers": result.get("cleanup", {}).get("leftover_containers", []),
                     "ws_port_open": result.get("cleanup", {}).get("ws_port_open"),
+                    "ric_port_open": result.get("cleanup", {}).get("ric_port_open"),
                     "errors": result.get("cleanup", {}).get("errors", []),
                 },
                 "artifacts": result.get("summary", {}).get("artifacts", {}),
@@ -219,7 +240,7 @@ class SuiteRunner:
 
     def _validate_options(self, options: SuiteOptions) -> None:
         safe_run_id(options.suite_id)
-        if options.task != TASK_WS_PRB_PING_V1:
+        if options.task not in SUPPORTED_SUITE_TASKS:
             raise ValueError(f"Unsupported suite task: {options.task}")
         if options.agent not in BUILTIN_AGENTS:
             raise ValueError(f"Unknown built-in agent: {options.agent}")
@@ -239,12 +260,13 @@ class SuiteRunner:
                 "scored": False,
                 "reason": "--skip-conformance was used; suite and runs are unscored",
             }
+        checks = v4_checks_for_provider(self.remote.config.ric_provider) if options.task == TASK_E2_KPM_PRB_PING_V1 else V3_SUITE_CONFORMANCE_CHECKS
         return run_conformance(
             remote=self.remote,
             repo_root=self.repo_root,
             specs_path=self.specs_path,
             run_id=f"{options.suite_id}-gate",
-            checks=set(V3_SUITE_CONFORMANCE_CHECKS),
+            checks=set(checks),
             ws_port=options.ws_port,
             launch_timeout=options.launch_timeout,
             probe_timeout=options.probe_timeout,
@@ -322,11 +344,12 @@ class SuiteRunner:
                 "reason": "episode was not started",
                 "leftover_containers": [],
                 "ws_port_open": False,
+                "ric_port_open": False,
                 "errors": [],
             },
             "summary": {
                 "status": "ok",
-                "stage": "v3_episode",
+                "stage": episode_stage(options.task),
                 "task": options.task,
                 "run_id": run_id,
                 "scored": False,
@@ -358,7 +381,13 @@ class SuiteRunner:
 import json
 import pathlib
 payload = json.loads({json.dumps(json.dumps(payload))})
-path = pathlib.Path(payload["path"])
+def expand_remote_path(value):
+    if value == "~":
+        return str(pathlib.Path.home())
+    if isinstance(value, str) and value.startswith("~/"):
+        return str(pathlib.Path.home() / value[2:])
+    return value
+path = pathlib.Path(expand_remote_path(payload["path"]))
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(payload["summary"], indent=2, sort_keys=True), encoding="utf-8")
 print(json.dumps({{"status": "ok", "path": str(path)}}))

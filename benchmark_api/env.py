@@ -14,11 +14,13 @@ from benchmark.benchmark_api.episode import (
     DEFAULT_LAUNCH_TIMEOUT,
     DEFAULT_PROBE_TIMEOUT,
     DEFAULT_WS_PORT,
+    TASK_E2_KPM_PRB_PING_V1,
     TASK_WS_PRB_PING_V1,
     EpisodeOptions,
     EpisodeRuntime,
 )
 from benchmark.benchmark_api.remote import RemoteManager
+from benchmark.benchmark_api.ric import v4_checks_for_provider
 
 
 V3_EPISODE_GATE_CHECKS = {
@@ -28,6 +30,15 @@ V3_EPISODE_GATE_CHECKS = {
     "ping_traffic_path",
     "websocket_prb_policy_action",
 }
+V4_EPISODE_GATE_CHECKS = {
+    "flexric_docker_assets",
+    "near_rt_ric_health",
+    "ocudu_e2_config",
+    "e2_setup_path",
+    "e2_kpm_subscription",
+    "e2_pcap_log_oracle",
+}
+EPISODE_TASKS = {TASK_WS_PRB_PING_V1, TASK_E2_KPM_PRB_PING_V1}
 
 
 class BenchmarkEnv:
@@ -55,7 +66,7 @@ class BenchmarkEnv:
             raise ValueError("reset config must be a dictionary")
         self.remote_config = parse_config(self.config_path)
         self.task = str(config.get("task", "v1_stub"))
-        self.run_id = str(config.get("run_id") or (f"ep-{int(time.time())}" if self.task == TASK_WS_PRB_PING_V1 else f"v1-{int(time.time())}"))
+        self.run_id = str(config.get("run_id") or (f"ep-{int(time.time())}" if self.task in EPISODE_TASKS else f"v1-{int(time.time())}"))
         self.remote = self.remote_manager_factory(self.remote_config)
         self.actions = []
         self.started_at = time.time()
@@ -80,6 +91,7 @@ class BenchmarkEnv:
         workspace_init: dict[str, Any] | None = None
         run_metadata: dict[str, Any] | None = None
         conformance_result: dict[str, Any] | None = None
+        stage = self._episode_stage() if self.task in EPISODE_TASKS else "v1_stub"
 
         if check_remote:
             remote_check = self.remote.check()
@@ -87,7 +99,7 @@ class BenchmarkEnv:
                 self.state = "error"
                 return {
                     "status": "error",
-                    "stage": "v1_stub",
+                    "stage": stage,
                     "run_id": self.run_id,
                     "state": self.state,
                     "reason": "remote check failed",
@@ -102,7 +114,7 @@ class BenchmarkEnv:
                     self.state = "error"
                     return {
                         "status": "error",
-                        "stage": "v1_stub",
+                        "stage": stage,
                         "run_id": self.run_id,
                         "state": self.state,
                         "reason": "remote workspace init failed",
@@ -113,7 +125,7 @@ class BenchmarkEnv:
             if create_remote_metadata:
                 metadata = {
                     "run_id": self.run_id,
-                    "stage": "v1_stub",
+                    "stage": stage,
                     "scored": False,
                     "created_at": self.started_at,
                     "remote": {
@@ -128,7 +140,7 @@ class BenchmarkEnv:
                     self.state = "error"
                     return {
                         "status": "error",
-                        "stage": "v1_stub",
+                        "stage": stage,
                         "run_id": self.run_id,
                         "state": self.state,
                         "reason": "remote run metadata creation failed",
@@ -142,7 +154,9 @@ class BenchmarkEnv:
             raise ValueError("conformance must be one of: skip, observe, required")
         if conformance_mode in {"observe", "required"}:
             check_value = config.get("conformance_checks")
-            if self.task == TASK_WS_PRB_PING_V1 and check_value is None:
+            if self.task == TASK_E2_KPM_PRB_PING_V1 and check_value is None:
+                checks = v4_checks_for_provider(self.remote.config.ric_provider)
+            elif self.task == TASK_WS_PRB_PING_V1 and check_value is None:
                 checks = set(V3_EPISODE_GATE_CHECKS)
             elif isinstance(check_value, str) or check_value is None:
                 checks = parse_checks(check_value)
@@ -169,7 +183,7 @@ class BenchmarkEnv:
                 self.state = "error"
                 return {
                     "status": "error",
-                    "stage": "v1_stub",
+                    "stage": stage,
                     "run_id": self.run_id,
                     "state": self.state,
                     "reason": "required conformance failed",
@@ -179,15 +193,15 @@ class BenchmarkEnv:
                     "conformance": conformance_result,
                 }
 
-        if self.task == TASK_WS_PRB_PING_V1:
+        if self.task in EPISODE_TASKS:
             if conformance_mode == "skip":
                 self.state = "error"
                 return {
                     "status": "error",
-                    "stage": "v3_episode",
+                    "stage": stage,
                     "run_id": self.run_id,
                     "state": self.state,
-                    "reason": "ws_prb_ping_v1 reset requires conformance='required' or conformance='observe'",
+                    "reason": f"{self.task} reset requires conformance='required' or conformance='observe'",
                     "remote_check": remote_check,
                     "workspace_init": workspace_init,
                     "run_metadata": run_metadata,
@@ -214,7 +228,7 @@ class BenchmarkEnv:
                     )
                     return {
                         "status": "error",
-                        "stage": "v3_episode",
+                        "stage": stage,
                         "run_id": self.run_id,
                         "state": self.state,
                         "reason": start.get("summary", "episode start failed"),
@@ -237,7 +251,7 @@ class BenchmarkEnv:
                 )
                 return {
                     "status": "error",
-                    "stage": "v3_episode",
+                    "stage": stage,
                     "run_id": self.run_id,
                     "state": self.state,
                     "reason": str(exc),
@@ -250,7 +264,7 @@ class BenchmarkEnv:
                 }
             return {
                 "status": "ok",
-                "stage": "v3_episode",
+                "stage": stage,
                 "task": self.task,
                 "run_id": self.run_id,
                 "state": self.state,
@@ -296,12 +310,12 @@ class BenchmarkEnv:
         if self.state == "closed":
             return {
                 "status": "error",
-                "stage": "v3_episode" if self.task == TASK_WS_PRB_PING_V1 else "v1_stub",
+                "stage": self._episode_stage() if self.task in EPISODE_TASKS else "v1_stub",
                 "run_id": self.run_id,
                 "state": self.state,
                 "reason": "episode is closed",
             }
-        if self.task == TASK_WS_PRB_PING_V1 and self.episode_runtime is not None:
+        if self.task in EPISODE_TASKS and self.episode_runtime is not None:
             self.last_observation = self.episode_runtime.observe()
             return self.last_observation
         return {
@@ -327,7 +341,7 @@ class BenchmarkEnv:
         if self.state == "closed":
             return {
                 "status": "rejected",
-                "stage": "v3_episode" if self.task == TASK_WS_PRB_PING_V1 else "v1_stub",
+                "stage": self._episode_stage() if self.task in EPISODE_TASKS else "v1_stub",
                 "run_id": self.run_id,
                 "accepted": False,
                 "reason": "episode is closed",
@@ -340,7 +354,7 @@ class BenchmarkEnv:
                 "accepted": False,
                 "reason": "action must be a dictionary",
             }
-        if self.task == TASK_WS_PRB_PING_V1 and self.episode_runtime is not None:
+        if self.task in EPISODE_TASKS and self.episode_runtime is not None:
             result = self.episode_runtime.act(action)
             self.actions.append(
                 {
@@ -369,7 +383,7 @@ class BenchmarkEnv:
 
     def close(self) -> dict[str, Any]:
         self.closed_at = time.time()
-        if self.task == TASK_WS_PRB_PING_V1 and self.episode_runtime is not None and self.run_id is not None:
+        if self.task in EPISODE_TASKS and self.episode_runtime is not None and self.run_id is not None:
             cleanup = self._cleanup_episode_runtime()
             summary = self._finalize_episode_runtime(
                 reason=self.unscored_reason,
@@ -378,7 +392,7 @@ class BenchmarkEnv:
             self.state = "closed"
             return {
                 "status": "ok" if cleanup.get("status") == "ok" else "error",
-                "stage": "v3_episode",
+                "stage": self._episode_stage(),
                 "run_id": self.run_id,
                 "state": self.state,
                 "cleanup": cleanup,
@@ -407,7 +421,7 @@ class BenchmarkEnv:
         if self.episode_runtime is None:
             return {
                 "status": "error",
-                "stage": "v3_episode",
+                "stage": self._episode_stage(),
                 "run_id": self.run_id,
                 "scored": False,
                 "unscored_reason": reason or "episode runtime unavailable",
@@ -417,9 +431,12 @@ class BenchmarkEnv:
         except Exception as exc:
             return {
                 "status": "error",
-                "stage": "v3_episode",
+                "stage": self._episode_stage(),
                 "run_id": self.run_id,
                 "scored": False,
                 "unscored_reason": reason or str(exc),
                 "finalize_error": str(exc),
             }
+
+    def _episode_stage(self) -> str:
+        return "v4_episode" if self.task == TASK_E2_KPM_PRB_PING_V1 else "v3_episode"

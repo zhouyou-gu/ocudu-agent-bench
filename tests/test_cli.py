@@ -30,6 +30,56 @@ class BenchctlTests(unittest.TestCase):
         self.assertEqual(output["status"], "ok")
         self.assertTrue(output["dry_run"])
 
+    def test_remote_ric_prepare_json_wraps_remote_manager(self) -> None:
+        original_remote_manager = benchctl.remote_manager
+
+        class FakeManager:
+            def prepare_ric(self, dry_run=False, force=False):
+                return {"status": "ok", "dry_run": dry_run, "force": force, "image": "skillful-ran/flexric-bench:test"}
+
+        def fake_remote_manager(args):
+            return FakeManager()
+
+        benchctl.remote_manager = fake_remote_manager
+        stdout = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout):
+                code = benchctl.main(["remote", "ric-prepare", "--config", "unit.config", "--dry-run", "--force", "--json"])
+        finally:
+            benchctl.remote_manager = original_remote_manager
+
+        self.assertEqual(code, 0)
+        output = json.loads(stdout.getvalue())
+        self.assertEqual(output["status"], "ok")
+        self.assertTrue(output["dry_run"])
+        self.assertTrue(output["force"])
+
+    def test_remote_provision_json_wraps_remote_manager(self) -> None:
+        original_remote_manager = benchctl.remote_manager
+
+        class FakeManager:
+            def provision(self, stage="all", dry_run=False, force=False):
+                return {"status": "ok", "stage": stage, "dry_run": dry_run, "force": force}
+
+        def fake_remote_manager(args):
+            return FakeManager()
+
+        benchctl.remote_manager = fake_remote_manager
+        stdout = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout):
+                code = benchctl.main(
+                    ["remote", "provision", "--config", "unit.config", "--stage", "assets", "--dry-run", "--force", "--json"]
+                )
+        finally:
+            benchctl.remote_manager = original_remote_manager
+
+        self.assertEqual(code, 0)
+        output = json.loads(stdout.getvalue())
+        self.assertEqual(output["stage"], "assets")
+        self.assertTrue(output["dry_run"])
+        self.assertTrue(output["force"])
+
     def test_conformance_run_json_exit_code_uses_result_status(self) -> None:
         original_remote_manager = benchctl.remote_manager
         original_run_conformance = benchctl.run_conformance
@@ -117,6 +167,50 @@ class BenchctlTests(unittest.TestCase):
         output = json.loads(stdout.getvalue())
         self.assertEqual(output["status"], "ok")
         self.assertTrue(output["summary"]["scored"])
+        self.assertEqual(output["conformance"]["status"], "pass")
+
+    def test_episode_run_uses_v4_gate_for_e2_task(self) -> None:
+        original_remote_manager = benchctl.remote_manager
+        original_run_conformance = benchctl.run_conformance
+        original_run_episode = benchctl.run_episode
+
+        def fake_remote_manager(args):
+            return {"remote": "manager"}
+
+        def fake_run_conformance(**kwargs):
+            self.assertEqual(kwargs["checks"], benchctl.V4_EPISODE_GATE_CHECKS)
+            return {"status": "pass", "checks": []}
+
+        def fake_run_episode(**kwargs):
+            self.assertEqual(kwargs["task"], "e2_kpm_prb_ping_v1")
+            return {"status": "ok", "summary": {"scored": True}}
+
+        benchctl.remote_manager = fake_remote_manager
+        benchctl.run_conformance = fake_run_conformance
+        benchctl.run_episode = fake_run_episode
+        stdout = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout):
+                code = benchctl.main(
+                    [
+                        "episode",
+                        "run",
+                        "--config",
+                        "unit.config",
+                        "--task",
+                        "e2_kpm_prb_ping_v1",
+                        "--duration",
+                        "1",
+                        "--json",
+                    ]
+                )
+        finally:
+            benchctl.remote_manager = original_remote_manager
+            benchctl.run_conformance = original_run_conformance
+            benchctl.run_episode = original_run_episode
+
+        self.assertEqual(code, 0)
+        output = json.loads(stdout.getvalue())
         self.assertEqual(output["conformance"]["status"], "pass")
 
     def test_episode_run_skip_conformance_marks_unscored(self) -> None:
@@ -222,6 +316,42 @@ class BenchctlTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(stdout.getvalue())["suite_id"], "unit-suite")
+
+    def test_episode_suite_accepts_v4_task(self) -> None:
+        original_remote_manager = benchctl.remote_manager
+        original_run_suite = benchctl.run_suite
+
+        def fake_remote_manager(args):
+            return {"remote": "manager"}
+
+        def fake_run_suite(**kwargs):
+            self.assertEqual(kwargs["task"], "e2_kpm_prb_ping_v1")
+            return {"status": "ok", "suite_id": "unit-v4-suite", "scored_runs": 1}
+
+        benchctl.remote_manager = fake_remote_manager
+        benchctl.run_suite = fake_run_suite
+        stdout = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout):
+                code = benchctl.main(
+                    [
+                        "episode",
+                        "suite",
+                        "--config",
+                        "unit.config",
+                        "--task",
+                        "e2_kpm_prb_ping_v1",
+                        "--suite-id",
+                        "unit-v4-suite",
+                        "--json",
+                    ]
+                )
+        finally:
+            benchctl.remote_manager = original_remote_manager
+            benchctl.run_suite = original_run_suite
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(stdout.getvalue())["suite_id"], "unit-v4-suite")
 
 
 if __name__ == "__main__":

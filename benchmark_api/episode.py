@@ -10,20 +10,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from benchmark.benchmark_api.ric import (
+    E2_PCAP_CONTAINER_PREFIX,
+    FLEXRIC_CONTAINER_PREFIX,
+    FLEXRIC_IMAGE,
+    KPM_XAPP_CONTAINER_PREFIX,
+    RIC_PORT,
+    RIC_PROVIDER_DRAX_EXISTING,
+    RIC_PROVIDER_FLEXRIC,
+    parse_e2_endpoint,
+)
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
 from benchmark.benchmark_api.websocket_client import WebSocketClient, WebSocketFrame, WebSocketProtocolError
 
 
 TASK_WS_PRB_PING_V1 = "ws_prb_ping_v1"
+TASK_E2_KPM_PRB_PING_V1 = "e2_kpm_prb_ping_v1"
 DEFAULT_EPISODE_DURATION = 30
 DEFAULT_WS_PORT = 8001
 DEFAULT_ATTACH_TIMEOUT = 90
 DEFAULT_LAUNCH_TIMEOUT = 60
 DEFAULT_PROBE_TIMEOUT = 5
-OPEN5GS_COMPOSE = "/home/zhouyou/skillful-ran/skills/ocudu-open5gs-core/assets/compose/docker-compose.open5gs.yml"
-E2E_CONFIG_DIR = "/home/zhouyou/skillful-ran/skills/ocudu-zmq-open5gs-e2e/assets/config"
-GNB_IMAGE = "skillful-ran/srsran-project-build:release_25_10"
-SRSUE_IMAGE = "skillful-ran/srsran-4g-ue-build:release_23_11"
 PING_TARGET = "10.45.1.1"
 
 
@@ -62,6 +69,7 @@ def episode_paths(workspace: str, run_id: str) -> dict[str, str]:
         "logs_dir": f"{episode_dir}/logs",
         "gnb_config": f"{episode_dir}/configs/gnb_zmq.yaml",
         "gnb_overlay": f"{episode_dir}/configs/gnb_v3_overlay.yaml",
+        "kpm_xapp_config": f"{episode_dir}/configs/xapp_mon_e2sm_kpm.conf",
         "ue_config": f"{episode_dir}/configs/ue_zmq.conf",
         "containers": f"{episode_dir}/pids_or_containers.json",
         "actions": f"{episode_dir}/actions.jsonl",
@@ -73,6 +81,14 @@ def episode_paths(workspace: str, run_id: str) -> dict[str, str]:
         "ue_log": f"{episode_dir}/logs/ue.log",
         "ping_log": f"{episode_dir}/logs/ping.log",
         "core_log": f"{episode_dir}/logs/core.log",
+        "ric_log": f"{episode_dir}/logs/ric.log",
+        "kpm_xapp_log": f"{episode_dir}/logs/kpm_xapp.log",
+        "e2_kpm_raw": f"{episode_dir}/e2_kpm_raw.jsonl",
+        "e2_oracle": f"{episode_dir}/e2_oracle.json",
+        "e2ap_du_pcap": f"{episode_dir}/logs/e2ap_du.pcap",
+        "e2ap_cu_cp_pcap": f"{episode_dir}/logs/e2ap_cu_cp.pcap",
+        "e2ap_sctp_pcap": f"{episode_dir}/logs/e2ap_sctp.pcap",
+        "e2ap_tcpdump_log": f"{episode_dir}/logs/e2ap_tcpdump.log",
     }
 
 
@@ -89,6 +105,76 @@ def generate_v3_gnb_overlay(ws_port: int) -> str:
         "  filename: /stage/logs/gnb_internal.log\n"
         "  all_level: info\n"
     )
+
+
+def generate_v4_e2_gnb_overlay(ws_port: int, e2_endpoint: str | None = None, e2_bind_addr: str | None = None) -> str:
+    if e2_endpoint:
+        e2_addr, e2_port = parse_e2_endpoint(e2_endpoint)
+        bind_addr = e2_bind_addr or "0.0.0.0"
+    else:
+        e2_addr, e2_port = "127.0.0.1", RIC_PORT
+        bind_addr = e2_bind_addr or "127.0.0.1"
+    return (
+        generate_v3_gnb_overlay(ws_port)
+        + "e2:\n"
+        + "  enable_du_e2: true\n"
+        + "  enable_cu_cp_e2: true\n"
+        + f"  addr: {e2_addr}\n"
+        + f"  port: {e2_port}\n"
+        + f"  bind_addr: {bind_addr}\n"
+        + "  e2sm_kpm_enabled: true\n"
+        + "  e2sm_rc_enabled: false\n"
+        + "  e2sm_ccc_enabled: false\n"
+        + "pcap:\n"
+        + "  e2ap_enable: true\n"
+        + "  e2ap_du_filename: /stage/logs/e2ap_du.pcap\n"
+        + "  e2ap_cu_cp_filename: /stage/logs/e2ap_cu_cp.pcap\n"
+    )
+
+
+def generate_kpm_xapp_config() -> str:
+    return (
+        'SM_DIR = "/usr/local/lib/flexric/"\n'
+        "\n"
+        'Name = "xApp"\n'
+        'NearRT_RIC_IP = "127.0.0.1"\n'
+        "E42_Port = 36422\n"
+        "\n"
+        "Sub_ORAN_SM_List = (\n"
+        "    { name = \"KPM\", time = 1000,\n"
+        "      format = 1,\n"
+        '      ran_type = "ngran_gNB_DU",\n'
+        "      actions = (\n"
+        '            { name = "DRB.UEThpDl" },\n'
+        '            { name = "DRB.UEThpUl" }\n'
+        "            )\n"
+        "    }\n"
+        ")\n"
+        "\n"
+        "xApp_DB = {\n"
+        '    enable = "OFF"\n'
+        '    ip = "127.0.0.1"\n'
+        '    dir = "/tmp/"\n'
+        '    filename = "testdb"\n'
+        '    username = "your_username"\n'
+        '    password = "your_passwd"\n'
+        "}\n"
+    )
+
+
+def parse_kpm_indication_records(text: str) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for index, line in enumerate(text.splitlines(), start=1):
+        if re.search(r"\bKPM v\d+\s+ind_msg\b", line, flags=re.IGNORECASE):
+            if current is not None:
+                records.append(current)
+            current = {"line_no": index, "text": line[-1000:], "measurements": []}
+        elif current is not None and re.search(r"\bmeas record\b", line, flags=re.IGNORECASE):
+            current["measurements"].append({"line_no": index, "text": line[-1000:]})
+    if current is not None:
+        records.append(current)
+    return records
 
 
 def parse_ping_log(text: str) -> dict[str, Any]:
@@ -186,6 +272,8 @@ def score_episode(
     observations: list[dict[str, Any]],
     cleanup_success: bool,
     unscored_reason: str | None = None,
+    require_e2: bool = False,
+    e2_oracle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     valid_actions = [item for item in actions if item.get("validation", {}).get("valid")]
     accepted_valid = [item for item in valid_actions if item.get("accepted")]
@@ -198,6 +286,13 @@ def score_episode(
     ]
     setup_failed = bool(unscored_reason)
     scored = not setup_failed and bool(valid_actions) and ping.get("packets_received", 0) > 0 and bool(metrics_frames)
+    e2_indications = 0
+    e2_oracle_available = False
+    if e2_oracle:
+        e2_indications = int(e2_oracle.get("kpm_indications", 0) or 0)
+        e2_oracle_available = bool(e2_oracle.get("oracle_available"))
+    if require_e2 and (e2_indications < 3 or not e2_oracle_available):
+        scored = False
     if not cleanup_success:
         scored = False
         unscored_reason = unscored_reason or "cleanup failed"
@@ -208,6 +303,10 @@ def score_episode(
             unscored_reason = "no successful ping replies"
         elif unscored_reason is None and not metrics_frames:
             unscored_reason = "no metrics observations"
+        elif unscored_reason is None and require_e2 and e2_indications < 3:
+            unscored_reason = "insufficient E2 KPM indications"
+        elif unscored_reason is None and require_e2 and not e2_oracle_available:
+            unscored_reason = "E2 oracle unavailable"
     return {
         "scored": scored,
         "unscored_reason": None if scored else unscored_reason,
@@ -216,6 +315,8 @@ def score_episode(
             "invalid_local_rejection_correctness": (len(rejected_invalid) / len(invalid_actions)) if invalid_actions else 1.0,
             "ping_success_ratio": ping.get("success_ratio", 0.0),
             "metrics_continuity": len(metrics_frames),
+            "e2_kpm_continuity": e2_indications,
+            "e2_oracle_available": e2_oracle_available,
             "clean_teardown": cleanup_success,
         },
         "counts": {
@@ -226,8 +327,10 @@ def score_episode(
             "locally_rejected_invalid_actions": len(rejected_invalid),
             "observations": len(observations),
             "metrics_frames": len(metrics_frames),
+            "e2_kpm_indications": e2_indications,
         },
         "ping": ping,
+        "e2_oracle": e2_oracle or {},
     }
 
 
@@ -247,10 +350,15 @@ class EpisodeRuntime:
 
     def check_docker_assets(self) -> dict[str, Any]:
         payload = {
-            "compose": OPEN5GS_COMPOSE,
-            "config_dir": E2E_CONFIG_DIR,
+            "compose": self.remote.config.runtime.open5gs_compose,
+            "config_dir": self.remote.config.runtime.e2e_config_dir,
             "ocudu_root": self.remote.config.ocudu_root,
-            "images": [GNB_IMAGE, SRSUE_IMAGE, "skillful-ran/open5gs:v2.7.0"],
+            "images": [
+                self.remote.config.runtime.open5gs_image,
+                self.remote.config.runtime.gnb_image,
+                self.remote.config.runtime.ue_image,
+            ],
+            "workspace": self.remote.config.workspace,
         }
         data = self._remote_json(
             f"""
@@ -259,6 +367,22 @@ import pathlib
 import shutil
 import subprocess
 payload = json.loads({json.dumps(json.dumps(payload))})
+def expand_remote_path(value):
+    if value == "~":
+        return str(pathlib.Path.home())
+    if isinstance(value, str) and value.startswith("~/"):
+        return str(pathlib.Path.home() / value[2:])
+    return value
+payload["compose"] = expand_remote_path(payload["compose"])
+payload["config_dir"] = expand_remote_path(payload["config_dir"])
+payload["ocudu_root"] = expand_remote_path(payload["ocudu_root"])
+payload["workspace"] = expand_remote_path(payload["workspace"])
+def inside_workspace(value):
+    try:
+        pathlib.Path(value).resolve().relative_to(pathlib.Path(payload["workspace"]).resolve())
+        return True
+    except ValueError:
+        return False
 images = {{}}
 for image in payload["images"]:
     proc = subprocess.run(["docker", "image", "inspect", image], check=False, text=True, capture_output=True)
@@ -271,6 +395,11 @@ files = {{
     "gnb_install": (pathlib.Path(payload["ocudu_root"]) / "install" / "srsran-project").is_dir(),
     "ue_install": (pathlib.Path(payload["ocudu_root"]) / "install" / "srsran-4g").is_dir(),
 }}
+workspace_owned = {{
+    "compose": inside_workspace(payload["compose"]),
+    "config_dir": inside_workspace(payload["config_dir"]),
+    "ocudu_root": inside_workspace(payload["ocudu_root"]),
+}}
 print(json.dumps({{
     "docker": shutil.which("docker") or "",
     "docker_compose": compose_proc.returncode == 0,
@@ -278,6 +407,7 @@ print(json.dumps({{
     "docker_compose_stderr": compose_proc.stderr.strip(),
     "images": images,
     "files": files,
+    "workspace_owned": workspace_owned,
 }}))
 """
         )
@@ -288,6 +418,7 @@ print(json.dumps({{
             missing.append("docker compose")
         missing.extend(name for name, ok in data.get("images", {}).items() if not ok)
         missing.extend(name for name, ok in data.get("files", {}).items() if not ok)
+        missing.extend(f"outside_workspace:{name}" for name, ok in data.get("workspace_owned", {}).items() if not ok)
         return {
             "status": "pass" if not missing else "fail",
             "summary": "Docker e2e assets are available" if not missing else "Missing Docker e2e assets: " + ", ".join(missing),
@@ -295,37 +426,72 @@ print(json.dumps({{
         }
 
     def start(self, options: EpisodeOptions) -> dict[str, Any]:
-        if options.task != TASK_WS_PRB_PING_V1:
-            raise ValueError(f"Unsupported v3 task: {options.task}")
+        if options.task not in {TASK_WS_PRB_PING_V1, TASK_E2_KPM_PRB_PING_V1}:
+            raise ValueError(f"Unsupported episode task: {options.task}")
         safe_run_id(options.run_id)
         self.options = options
         self.paths = episode_paths(self.remote.config.workspace, options.run_id)
         suffix = container_suffix(options.run_id)
+        is_v4 = options.task == TASK_E2_KPM_PRB_PING_V1
+        provider = self.remote.config.ric_provider
+        drax = self.remote.config.drax
+        overlay = (
+            generate_v4_e2_gnb_overlay(options.ws_port, e2_endpoint=drax.e2_endpoint, e2_bind_addr=drax.e2_bind_addr)
+            if is_v4 and provider == RIC_PROVIDER_DRAX_EXISTING
+            else generate_v4_e2_gnb_overlay(options.ws_port)
+            if is_v4
+            else generate_v3_gnb_overlay(options.ws_port)
+        )
         payload = {
             "run_id": options.run_id,
             "task": options.task,
+            "is_v4": is_v4,
+            "ric_provider": provider,
+            "drax_kpm_api_url": drax.kpm_api_url.rstrip("/"),
             "paths": self.paths,
-            "compose": OPEN5GS_COMPOSE,
-            "config_dir": E2E_CONFIG_DIR,
+            "compose": self.remote.config.runtime.open5gs_compose,
+            "config_dir": self.remote.config.runtime.e2e_config_dir,
             "ocudu_root": self.remote.config.ocudu_root,
-            "gnb_image": GNB_IMAGE,
-            "ue_image": SRSUE_IMAGE,
+            "open5gs_image": self.remote.config.runtime.open5gs_image,
+            "gnb_image": self.remote.config.runtime.gnb_image,
+            "ue_image": self.remote.config.runtime.ue_image,
+            "flexric_image": FLEXRIC_IMAGE,
             "gnb_container": f"skillful-ran-bench-gnb-{suffix}",
             "ue_container": f"skillful-ran-bench-ue-{suffix}",
+            "ric_container": f"{FLEXRIC_CONTAINER_PREFIX}-{suffix}",
+            "kpm_xapp_container": f"{KPM_XAPP_CONTAINER_PREFIX}-{suffix}",
+            "e2_pcap_container": f"{E2_PCAP_CONTAINER_PREFIX}-{suffix}",
             "ws_port": options.ws_port,
+            "ric_port": RIC_PORT,
             "launch_timeout": options.launch_timeout,
             "attach_timeout": options.attach_timeout,
-            "overlay": generate_v3_gnb_overlay(options.ws_port),
+            "probe_timeout": options.probe_timeout,
+            "overlay": overlay,
+            "kpm_xapp_config": generate_kpm_xapp_config() if is_v4 else "",
         }
         data = self._remote_json(
             f"""
 import json
+import os
 import pathlib
+import re
 import shutil
 import subprocess
 import time
+import urllib.parse
+import urllib.request
 payload = json.loads({json.dumps(json.dumps(payload))})
-paths = payload["paths"]
+
+def expand_remote_path(value):
+    if value == "~":
+        return str(pathlib.Path.home())
+    if isinstance(value, str) and value.startswith("~/"):
+        return str(pathlib.Path.home() / value[2:])
+    return value
+
+paths = {{key: expand_remote_path(value) for key, value in payload["paths"].items()}}
+for key in ["compose", "config_dir", "ocudu_root"]:
+    payload[key] = expand_remote_path(payload[key])
 
 def run(argv, check=False):
     proc = subprocess.run(argv, check=False, text=True, capture_output=True)
@@ -338,24 +504,127 @@ def fail(stage, summary, details=None):
     raise SystemExit(0)
 
 def port_listening(port):
-    proc = run(["ss", "-ltn"])
+    proc = run(["ss", "-ln"])
     token = ":" + str(port)
     for line in proc.stdout.splitlines()[1:]:
-        parts = line.split()
-        if len(parts) >= 4 and parts[3].endswith(token):
+        if any(part.endswith(token) for part in line.split()):
             return True
     return False
+
+def read_tail(path, limit=4000):
+    p = pathlib.Path(path)
+    return p.read_text(encoding="utf-8", errors="replace")[-limit:] if p.exists() else ""
+
+def is_drax():
+    return payload.get("ric_provider") == "drax-existing"
+
+def file_size(path):
+    item = pathlib.Path(path)
+    return item.stat().st_size if item.exists() else 0
+
+def fetch_drax_records():
+    base = payload.get("drax_kpm_api_url") or ""
+    if not base:
+        return {{"records": [], "count": 0, "error": "drax.kpm-api-url is not configured"}}
+    query = urllib.parse.urlencode({{"run_id": payload["run_id"]}})
+    try:
+        with urllib.request.urlopen(base + "/records?" + query, timeout=float(payload["probe_timeout"])) as response:
+            body = response.read().decode("utf-8", errors="replace")
+        decoded = json.loads(body)
+        records = decoded.get("records", []) if isinstance(decoded, dict) else []
+        return {{"records": records, "count": int(decoded.get("count", len(records))) if isinstance(decoded, dict) else len(records), "raw": decoded}}
+    except Exception as exc:
+        return {{"records": [], "count": 0, "error": str(exc)}}
+
+def reset_drax_records():
+    base = payload.get("drax_kpm_api_url") or ""
+    if not base:
+        return {{"ok": False, "error": "drax.kpm-api-url is not configured"}}
+    body = json.dumps({{"run_id": payload["run_id"]}}).encode("utf-8")
+    req = urllib.request.Request(base + "/reset", data=body, headers={{"Content-Type": "application/json"}}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=float(payload["probe_timeout"])) as response:
+            data = response.read().decode("utf-8", errors="replace")
+        return {{"ok": 200 <= response.status < 300, "status": response.status, "body": data}}
+    except Exception as exc:
+        return {{"ok": False, "error": str(exc)}}
+
+def e2_setup_seen():
+    text = (read_tail(paths["ric_log"], 12000) + "\\n" + read_tail(paths["gnb_log"], 12000)).lower()
+    return "e2" in text and ("setup" in text or "connected" in text or "ric" in text)
+
+def parse_kpm_records():
+    log = pathlib.Path(paths["kpm_xapp_log"])
+    if not log.exists():
+        return []
+    records = []
+    current = None
+    for index, line in enumerate(log.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+        if re.search(r"\\bKPM v\\d+\\s+ind_msg\\b", line, flags=re.IGNORECASE):
+            if current is not None:
+                records.append(current)
+            current = {{"line_no": index, "text": line[-1000:], "measurements": [], "timestamp": time.time()}}
+        elif current is not None and re.search(r"\\bmeas record\\b", line, flags=re.IGNORECASE):
+            current["measurements"].append({{"line_no": index, "text": line[-1000:]}})
+    if current is not None:
+        records.append(current)
+    return records
+
+def write_e2_oracle():
+    if is_drax():
+        fetched = fetch_drax_records()
+        records = fetched.get("records", [])
+    else:
+        fetched = {{}}
+        records = parse_kpm_records()
+    with open(paths["e2_kpm_raw"], "w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, sort_keys=True) + "\\n")
+    pcap = {{
+        "du": file_size(paths["e2ap_du_pcap"]),
+        "cu_cp": file_size(paths["e2ap_cu_cp_pcap"]),
+        "sctp_capture": file_size(paths["e2ap_sctp_pcap"]),
+    }}
+    pcap_available = any(size > 0 for size in pcap.values())
+    raw_kpm_available = file_size(paths["e2_kpm_raw"]) > 0
+    log_available = file_size(paths["gnb_log"]) > 0 and (
+        raw_kpm_available if is_drax() else file_size(paths["kpm_xapp_log"]) > 0
+    )
+    e2_setup = e2_setup_seen()
+    oracle_available = e2_setup and len(records) >= 3 and (pcap_available or (is_drax() and log_available))
+    oracle = {{
+        "provider": payload.get("ric_provider"),
+        "e2_setup_seen": e2_setup,
+        "kpm_indications": len(records),
+        "last_kpm": records[-1] if records else None,
+        "drax_api": fetched,
+        "pcap_sizes": pcap,
+        "pcap_available": pcap_available,
+        "log_available": log_available,
+        "raw_kpm_available": raw_kpm_available,
+        "oracle_available": oracle_available,
+    }}
+    pathlib.Path(paths["e2_oracle"]).write_text(json.dumps(oracle, indent=2, sort_keys=True), encoding="utf-8")
+    return oracle
 
 episode_dir = pathlib.Path(paths["episode_dir"])
 for key in ["configs_dir", "logs_dir"]:
     pathlib.Path(paths[key]).mkdir(parents=True, exist_ok=True)
-for path_key in ["actions", "observations", "metrics_raw"]:
+for path_key in ["actions", "observations", "metrics_raw", "e2_kpm_raw"]:
     pathlib.Path(paths[path_key]).write_text("", encoding="utf-8")
 shutil.copy2(pathlib.Path(payload["config_dir"]) / "gnb_zmq.yaml", paths["gnb_config"])
 shutil.copy2(pathlib.Path(payload["config_dir"]) / "ue_zmq.conf", paths["ue_config"])
 pathlib.Path(paths["gnb_overlay"]).write_text(payload["overlay"], encoding="utf-8")
+if payload["is_v4"]:
+    pathlib.Path(paths["kpm_xapp_config"]).write_text(payload["kpm_xapp_config"], encoding="utf-8")
+    if is_drax():
+        pathlib.Path(paths["ric_log"]).write_text("using external dRAX RIC provider\\n", encoding="utf-8")
+        reset_result = reset_drax_records()
+        pathlib.Path(paths["kpm_xapp_log"]).write_text(json.dumps({{"reset": reset_result}}, sort_keys=True) + "\\n", encoding="utf-8")
+        if not reset_result.get("ok"):
+            fail("e2_kpm_subscription", "dRAX KPM xApp reset API failed", reset_result)
 
-run(["docker", "rm", "-f", payload["gnb_container"], payload["ue_container"]])
+run(["docker", "rm", "-f", payload["gnb_container"], payload["ue_container"], payload["ric_container"], payload["kpm_xapp_container"], payload["e2_pcap_container"]])
 
 core = run(["docker", "compose", "-f", payload["compose"], "up", "-d"])
 pathlib.Path(paths["core_log"]).write_text(core.stdout + core.stderr, encoding="utf-8")
@@ -375,6 +644,38 @@ while time.monotonic() < deadline:
     time.sleep(1)
 if not core_healthy:
     fail("open5gs_core_health", "Open5GS healthcheck timed out")
+
+if payload["is_v4"] and not is_drax():
+    capture_cmd = "tcpdump -i lo -s 0 -w /stage/logs/e2ap_sctp.pcap 'sctp and port 36421' >/stage/logs/e2ap_tcpdump.log 2>&1"
+    capture = run([
+        "docker", "run", "-d", "--name", payload["e2_pcap_container"], "--network", "host",
+        "--cap-add", "NET_ADMIN", "--cap-add", "NET_RAW",
+        "-v", str(episode_dir) + ":/stage",
+        payload["flexric_image"], "bash", "-lc", capture_cmd,
+    ])
+    if capture.returncode != 0:
+        fail("e2_pcap_log_oracle", "E2AP tcpdump sidecar failed to start", {{"stderr": capture.stderr, "stdout": capture.stdout}})
+    time.sleep(0.5)
+    if port_listening(int(payload["ric_port"])):
+        fail("near_rt_ric_health", f"port {{payload['ric_port']}} is already listening")
+    ric_cmd = "flexric-ric >/stage/logs/ric.log 2>&1"
+    ric = run([
+        "docker", "run", "-d", "--name", payload["ric_container"], "--network", "host",
+        "-v", str(episode_dir) + ":/stage",
+        payload["flexric_image"], "bash", "-lc", ric_cmd,
+    ])
+    if ric.returncode != 0:
+        fail("near_rt_ric_health", "FlexRIC RIC container failed to start", {{"stderr": ric.stderr, "stdout": ric.stdout}})
+    deadline = time.monotonic() + int(payload["launch_timeout"])
+    while time.monotonic() < deadline:
+        if port_listening(int(payload["ric_port"])):
+            break
+        state = run(["docker", "inspect", "-f", "{{{{.State.Status}}}}", payload["ric_container"]])
+        if state.returncode == 0 and state.stdout.strip() == "exited":
+            fail("near_rt_ric_health", "FlexRIC RIC exited before readiness", {{"tail": read_tail(paths["ric_log"])}})
+        time.sleep(0.5)
+    else:
+        fail("near_rt_ric_health", "FlexRIC RIC readiness timed out", {{"tail": read_tail(paths["ric_log"])}})
 
 if port_listening(int(payload["ws_port"])):
     fail("ocudu_launch", f"port {{payload['ws_port']}} is already listening")
@@ -405,6 +706,21 @@ while time.monotonic() < deadline:
     time.sleep(0.5)
 else:
     fail("ocudu_launch", "gNB WebSocket readiness timed out")
+
+if payload["is_v4"]:
+    deadline = time.monotonic() + int(payload["launch_timeout"])
+    while time.monotonic() < deadline:
+        if e2_setup_seen():
+            break
+        state = run(["docker", "inspect", "-f", "{{{{.State.Status}}}}", payload["gnb_container"]])
+        ric_state = run(["docker", "inspect", "-f", "{{{{.State.Status}}}}", payload["ric_container"]]) if not is_drax() else None
+        if state.returncode == 0 and state.stdout.strip() == "exited":
+            fail("e2_setup_path", "gNB exited before E2 setup", {{"gnb_tail": read_tail(paths["gnb_log"]), "ric_tail": read_tail(paths["ric_log"])}})
+        if ric_state is not None and ric_state.returncode == 0 and ric_state.stdout.strip() == "exited":
+            fail("e2_setup_path", "RIC exited before E2 setup", {{"gnb_tail": read_tail(paths["gnb_log"]), "ric_tail": read_tail(paths["ric_log"])}})
+        time.sleep(1)
+    else:
+        fail("e2_setup_path", "E2 setup evidence timed out", {{"gnb_tail": read_tail(paths["gnb_log"]), "ric_tail": read_tail(paths["ric_log"])}})
 
 ue_cmd = (
     "mkdir -p /run/netns; ip netns add ue1 2>/dev/null || true; "
@@ -445,17 +761,61 @@ ping = run([
 if ping.returncode != 0:
     fail("ping_traffic_path", "ping command failed to start", {{"stderr": ping.stderr, "stdout": ping.stdout}})
 
+if payload["is_v4"] and not is_drax():
+    xapp_cmd = (
+        "XAPP=$({{ find /opt/flexric/build/examples /usr/local/bin -type f -path '*/monitor/xapp_oran_moni' -print 2>/dev/null; "
+        "find /opt/flexric/build/examples /usr/local/bin -type f -executable -iname '*oran*moni*' -print 2>/dev/null; }} | head -1); "
+        "if [ -z \\"$XAPP\\" ]; then echo 'no KPM monitor xApp found' >&2; exit 66; fi; "
+        "CONF=/stage/configs/xapp_mon_e2sm_kpm.conf; "
+        "echo xapp=$XAPP conf=$CONF > /stage/logs/kpm_xapp_command.txt; "
+        "stdbuf -oL -eL $XAPP -c $CONF >/stage/logs/kpm_xapp.log 2>&1"
+    )
+    xapp = run([
+        "docker", "run", "-d", "--name", payload["kpm_xapp_container"], "--network", "host",
+        "-v", str(episode_dir) + ":/stage",
+        payload["flexric_image"], "bash", "-lc", xapp_cmd,
+    ])
+    if xapp.returncode != 0:
+        fail("e2_kpm_subscription", "KPM xApp container failed to start", {{"stderr": xapp.stderr, "stdout": xapp.stdout}})
+    deadline = time.monotonic() + max(float(payload["probe_timeout"]) * 3, 10.0)
+    while time.monotonic() < deadline:
+        records = parse_kpm_records()
+        if len(records) >= 3:
+            break
+        state = run(["docker", "inspect", "-f", "{{{{.State.Status}}}}", payload["kpm_xapp_container"]])
+        if state.returncode == 0 and state.stdout.strip() == "exited" and not records:
+            fail("e2_kpm_subscription", "KPM xApp exited before indications", {{"tail": read_tail(paths["kpm_xapp_log"])}})
+        time.sleep(1)
+    oracle = write_e2_oracle()
+    if oracle["kpm_indications"] < 3:
+        fail("e2_kpm_subscription", "KPM xApp did not produce at least 3 indication records", {{"oracle": oracle, "tail": read_tail(paths["kpm_xapp_log"])}})
+elif payload["is_v4"] and is_drax():
+    deadline = time.monotonic() + max(float(payload["probe_timeout"]) * 3, 10.0)
+    while time.monotonic() < deadline:
+        oracle = write_e2_oracle()
+        if oracle["kpm_indications"] >= 3:
+            break
+        time.sleep(1)
+    if oracle["kpm_indications"] < 3:
+        fail("e2_kpm_subscription", "dRAX KPM xApp API did not produce at least 3 records", {{"oracle": oracle}})
+
 containers = {{
     "open5gs_container": "skillful_ran_5gc",
     "gnb_container": payload["gnb_container"],
     "ue_container": payload["ue_container"],
+    "ric_provider": payload.get("ric_provider"),
+    "ric_container": payload["ric_container"] if payload["is_v4"] and not is_drax() else None,
+    "kpm_xapp_container": payload["kpm_xapp_container"] if payload["is_v4"] and not is_drax() else None,
+    "e2_pcap_container": payload["e2_pcap_container"] if payload["is_v4"] and not is_drax() else None,
     "ws_port": payload["ws_port"],
+    "ric_port": payload["ric_port"] if payload["is_v4"] and not is_drax() else None,
+    "drax_kpm_api_url": payload.get("drax_kpm_api_url") if is_drax() else None,
     "started_at": time.time(),
 }}
 pathlib.Path(paths["containers"]).write_text(json.dumps(containers, indent=2, sort_keys=True), encoding="utf-8")
 print(json.dumps({{
     "status": "ok",
-    "stage": "v3_episode",
+    "stage": "v4_episode" if payload["is_v4"] else "v3_episode",
     "summary": "Docker e2e episode is running",
     "containers": containers,
     "paths": paths,
@@ -470,6 +830,9 @@ print(json.dumps({{
         options = self._require_options()
         payload = {
             "run_id": options.run_id,
+            "task": options.task,
+            "ric_provider": self.remote.config.ric_provider,
+            "drax_kpm_api_url": self.remote.config.drax.kpm_api_url.rstrip("/"),
             "paths": self.paths,
             "ws_port": options.ws_port,
             "timeout": options.probe_timeout,
@@ -479,8 +842,18 @@ print(json.dumps({{
 import json
 import pathlib
 import time
+import urllib.parse
+import urllib.request
 payload = json.loads({json.dumps(json.dumps(payload))})
-paths = payload["paths"]
+
+def expand_remote_path(value):
+    if value == "~":
+        return str(pathlib.Path.home())
+    if isinstance(value, str) and value.startswith("~/"):
+        return str(pathlib.Path.home() / value[2:])
+    return value
+
+paths = {{key: expand_remote_path(value) for key, value in payload["paths"].items()}}
 
 def parse_ping(text):
     import re
@@ -500,6 +873,35 @@ def parse_ping(text):
         "loss_percent": loss,
         "success_ratio": (received / transmitted) if transmitted else (1.0 if replies else 0.0),
     }}
+
+def is_drax():
+    return payload.get("ric_provider") == "drax-existing"
+
+def read_tail(path, limit=4000):
+    p = pathlib.Path(path)
+    return p.read_text(encoding="utf-8", errors="replace")[-limit:] if p.exists() else ""
+
+def file_size(path):
+    item = pathlib.Path(path)
+    return item.stat().st_size if item.exists() else 0
+
+def e2_setup_seen():
+    text = (read_tail(paths["ric_log"], 12000) + "\\n" + read_tail(paths["gnb_log"], 12000)).lower()
+    return "e2" in text and ("setup" in text or "connected" in text or "ric" in text)
+
+def fetch_drax_records():
+    base = payload.get("drax_kpm_api_url") or ""
+    if not base:
+        return {{"records": [], "count": 0, "error": "drax.kpm-api-url is not configured"}}
+    query = urllib.parse.urlencode({{"run_id": payload["run_id"]}})
+    try:
+        with urllib.request.urlopen(base + "/records?" + query, timeout=float(payload["timeout"])) as response:
+            body = response.read().decode("utf-8", errors="replace")
+        decoded = json.loads(body)
+        records = decoded.get("records", []) if isinstance(decoded, dict) else []
+        return {{"records": records, "count": int(decoded.get("count", len(records))) if isinstance(decoded, dict) else len(records), "raw": decoded}}
+    except Exception as exc:
+        return {{"records": [], "count": 0, "error": str(exc)}}
 
 ping_text = pathlib.Path(paths["ping_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["ping_log"]).exists() else ""
 metric = None
@@ -542,18 +944,75 @@ metrics = {{
     "raw": metric,
     "error": metric_error,
 }}
+e2_oracle = {{}}
+e2_records = []
+if payload["task"] == "e2_kpm_prb_ping_v1":
+    if is_drax():
+        fetched = fetch_drax_records()
+        records = fetched.get("records", [])
+        with open(paths["e2_kpm_raw"], "w", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, sort_keys=True) + "\\n")
+        existing = {{}}
+        oracle_path = pathlib.Path(paths["e2_oracle"])
+        if oracle_path.exists():
+            try:
+                existing = json.loads(oracle_path.read_text(encoding="utf-8", errors="replace"))
+            except json.JSONDecodeError:
+                existing = {{}}
+        e2_setup = bool(existing.get("e2_setup_seen", False)) or e2_setup_seen()
+        pcap_available = bool(existing.get("pcap_available", False))
+        raw_kpm_available = file_size(paths["e2_kpm_raw"]) > 0
+        log_available = bool(existing.get("log_available", False)) or (file_size(paths["gnb_log"]) > 0 and raw_kpm_available)
+        e2_oracle = {{
+            "provider": payload.get("ric_provider"),
+            "e2_setup_seen": e2_setup,
+            "kpm_indications": len(records),
+            "last_kpm": records[-1] if records else None,
+            "drax_api": fetched,
+            "pcap_available": pcap_available,
+            "log_available": log_available,
+            "raw_kpm_available": raw_kpm_available,
+            "oracle_available": e2_setup and len(records) >= 3 and not fetched.get("error") and (pcap_available or log_available),
+        }}
+        oracle_path.write_text(json.dumps(e2_oracle, indent=2, sort_keys=True), encoding="utf-8")
+    oracle_path = pathlib.Path(paths["e2_oracle"])
+    if oracle_path.exists():
+        try:
+            e2_oracle = json.loads(oracle_path.read_text(encoding="utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            e2_oracle = {{"decode_error": True}}
+    raw_path = pathlib.Path(paths["e2_kpm_raw"])
+    if raw_path.exists():
+        for line in raw_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line.strip():
+                continue
+            try:
+                e2_records.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
 observation = {{
-    "type": "ws_prb_ping_v1",
+    "type": payload["task"],
     "timestamp": time.time(),
     "ping": parse_ping(ping_text),
     "metrics": metrics,
+    "e2": {{
+        "enabled": payload["task"] == "e2_kpm_prb_ping_v1",
+        "kpm_indications": int(e2_oracle.get("kpm_indications", len(e2_records)) or 0),
+        "last_kpm": e2_oracle.get("last_kpm") or (e2_records[-1] if e2_records else None),
+        "oracle_available": bool(e2_oracle.get("oracle_available")),
+        "pcap_available": bool(e2_oracle.get("pcap_available")),
+        "log_available": bool(e2_oracle.get("log_available")),
+        "raw_path": paths["e2_kpm_raw"] if payload["task"] == "e2_kpm_prb_ping_v1" else None,
+    }},
     "last_action": last_action,
-    "backend": {{"websocket": metric_error is None, "ping": bool(ping_text)}},
+    "backend": {{"websocket": metric_error is None, "ping": bool(ping_text), "e2_kpm": bool(e2_oracle.get("oracle_available"))}},
 }}
 record = {{"run_id": payload["run_id"], "state": "running", "observation": observation}}
 with open(paths["observations"], "a", encoding="utf-8") as handle:
     handle.write(json.dumps(record, sort_keys=True) + "\\n")
-print(json.dumps({{"status": "ok", "stage": "v3_episode", "run_id": payload["run_id"], "state": "running", "observation": observation}}))
+stage = "v4_episode" if payload["task"] == "e2_kpm_prb_ping_v1" else "v3_episode"
+print(json.dumps({{"status": "ok", "stage": stage, "run_id": payload["run_id"], "state": "running", "observation": observation}}))
 """
         return self._remote_json(script)
 
@@ -582,6 +1041,7 @@ print(json.dumps({{"status": "ok", "stage": "v3_episode", "run_id": payload["run
             }
         payload = {
             "run_id": options.run_id,
+            "task": options.task,
             "paths": self.paths,
             "ws_port": options.ws_port,
             "timeout": options.probe_timeout,
@@ -590,9 +1050,17 @@ print(json.dumps({{"status": "ok", "stage": "v3_episode", "run_id": payload["run
         script = self._websocket_client_remote_source()
         script += f"""
 import json
+import pathlib
 import time
 payload = json.loads({json.dumps(json.dumps(payload))})
 record = payload["record"]
+def expand_remote_path(value):
+    if value == "~":
+        return str(pathlib.Path.home())
+    if isinstance(value, str) and value.startswith("~/"):
+        return str(pathlib.Path.home() / value[2:])
+    return value
+paths = {{key: expand_remote_path(value) for key, value in payload["paths"].items()}}
 try:
     with WebSocketClient("127.0.0.1", int(payload["ws_port"]), timeout=float(payload["timeout"])) as client:
         client.send_text(json.dumps(record["request"]))
@@ -606,11 +1074,11 @@ try:
 except Exception as exc:
     record["reason"] = str(exc)
 record["completed_at"] = time.time()
-with open(payload["paths"]["actions"], "a", encoding="utf-8") as handle:
+with open(paths["actions"], "a", encoding="utf-8") as handle:
     handle.write(json.dumps(record, sort_keys=True) + "\\n")
 print(json.dumps({{
     "status": "ok" if record["accepted"] else "rejected",
-    "stage": "v3_episode",
+    "stage": "v4_episode" if payload["task"] == "e2_kpm_prb_ping_v1" else "v3_episode",
     "run_id": payload["run_id"],
     "accepted": record["accepted"],
     "reason": record["reason"],
@@ -627,11 +1095,17 @@ print(json.dumps({{
         suffix = container_suffix(run_id)
         payload = {
             "run_id": run_id,
+            "task": self.options.task if self.options is not None else TASK_WS_PRB_PING_V1,
+            "ric_provider": self.remote.config.ric_provider,
             "paths": paths,
-            "compose": OPEN5GS_COMPOSE,
+            "compose": self.remote.config.runtime.open5gs_compose,
             "gnb_container": f"skillful-ran-bench-gnb-{suffix}",
             "ue_container": f"skillful-ran-bench-ue-{suffix}",
+            "ric_container": f"{FLEXRIC_CONTAINER_PREFIX}-{suffix}",
+            "kpm_xapp_container": f"{KPM_XAPP_CONTAINER_PREFIX}-{suffix}",
+            "e2_pcap_container": f"{E2_PCAP_CONTAINER_PREFIX}-{suffix}",
             "ws_port": self.options.ws_port if self.options is not None else DEFAULT_WS_PORT,
+            "ric_port": RIC_PORT if self.remote.config.ric_provider == RIC_PROVIDER_FLEXRIC else None,
         }
         return self._remote_json(
             f"""
@@ -640,33 +1114,40 @@ import pathlib
 import subprocess
 import time
 payload = json.loads({json.dumps(json.dumps(payload))})
-paths = payload["paths"]
+def expand_remote_path(value):
+    if value == "~":
+        return str(pathlib.Path.home())
+    if isinstance(value, str) and value.startswith("~/"):
+        return str(pathlib.Path.home() / value[2:])
+    return value
+paths = {{key: expand_remote_path(value) for key, value in payload["paths"].items()}}
+payload["compose"] = expand_remote_path(payload["compose"])
 commands = []
 def run(argv):
     proc = subprocess.run(argv, check=False, text=True, capture_output=True)
     commands.append({{"argv": argv, "returncode": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}})
     return proc
 def port_listening(port):
-    proc = run(["ss", "-ltn"])
+    proc = run(["ss", "-ln"])
     if proc.returncode != 0:
         return None
     token = ":" + str(port)
     for line in proc.stdout.splitlines()[1:]:
-        parts = line.split()
-        if len(parts) >= 4 and parts[3].endswith(token):
+        if any(part.endswith(token) for part in line.split()):
             return True
     return False
 run(["docker", "exec", payload["ue_container"], "bash", "-lc", "pkill -f 'ping.*10.45.1.1' || true"])
 time.sleep(0.5)
-run(["docker", "rm", "-f", payload["gnb_container"], payload["ue_container"]])
+run(["docker", "rm", "-f", payload["gnb_container"], payload["ue_container"], payload["ric_container"], payload["kpm_xapp_container"], payload["e2_pcap_container"]])
 run(["docker", "compose", "-f", payload["compose"], "down"])
 ps = run(["docker", "ps", "-a", "--format", "{{{{.Names}}}}"])
 leftover = []
 if ps.returncode == 0:
     names = [line.strip() for line in ps.stdout.splitlines() if line.strip()]
-    wanted = {{payload["gnb_container"], payload["ue_container"], "skillful_ran_5gc"}}
+    wanted = {{payload["gnb_container"], payload["ue_container"], payload["ric_container"], payload["kpm_xapp_container"], payload["e2_pcap_container"], "skillful_ran_5gc"}}
     leftover = [name for name in names if name in wanted]
 port_open = port_listening(int(payload.get("ws_port", 8001)))
+ric_port_open = port_listening(int(payload["ric_port"])) if payload["task"] == "e2_kpm_prb_ping_v1" and payload.get("ric_port") else False
 errors = []
 if ps.returncode != 0:
     errors.append("unable to inspect docker containers")
@@ -676,6 +1157,8 @@ if leftover:
     errors.append("leftover containers: " + ", ".join(leftover))
 if port_open:
     errors.append("WebSocket port is still listening")
+if ric_port_open:
+    errors.append("RIC port is still listening")
 status = "error" if errors else "ok"
 result = {{
     "status": status,
@@ -683,6 +1166,7 @@ result = {{
     "commands": commands,
     "leftover_containers": leftover,
     "ws_port_open": port_open,
+    "ric_port_open": ric_port_open,
     "errors": errors,
     "completed_at": time.time(),
 }}
@@ -696,6 +1180,9 @@ print(json.dumps(result))
         options = self._require_options()
         payload = {
             "run_id": options.run_id,
+            "task": options.task,
+            "ric_provider": self.remote.config.ric_provider,
+            "drax_kpm_api_url": self.remote.config.drax.kpm_api_url.rstrip("/"),
             "paths": self.paths,
             "unscored_reason": unscored_reason,
             "cleanup_success": cleanup_success,
@@ -705,8 +1192,16 @@ print(json.dumps(result))
 import json
 import pathlib
 import re
+import urllib.parse
+import urllib.request
 payload = json.loads({json.dumps(json.dumps(payload))})
-paths = payload["paths"]
+def expand_remote_path(value):
+    if value == "~":
+        return str(pathlib.Path.home())
+    if isinstance(value, str) and value.startswith("~/"):
+        return str(pathlib.Path.home() / value[2:])
+    return value
+paths = {{key: expand_remote_path(value) for key, value in payload["paths"].items()}}
 def read_jsonl(path):
     p = pathlib.Path(path)
     if not p.exists():
@@ -737,6 +1232,81 @@ def parse_ping(text):
         "loss_percent": loss,
         "success_ratio": (received / transmitted) if transmitted else (1.0 if replies else 0.0),
     }}
+def parse_kpm_records(text):
+    records = []
+    current = None
+    for index, line in enumerate(text.splitlines(), start=1):
+        if re.search(r"\\bKPM v\\d+\\s+ind_msg\\b", line, flags=re.IGNORECASE):
+            if current is not None:
+                records.append(current)
+            current = {{"line_no": index, "text": line[-1000:], "measurements": []}}
+        elif current is not None and re.search(r"\\bmeas record\\b", line, flags=re.IGNORECASE):
+            current["measurements"].append({{"line_no": index, "text": line[-1000:]}})
+    if current is not None:
+        records.append(current)
+    return records
+def file_size(path):
+    item = pathlib.Path(path)
+    return item.stat().st_size if item.exists() else 0
+def fetch_drax_records():
+    base = payload.get("drax_kpm_api_url") or ""
+    if not base:
+        return {{"records": [], "count": 0, "error": "drax.kpm-api-url is not configured"}}
+    query = urllib.parse.urlencode({{"run_id": payload["run_id"]}})
+    try:
+        with urllib.request.urlopen(base + "/records?" + query, timeout=5.0) as response:
+            body = response.read().decode("utf-8", errors="replace")
+        decoded = json.loads(body)
+        records = decoded.get("records", []) if isinstance(decoded, dict) else []
+        return {{"records": records, "count": int(decoded.get("count", len(records))) if isinstance(decoded, dict) else len(records), "raw": decoded}}
+    except Exception as exc:
+        return {{"records": [], "count": 0, "error": str(exc)}}
+def build_e2_oracle(paths, task):
+    if task != "e2_kpm_prb_ping_v1":
+        return {{}}
+    ric_text = pathlib.Path(paths["ric_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["ric_log"]).exists() else ""
+    gnb_text = pathlib.Path(paths["gnb_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["gnb_log"]).exists() else ""
+    xapp_text = pathlib.Path(paths["kpm_xapp_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["kpm_xapp_log"]).exists() else ""
+    if payload.get("ric_provider") == "drax-existing":
+        fetched = fetch_drax_records()
+        records = fetched.get("records", [])
+    else:
+        fetched = {{}}
+        records = parse_kpm_records(xapp_text)
+    with open(paths["e2_kpm_raw"], "w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, sort_keys=True) + "\\n")
+    pcap_sizes = {{
+        "du": file_size(paths["e2ap_du_pcap"]),
+        "cu_cp": file_size(paths["e2ap_cu_cp_pcap"]),
+        "sctp_capture": file_size(paths["e2ap_sctp_pcap"]),
+    }}
+    lower = (ric_text + "\\n" + gnb_text).lower()
+    e2_setup_seen = "e2" in lower and ("setup" in lower or "connected" in lower or "ric" in lower)
+    pcap_available = any(size > 0 for size in pcap_sizes.values())
+    raw_kpm_available = file_size(paths["e2_kpm_raw"]) > 0
+    log_available = file_size(paths["gnb_log"]) > 0 and (
+        raw_kpm_available if payload.get("ric_provider") == "drax-existing" else file_size(paths["kpm_xapp_log"]) > 0
+    )
+    oracle_available = (
+        e2_setup_seen
+        and len(records) >= 3
+        and (pcap_available or (payload.get("ric_provider") == "drax-existing" and log_available))
+    )
+    oracle = {{
+        "provider": payload.get("ric_provider"),
+        "e2_setup_seen": e2_setup_seen,
+        "kpm_indications": len(records),
+        "last_kpm": records[-1] if records else None,
+        "drax_api": fetched,
+        "pcap_sizes": pcap_sizes,
+        "pcap_available": pcap_available,
+        "log_available": log_available,
+        "raw_kpm_available": raw_kpm_available,
+        "oracle_available": oracle_available,
+    }}
+    pathlib.Path(paths["e2_oracle"]).write_text(json.dumps(oracle, indent=2, sort_keys=True), encoding="utf-8")
+    return oracle
 ping_text = pathlib.Path(paths["ping_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["ping_log"]).exists() else ""
 actions = read_jsonl(paths["actions"])
 observations = read_jsonl(paths["observations"])
@@ -749,9 +1319,13 @@ metrics_frames = [
     if item.get("observation", {{}}).get("metrics", {{}}).get("present") or item.get("metrics", {{}}).get("present")
 ]
 ping = parse_ping(ping_text)
+e2_oracle = build_e2_oracle(paths, payload["task"])
+e2_required = payload["task"] == "e2_kpm_prb_ping_v1"
 unscored_reason = payload["unscored_reason"]
 cleanup_success = bool(payload["cleanup_success"])
 scored = (not unscored_reason) and bool(valid_actions) and ping.get("packets_received", 0) > 0 and bool(metrics_frames) and cleanup_success
+if e2_required and (e2_oracle.get("kpm_indications", 0) < 3 or not e2_oracle.get("oracle_available")):
+    scored = False
 if not scored and unscored_reason is None:
     if not cleanup_success:
         unscored_reason = "cleanup failed"
@@ -761,10 +1335,14 @@ if not scored and unscored_reason is None:
         unscored_reason = "no successful ping replies"
     elif not metrics_frames:
         unscored_reason = "no metrics observations"
+    elif e2_required and e2_oracle.get("kpm_indications", 0) < 3:
+        unscored_reason = "insufficient E2 KPM indications"
+    elif e2_required and not e2_oracle.get("oracle_available"):
+        unscored_reason = "E2 oracle unavailable"
 summary = {{
     "status": "ok",
-    "stage": "v3_episode",
-    "task": "ws_prb_ping_v1",
+    "stage": "v4_episode" if payload["task"] == "e2_kpm_prb_ping_v1" else "v3_episode",
+    "task": payload["task"],
     "run_id": payload["run_id"],
     "scored": scored,
     "unscored_reason": None if scored else unscored_reason,
@@ -773,6 +1351,8 @@ summary = {{
         "invalid_local_rejection_correctness": (len(rejected_invalid) / len(invalid_actions)) if invalid_actions else 1.0,
         "ping_success_ratio": ping.get("success_ratio", 0.0),
         "metrics_continuity": len(metrics_frames),
+        "e2_kpm_continuity": e2_oracle.get("kpm_indications", 0),
+        "e2_oracle_available": bool(e2_oracle.get("oracle_available")),
         "clean_teardown": cleanup_success,
     }},
     "counts": {{
@@ -783,8 +1363,10 @@ summary = {{
         "locally_rejected_invalid_actions": len(rejected_invalid),
         "observations": len(observations),
         "metrics_frames": len(metrics_frames),
+        "e2_kpm_indications": e2_oracle.get("kpm_indications", 0),
     }},
     "ping": ping,
+    "e2_oracle": e2_oracle,
     "artifacts": paths,
 }}
 pathlib.Path(paths["summary"]).write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
@@ -895,8 +1477,15 @@ print(json.dumps(summary))
 import json
 import pathlib
 payload = json.loads({json.dumps(json.dumps(payload))})
-pathlib.Path(payload["path"]).parent.mkdir(parents=True, exist_ok=True)
-with open(payload["path"], "a", encoding="utf-8") as handle:
+def expand_remote_path(value):
+    if value == "~":
+        return str(pathlib.Path.home())
+    if isinstance(value, str) and value.startswith("~/"):
+        return str(pathlib.Path.home() / value[2:])
+    return value
+path = expand_remote_path(payload["path"])
+pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+with open(path, "a", encoding="utf-8") as handle:
     handle.write(json.dumps(payload["record"], sort_keys=True) + "\\n")
 print(json.dumps({{"status": "ok"}}))
 """

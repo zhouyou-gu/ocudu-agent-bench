@@ -1,0 +1,31 @@
+services:
+  5gc:
+    container_name: skillful_ran_5gc
+    build:
+      context: ./open5gs
+      target: open5gs
+      args:
+        OS_VERSION: "22.04"
+        OPEN5GS_VERSION: "v2.7.0"
+    image: skillful-ran/open5gs:v2.7.0
+    env_file:
+      - ./open5gs/open5gs.env
+    privileged: true
+    ports:
+      - "9999:9999/tcp"
+    command: 5gc -c open5gs-5gc.yml
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.20 7777"]
+      interval: 3s
+      timeout: 1s
+      retries: 60
+    networks:
+      ran:
+        ipv4_address: 10.53.1.2
+
+networks:
+  ran:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.53.1.0/24

@@ -160,6 +160,96 @@
       "status": "stub",
       "executable": false,
       "launch_required": false
+    },
+    {
+      "id": "flexric_docker_assets",
+      "name": "Dockerized FlexRIC assets",
+      "backend": "e2_kpm",
+      "stage": "v4",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": false
+    },
+    {
+      "id": "near_rt_ric_health",
+      "name": "Near-RT RIC health",
+      "backend": "e2_kpm",
+      "stage": "v4",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": true
+    },
+    {
+      "id": "drax_cluster_access",
+      "name": "dRAX cluster access",
+      "backend": "e2_kpm",
+      "stage": "v4b",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": false
+    },
+    {
+      "id": "drax_e2_endpoint_config",
+      "name": "dRAX E2 endpoint config",
+      "backend": "e2_kpm",
+      "stage": "v4b",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": false
+    },
+    {
+      "id": "drax_kpm_xapp_api",
+      "name": "dRAX KPM xApp API",
+      "backend": "e2_kpm",
+      "stage": "v4b",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": false
+    },
+    {
+      "id": "ocudu_e2_config",
+      "name": "OCUDU E2 KPM overlay config",
+      "backend": "e2_kpm",
+      "stage": "v4",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": false
+    },
+    {
+      "id": "e2_setup_path",
+      "name": "E2 setup path",
+      "backend": "e2_kpm",
+      "stage": "v4",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": true
+    },
+    {
+      "id": "e2_kpm_subscription",
+      "name": "E2 KPM subscription",
+      "backend": "e2_kpm",
+      "stage": "v4",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": true
+    },
+    {
+      "id": "e2_pcap_log_oracle",
+      "name": "E2 PCAP and log oracle",
+      "backend": "pcap_log",
+      "stage": "v4",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": true
     }
   ]
 }

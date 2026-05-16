@@ -28,12 +28,15 @@ from benchmark.benchmark_api.episode import (
     DEFAULT_LAUNCH_TIMEOUT as DEFAULT_EPISODE_LAUNCH_TIMEOUT,
     DEFAULT_PROBE_TIMEOUT as DEFAULT_EPISODE_PROBE_TIMEOUT,
     DEFAULT_WS_PORT as DEFAULT_EPISODE_WS_PORT,
+    TASK_E2_KPM_PRB_PING_V1,
     TASK_WS_PRB_PING_V1,
     cleanup_episode,
     episode_exit_code,
     run_episode,
 )
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
+from benchmark.benchmark_api.provision import PROVISION_STAGE_CHOICES
+from benchmark.benchmark_api.ric import v4_checks_for_provider
 from benchmark.benchmark_api.suite import BUILTIN_AGENTS, run_suite, suite_exit_code
 
 
@@ -43,6 +46,14 @@ V3_EPISODE_GATE_CHECKS = {
     "srsue_zmq_attach",
     "ping_traffic_path",
     "websocket_prb_policy_action",
+}
+V4_EPISODE_GATE_CHECKS = {
+    "flexric_docker_assets",
+    "near_rt_ric_health",
+    "ocudu_e2_config",
+    "e2_setup_path",
+    "e2_kpm_subscription",
+    "e2_pcap_log_oracle",
 }
 
 
@@ -93,6 +104,20 @@ def cmd_remote_deps(args: argparse.Namespace) -> int:
     return 0 if result.get("status") == "ok" else 1
 
 
+def cmd_remote_ric_prepare(args: argparse.Namespace) -> int:
+    manager = remote_manager(args)
+    result = manager.prepare_ric(dry_run=args.dry_run, force=args.force)
+    emit(result, args.json)
+    return 0 if result.get("status") == "ok" else 1
+
+
+def cmd_remote_provision(args: argparse.Namespace) -> int:
+    manager = remote_manager(args)
+    result = manager.provision(stage=args.stage, dry_run=args.dry_run, force=args.force)
+    emit(result, args.json)
+    return 0 if result.get("status") == "ok" else 1
+
+
 def cmd_remote_exec(args: argparse.Namespace) -> int:
     command = args.command
     if command and command[0] == "--":
@@ -137,13 +162,16 @@ def cmd_conformance_run(args: argparse.Namespace) -> int:
 def cmd_episode_run(args: argparse.Namespace) -> int:
     manager = remote_manager(args)
     conformance: dict[str, Any] | None = None
+    stage = "v4_episode" if args.task == TASK_E2_KPM_PRB_PING_V1 else "v3_episode"
     if not args.skip_conformance:
+        provider = getattr(getattr(manager, "config", None), "ric_provider", "flexric")
+        checks = v4_checks_for_provider(provider) if args.task == TASK_E2_KPM_PRB_PING_V1 else V3_EPISODE_GATE_CHECKS
         conformance = run_conformance(
             remote=manager,
             repo_root=ROOT,
             specs_path=ROOT / "benchmark" / "conformance" / "tests.json",
             run_id=f"{args.run_id}-gate" if args.run_id else None,
-            checks=V3_EPISODE_GATE_CHECKS,
+            checks=checks,
             ws_port=args.ws_port,
             launch_timeout=args.launch_timeout,
             probe_timeout=args.probe_timeout,
@@ -151,7 +179,7 @@ def cmd_episode_run(args: argparse.Namespace) -> int:
         if conformance.get("status") != "pass":
             result = {
                 "status": "error",
-                "stage": "v3_episode",
+                "stage": stage,
                 "task": args.task,
                 "run_id": args.run_id,
                 "scored": False,
@@ -240,6 +268,26 @@ def build_parser() -> argparse.ArgumentParser:
     deps.add_argument("--dry-run", action="store_true", help="Show planned dependency preparation without executing it")
     deps.set_defaults(func=cmd_remote_deps)
 
+    ric_prepare = remote_sub.add_parser("ric-prepare", help="Build or verify the Dockerized FlexRIC benchmark image")
+    ric_prepare.add_argument("--config", default=".config", help="Path to local remote config")
+    ric_prepare.add_argument("--json", action="store_true", help="Emit JSON output")
+    ric_prepare.add_argument("--dry-run", action="store_true", help="Show planned Docker build without executing it")
+    ric_prepare.add_argument("--force", action="store_true", help="Rebuild the FlexRIC image even when a manifest exists")
+    ric_prepare.set_defaults(func=cmd_remote_ric_prepare)
+
+    provision = remote_sub.add_parser("provision", help="Provision a self-contained remote benchmark workspace")
+    provision.add_argument("--config", default=".config", help="Path to local remote config")
+    provision.add_argument("--json", action="store_true", help="Emit JSON output")
+    provision.add_argument("--dry-run", action="store_true", help="Show planned provisioning commands without executing them")
+    provision.add_argument("--force", action="store_true", help="Rebuild/rewrite provisioned workspace artifacts")
+    provision.add_argument(
+        "--stage",
+        choices=PROVISION_STAGE_CHOICES,
+        default="all",
+        help="Provisioning stage to run",
+    )
+    provision.set_defaults(func=cmd_remote_provision)
+
     exec_parser = remote_sub.add_parser("exec", help="Run a command in the remote benchmark workspace")
     exec_parser.add_argument("--config", default=".config", help="Path to local remote config")
     exec_parser.add_argument("--json", action="store_true", help="Emit JSON output")
@@ -299,7 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
     episode_run.add_argument(
         "--skip-conformance",
         action="store_true",
-        help="Run without the required v3 conformance gate and mark the run unscored",
+        help="Run without the required task conformance gate and mark the run unscored",
     )
     episode_run.set_defaults(func=cmd_episode_run)
 
@@ -342,7 +390,7 @@ def build_parser() -> argparse.ArgumentParser:
     episode_suite.add_argument(
         "--skip-conformance",
         action="store_true",
-        help="Run without the required v3 conformance gate and mark the suite unscored",
+        help="Run without the required task conformance gate and mark the suite unscored",
     )
     episode_suite.set_defaults(func=cmd_episode_suite)
 
