@@ -1564,6 +1564,8 @@ if payload["is_v4"]:
     pathlib.Path(paths["kpm_xapp_config"]).write_text(payload["kpm_xapp_config"], encoding="utf-8")
 
 run(["docker", "rm", "-f", payload["gnb_container"], payload["ue_container"], payload["ric_container"], payload["kpm_xapp_container"], payload["e2_pcap_container"]])
+run(["docker", "compose", "-f", payload["compose"], "down", "--remove-orphans"])
+run(["docker", "network", "rm", "compose_ran"])
 
 core = run(["docker", "compose", "-f", payload["compose"], "up", "-d"])
 pathlib.Path(paths["core_log"]).write_text(core.stdout + core.stderr, encoding="utf-8")
@@ -2401,7 +2403,8 @@ run([
     payload["e2_pcap_container"],
     *e2_control_containers,
 ])
-run(["docker", "compose", "-f", payload["compose"], "down"])
+run(["docker", "compose", "-f", payload["compose"], "down", "--remove-orphans"])
+run(["docker", "network", "rm", "compose_ran"])
 ps = run(["docker", "ps", "-a", "--format", "{{{{.Names}}}}"])
 leftover = []
 if ps.returncode == 0:

@@ -735,6 +735,7 @@ class EpisodeTests(unittest.TestCase):
         self.assertIn("e2_pcap_container", scripts[0])
         self.assertIn("e2ap_sctp.pcap", scripts[0])
         self.assertIn("scenario.json", scripts[0])
+        self.assertIn('"docker", "network", "rm", "compose_ran"', scripts[0])
         self.assertNotIn("/home/", scripts[0])
 
     def test_latest_decision_context_surfaces_snapshot_errors(self) -> None:
@@ -803,6 +804,7 @@ class EpisodeTests(unittest.TestCase):
         self.assertIn("e2_control_container_prefix", scripts[0])
         self.assertIn("e2_control_containers_removed", scripts[0])
         self.assertIn("startswith(payload[\"e2_control_container_prefix\"])", scripts[0])
+        self.assertIn('"docker", "network", "rm", "compose_ran"', scripts[0])
         self.assertIn("status = \"error\" if errors else \"ok\"", scripts[0])
 
     def test_e2_control_dispatch_script_quotes_remote_args_at_remote_runtime(self) -> None:
