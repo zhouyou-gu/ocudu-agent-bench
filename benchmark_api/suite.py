@@ -270,6 +270,63 @@ def has_e2_evidence(frame: dict[str, Any]) -> bool:
     )
 
 
+def aggregate_numeric_values(values: list[Any]) -> dict[str, float | int | None]:
+    numeric = [float(value) for value in values if isinstance(value, (int, float, bool))]
+    return {
+        "mean": (sum(numeric) / len(numeric)) if numeric else None,
+        "min": min(numeric) if numeric else None,
+        "max": max(numeric) if numeric else None,
+        "count": len(numeric),
+    }
+
+
+def aggregate_map(summaries: list[dict[str, Any]], field: str) -> dict[str, dict[str, float | int | None]]:
+    keys = sorted({key for summary in summaries for key in summary.get(field, {})})
+    return {
+        key: aggregate_numeric_values([summary.get(field, {}).get(key) for summary in summaries])
+        for key in keys
+    }
+
+
+def aggregate_efficiency(summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    timing_keys = sorted(
+        {
+            key
+            for summary in summaries
+            for key in summary.get("efficiency", {}).get("timing", {})
+        }
+    )
+    token_keys = sorted(
+        {
+            key
+            for summary in summaries
+            for key in summary.get("efficiency", {}).get("tokens", {})
+            if key not in {"provider", "model"}
+        }
+    )
+    return {
+        "timing": {
+            key: aggregate_numeric_values(
+                [summary.get("efficiency", {}).get("timing", {}).get(key) for summary in summaries]
+            )
+            for key in timing_keys
+        },
+        "tokens": {
+            key: aggregate_numeric_values(
+                [summary.get("efficiency", {}).get("tokens", {}).get(key) for summary in summaries]
+            )
+            for key in token_keys
+        },
+    }
+
+
+def episode_success_value(summary: dict[str, Any]) -> float:
+    value = summary.get("episode_success")
+    if isinstance(value, (int, float, bool)):
+        return float(value)
+    return 1.0 if summary.get("scored") else 0.0
+
+
 def aggregate_suite(
     options: SuiteOptions,
     conformance: dict[str, Any],
@@ -280,6 +337,9 @@ def aggregate_suite(
     summaries = [result.get("summary", {}) for result in run_results]
     scored = [summary for summary in summaries if summary.get("scored")]
     unscored = [summary for summary in summaries if not summary.get("scored")]
+    component_summaries = [
+        summary for summary in summaries if summary.get("scored") or summary.get("failure_category") == "agent"
+    ]
     score_keys = sorted({key for summary in summaries for key in summary.get("scores", {})})
     aggregate_scores: dict[str, dict[str, float | int | None]] = {}
     for key in score_keys:
@@ -291,6 +351,9 @@ def aggregate_suite(
             "max": max(numeric) if numeric else None,
             "count": len(numeric),
         }
+    aggregate_components = aggregate_map(component_summaries, "score_components")
+    aggregate_efficiency_data = aggregate_efficiency(summaries)
+    episode_success_values = [episode_success_value(summary) for summary in summaries]
 
     cleanup_failures = [
         result.get("run_id")
@@ -318,15 +381,28 @@ def aggregate_suite(
         "run_ids": [result.get("run_id") for result in run_results],
         "scored_runs": len(scored),
         "unscored_runs": len(unscored),
+        "success": {
+            "requested_runs": options.runs,
+            "scored_run_rate": (len(scored) / options.runs) if options.runs else 0.0,
+            "episode_success_rate": (sum(episode_success_values) / options.runs) if options.runs else 0.0,
+            "unscored_failure_rate": (len(unscored) / options.runs) if options.runs else 0.0,
+        },
         "cleanup_failure_runs": cleanup_failures,
         "aggregate_scores": aggregate_scores,
+        "aggregate_components": aggregate_components,
+        "aggregate_efficiency": aggregate_efficiency_data,
         "runs": [
             {
                 "run_id": result.get("run_id"),
                 "status": result.get("status"),
                 "scored": result.get("summary", {}).get("scored"),
                 "unscored_reason": result.get("summary", {}).get("unscored_reason"),
+                "episode_success": result.get("summary", {}).get("episode_success"),
+                "failure_reason": result.get("summary", {}).get("failure_reason"),
+                "failure_category": result.get("summary", {}).get("failure_category"),
                 "scores": result.get("summary", {}).get("scores", {}),
+                "score_components": result.get("summary", {}).get("score_components", {}),
+                "efficiency": result.get("summary", {}).get("efficiency", {}),
                 "counts": result.get("summary", {}).get("counts", {}),
                 "cleanup": {
                     "status": result.get("cleanup", {}).get("status"),
@@ -437,7 +513,11 @@ class SuiteRunner:
                 while True:
                     observation = runtime.observe()
                     observations.append(observation)
+                    decision_started = time.monotonic()
                     action = controller.next_action(observation)
+                    decision_latency = time.monotonic() - decision_started
+                    if hasattr(runtime, "record_decision"):
+                        runtime.record_decision(action, decision_latency_s=decision_latency, observation=observation)
                     if action is not None:
                         actions.append(runtime.act(action))
                     remaining = deadline - time.monotonic()
@@ -489,8 +569,15 @@ class SuiteRunner:
                 "stage": episode_stage(options.task),
                 "task": options.task,
                 "run_id": run_id,
+                "scoring_version": "v2",
                 "scored": False,
                 "unscored_reason": reason,
+                "episode_success": 0.0,
+                "failure_reason": reason,
+                "failure_category": "conformance" if "conformance" in reason.lower() else "setup",
+                "score_components": {},
+                "component_details": {},
+                "efficiency": {"timing": {}, "tokens": {"telemetry_available": False}},
                 "scores": {},
                 "counts": {},
                 "artifacts": paths,

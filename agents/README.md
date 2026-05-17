@@ -67,6 +67,13 @@ action_result = env.act({
     "min_prb_policy_ratio": 10,
     "max_prb_policy_ratio": 90,
     "dedicated_ratio": None,
+}, telemetry={
+    "provider": "generic",
+    "model": "my-llm-agent",
+    "prompt_tokens": 1200,
+    "completion_tokens": 180,
+    "reasoning_tokens": 60,
+    "estimated_cost_usd": 0.03,
 })
 
 summary = env.close()
@@ -130,7 +137,7 @@ Recommended built-in controller by task:
 | `ws_ssb_power_guard_v1` | `noop` |
 | `ws_ssb_power_repair_v1` | `invalid_then_ssb` |
 
-LLM agents may return `None` when they do not want to act on an observation. Suite loops skip `None` decisions, and `BenchmarkEnv.act(None)` returns a non-logged no-op result for episode tasks.
+LLM agents may return `None` when they do not want to act on an observation. Suite loops skip `None` actions, and `BenchmarkEnv.act(None, telemetry=...)` records a no-op decision in `decisions.jsonl` without adding an action to `actions.jsonl`.
 
 ## Action Contract
 
@@ -193,7 +200,18 @@ Common observation sources are ping counters, JSON metrics status, backend statu
 
 ## Scoring Rules
 
-Setup, conformance, runtime, and oracle failures make a run unscored. Once setup succeeds, agent behavior is scored through:
+Setup, conformance, runtime, and oracle failures make a run unscored. Bad LLM-agent behavior after setup succeeds remains a scored measurement with `episode_success = 0.0`. Each summary reports `failure_category` and `failure_reason` so those failures are separated from setup/runtime failures.
+
+The primary comparison surface is component scoring, not a single all-up score:
+
+- `task_correctness`: task-specific objective success.
+- `action_correctness`: valid actions accepted, invalid actions locally rejected, and expected action type used.
+- `evidence_use`: action timing relative to JSON metrics, E2 KPM, stale/fresh observations, and oracle evidence.
+- `ran_health`: ping health plus required JSON metrics and E2 KPM continuity.
+- `safety`: action budget, no invalid dispatch, no unnecessary churn, and no action during unsafe windows.
+- `cleanup`: clean teardown and closed runtime resources.
+
+The legacy raw `scores` dictionary remains for debugging and includes:
 
 - Accepted valid action rate.
 - Correct local rejection of invalid actions.
@@ -203,6 +221,8 @@ Setup, conformance, runtime, and oracle failures make a run unscored. Once setup
 - E2 control oracle availability for CCC/RC tasks.
 - Task-specific behavior such as no-op correctness, action-budget compliance, evidence-gated action, and stale-metrics action avoidance.
 - Clean teardown success.
+
+The `efficiency` block reports time, token, and optional cost telemetry separately from correctness. Built-in controllers report decision timing only. Real LLM agents should pass provider/model and token counts through `BenchmarkEnv.act(..., telemetry=...)` so suites can compare cost and latency alongside score components.
 
 Single-UE ping is a control-loop health signal, not a throughput or fairness benchmark.
 

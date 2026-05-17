@@ -281,6 +281,38 @@
       }
     }
   ],
+  "decision_records": {
+    "artifact": "decisions.jsonl",
+    "description": "Agent/controller decision telemetry, including no-op decisions that are not runtime actions.",
+    "fields": [
+      "timestamp",
+      "observation_index",
+      "action_type",
+      "no_op",
+      "decision_latency_s",
+      "token_usage"
+    ]
+  },
+  "summary_scoring": {
+    "scoring_version": "v2",
+    "component_scores": [
+      "task_correctness",
+      "action_correctness",
+      "evidence_use",
+      "ran_health",
+      "safety",
+      "cleanup"
+    ],
+    "reliability_fields": [
+      "episode_success",
+      "failure_reason",
+      "failure_category"
+    ],
+    "efficiency_groups": [
+      "timing",
+      "tokens"
+    ]
+  },
   "other_sources": [
     "v1_stub",
     "json_metrics",

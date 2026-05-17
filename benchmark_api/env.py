@@ -44,6 +44,7 @@ class BenchmarkEnv:
         self.task: str | None = None
         self.episode_runtime: EpisodeRuntime | None = None
         self.last_observation: dict[str, Any] | None = None
+        self.last_observation_monotonic: float | None = None
         self.unscored_reason: str | None = None
 
     def reset(self, config: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -63,6 +64,7 @@ class BenchmarkEnv:
         self.closed_at = None
         self.episode_runtime = None
         self.last_observation = None
+        self.last_observation_monotonic = None
         self.unscored_reason = None
         self.adapters = {
             "ssh": "ready",
@@ -230,6 +232,7 @@ class BenchmarkEnv:
                     }
                 self.state = "running"
                 self.last_observation = self.episode_runtime.observe()
+                self.last_observation_monotonic = time.monotonic()
             except Exception as exc:
                 self.state = "error"
                 cleanup = self._cleanup_episode_runtime()
@@ -305,6 +308,7 @@ class BenchmarkEnv:
             }
         if self._is_episode_task() and self.episode_runtime is not None:
             self.last_observation = self.episode_runtime.observe()
+            self.last_observation_monotonic = time.monotonic()
             return self.last_observation
         return {
             "status": "ok",
@@ -317,7 +321,7 @@ class BenchmarkEnv:
             },
         }
 
-    def act(self, action: Any) -> dict[str, Any]:
+    def act(self, action: Any, telemetry: dict[str, Any] | None = None) -> dict[str, Any]:
         if self.run_id is None or self.state == "new":
             return {
                 "status": "rejected",
@@ -335,6 +339,7 @@ class BenchmarkEnv:
                 "reason": "episode is closed",
             }
         if action is None and self._is_episode_task() and self.episode_runtime is not None:
+            self._record_episode_decision(action, telemetry)
             return {
                 "status": "ok",
                 "stage": self._episode_stage(),
@@ -344,6 +349,8 @@ class BenchmarkEnv:
                 "reason": "no-op decision",
             }
         if not isinstance(action, dict):
+            if self._is_episode_task() and self.episode_runtime is not None:
+                self._record_episode_decision(action, telemetry)
             return {
                 "status": "rejected",
                 "stage": self._episode_stage() if self._is_episode_task() else "v1_stub",
@@ -352,6 +359,7 @@ class BenchmarkEnv:
                 "reason": "action must be a dictionary",
             }
         if self._is_episode_task() and self.episode_runtime is not None:
+            self._record_episode_decision(action, telemetry)
             result = self.episode_runtime.act(action)
             self.actions.append(
                 {
@@ -405,6 +413,19 @@ class BenchmarkEnv:
             "actions": len(self.actions),
             "accepted_actions": sum(1 for action in self.actions if action["accepted"]),
         }
+
+    def _record_episode_decision(self, action: Any, telemetry: dict[str, Any] | None = None) -> None:
+        if self.episode_runtime is None or not hasattr(self.episode_runtime, "record_decision"):
+            return
+        decision_latency_s = None
+        if self.last_observation_monotonic is not None:
+            decision_latency_s = max(0.0, time.monotonic() - self.last_observation_monotonic)
+        self.episode_runtime.record_decision(
+            action,
+            telemetry=telemetry,
+            decision_latency_s=decision_latency_s,
+            observation=self.last_observation,
+        )
 
     def _cleanup_episode_runtime(self) -> dict[str, Any]:
         if self.episode_runtime is None or self.run_id is None:

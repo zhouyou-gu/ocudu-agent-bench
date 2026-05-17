@@ -96,7 +96,7 @@ Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 Malformed JSON, schema violations, and out-of-range values are local agent action failures after setup succeeds. Direct remote access, artifact scraping, side-channel WebSocket clients, and direct container control are forbidden.
 
-Task proposals must state any deviations from the default, including decision cadence, maximum action count, action cooldown, retry budget, per-decision latency limit, whether memory may span episodes in a suite, and how free-form LLM output is converted into the structured action or output schema.
+Task proposals must state any deviations from the default, including decision cadence, maximum action count, action cooldown, retry budget, per-decision latency limit, whether token/cost telemetry is expected, whether memory may span episodes in a suite, and how free-form LLM output is converted into the structured action or output schema.
 
 ## Oracle Visibility
 
@@ -151,13 +151,13 @@ Define how the benchmark knows the correct outcome without human judgment.
 State which oracle artifacts are hidden from the agent and identify any oracle-derived fields intentionally exposed as observations.
 
 ## Scoring
-List each score dimension with formula, threshold, weight, minimum evidence requirement, source artifact, and anti-gaming check.
+List each raw score dimension with formula, threshold, minimum evidence requirement, source artifact, and anti-gaming check. Also state how the task maps into the standard component scores: `task_correctness`, `action_correctness`, `evidence_use`, `ran_health`, `safety`, and `cleanup`. Timing, token, and cost telemetry must be reported as efficiency metrics, not folded into correctness.
 
 ## Required Conformance
 List required conformance checks. If a needed check does not exist yet, name it and mark it as missing.
 
 ## Artifacts
-List expected remote artifacts such as actions, observations, metrics, KPM records, logs, PCAP summaries, oracle JSON, and summary JSON.
+List expected remote artifacts such as decisions, actions, observations, metrics, KPM records, logs, PCAP summaries, oracle JSON, and summary JSON.
 
 ## Failure And Unscored Conditions
 Separate setup/conformance/runtime/oracle failures from agent failures.
@@ -187,7 +187,8 @@ Every proposal must answer:
 - How often can the agent act, and what happens when parsing or validation fails?
 - What makes setup failure different from agent failure?
 - Why is this measurable without human judgment?
-- What exact formulas turn artifacts into scores?
+- What exact formulas turn artifacts into raw scores and component scores?
+- What efficiency telemetry, such as latency or token usage, should be recorded separately from correctness?
 - What runtime implementation is missing, if any?
 - Would any change require a new task version?
 

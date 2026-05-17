@@ -45,6 +45,7 @@ DEFAULT_LAUNCH_TIMEOUT = 60
 DEFAULT_PROBE_TIMEOUT = 5
 PING_TARGET = "10.45.1.1"
 STALE_METRICS_OBSERVATIONS = 2
+SCORING_VERSION = "v2"
 ACTION_SET_PRB_POLICY_RATIO_WS = "SET_PRB_POLICY_RATIO_WS"
 ACTION_SET_PRB_POLICY_RATIO_CCC = "SET_PRB_POLICY_RATIO_CCC"
 ACTION_SET_PRB_POLICY_RATIO_RC_DU = "SET_PRB_POLICY_RATIO_RC_DU"
@@ -257,6 +258,7 @@ def episode_paths(workspace: str, run_id: str) -> dict[str, str]:
         "containers": f"{episode_dir}/pids_or_containers.json",
         "scenario": f"{episode_dir}/scenario.json",
         "actions": f"{episode_dir}/actions.jsonl",
+        "decisions": f"{episode_dir}/decisions.jsonl",
         "observations": f"{episode_dir}/observations.jsonl",
         "metrics_raw": f"{episode_dir}/metrics_raw.jsonl",
         "summary": f"{episode_dir}/summary.json",
@@ -679,6 +681,295 @@ def ssb_action_from_observation(observation: dict[str, Any], ssb_block_power_dbm
     return action
 
 
+def _as_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _clamp01(value: Any) -> float:
+    number = _as_float(value)
+    if number is None:
+        return 0.0
+    return max(0.0, min(1.0, number))
+
+
+def _mean(values: list[float]) -> float | None:
+    return (sum(values) / len(values)) if values else None
+
+
+def _percentile(values: list[float], percentile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = (len(ordered) - 1) * percentile
+    lower = int(rank)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = rank - lower
+    return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
+
+
+def _non_negative_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        return int(value) if value >= 0 and value.is_integer() else None
+    return None
+
+
+def normalize_token_usage(token_usage: Any) -> dict[str, Any]:
+    if not isinstance(token_usage, dict):
+        return {}
+    normalized: dict[str, Any] = {}
+    for source, target in [
+        ("prompt_tokens", "prompt_tokens"),
+        ("input_tokens", "prompt_tokens"),
+        ("completion_tokens", "completion_tokens"),
+        ("output_tokens", "completion_tokens"),
+        ("reasoning_tokens", "reasoning_tokens"),
+        ("total_tokens", "total_tokens"),
+    ]:
+        value = token_usage.get(source)
+        normalized_value = _non_negative_int(value)
+        if normalized_value is not None:
+            normalized[target] = normalized_value
+    if "total_tokens" not in normalized:
+        parts = [
+            normalized.get("prompt_tokens"),
+            normalized.get("completion_tokens"),
+            normalized.get("reasoning_tokens"),
+        ]
+        if any(isinstance(part, int) for part in parts):
+            normalized["total_tokens"] = sum(part for part in parts if isinstance(part, int))
+    cost = token_usage.get("estimated_cost_usd")
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
+        normalized["estimated_cost_usd"] = float(cost)
+    for key in ["provider", "model"]:
+        value = token_usage.get(key)
+        if isinstance(value, str) and value:
+            normalized[key] = value
+    return normalized
+
+
+def normalize_decision_telemetry(telemetry: Any, decision_latency_s: float | None = None) -> dict[str, Any]:
+    if telemetry is None:
+        telemetry_dict: dict[str, Any] = {}
+    elif isinstance(telemetry, dict):
+        telemetry_dict = dict(telemetry)
+    else:
+        telemetry_dict = {"raw": telemetry}
+    latency = telemetry_dict.get("decision_latency_s", decision_latency_s)
+    normalized: dict[str, Any] = {}
+    if isinstance(latency, (int, float)) and not isinstance(latency, bool):
+        normalized["decision_latency_s"] = max(0.0, float(latency))
+    token_source = telemetry_dict.get("token_usage", telemetry_dict)
+    token_usage = normalize_token_usage(token_source)
+    if token_usage:
+        normalized["token_usage"] = token_usage
+    for key in ["provider", "model"]:
+        if key not in normalized.get("token_usage", {}) and isinstance(telemetry_dict.get(key), str):
+            normalized.setdefault("token_usage", {})[key] = telemetry_dict[key]
+    return normalized
+
+
+def _timestamp_from_observation(record: dict[str, Any]) -> float | None:
+    observation = record.get("observation", record)
+    value = observation.get("timestamp") if isinstance(observation, dict) else None
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _first_timestamp(records: list[dict[str, Any]], key: str = "timestamp") -> float | None:
+    values = [float(item[key]) for item in records if isinstance(item.get(key), (int, float)) and not isinstance(item.get(key), bool)]
+    return min(values) if values else None
+
+
+def task_failure_is_runtime(task_failure_reason: str | None) -> bool:
+    reason = (task_failure_reason or "").lower()
+    return any(
+        token in reason
+        for token in ["window was not observed", "freshness was not restored", "context capture failed"]
+    )
+
+
+def classify_failure_category(
+    scored: bool,
+    unscored_reason: str | None,
+    cleanup_success: bool,
+    task_failure_reason: str | None,
+) -> str | None:
+    if scored and task_failure_reason is None:
+        return None
+    if not cleanup_success:
+        return "cleanup"
+    reason = (unscored_reason or "").lower()
+    if "conformance" in reason:
+        return "conformance"
+    if any(token in reason for token in ["setup", "remote", "workspace", "provision", "dependency", "asset"]):
+        return "setup"
+    if task_failure_is_runtime(task_failure_reason):
+        return "runtime"
+    if task_failure_reason is not None:
+        return "agent"
+    if any(token in reason for token in ["runtime", "episode start", "start failed", "launch", "attach", "ping", "metrics"]):
+        return "runtime"
+    if any(token in reason for token in ["oracle", "kpm", "pcap", "e2 control oracle"]):
+        return "oracle"
+    if any(token in reason for token in ["invalid", "action", "accepted", "budget", "repair", "agent", "expected", "stale"]):
+        return "agent"
+    return "unknown"
+
+
+def build_score_components(
+    *,
+    policy: EpisodeTaskPolicy,
+    task_success: bool,
+    cleanup_success: bool,
+    ping: dict[str, Any],
+    metrics_frames: list[dict[str, Any]],
+    e2_required: bool,
+    e2_indications: int,
+    e2_oracle_available: bool,
+    e2_control_oracle_available: bool,
+    valid_action_accepted_rate: float,
+    invalid_local_rejection_correctness: float,
+    expected_action_type_correct: bool,
+    action_budget_ok: bool,
+    noop_correctness: float,
+    evidence_gated_action: bool,
+    stale_action_avoidance: float,
+) -> tuple[dict[str, float], dict[str, Any]]:
+    metrics_score = 1.0 if metrics_frames else 0.0
+    ran_parts = [_clamp01(ping.get("success_ratio", 0.0)), metrics_score]
+    if e2_required:
+        ran_parts.append(_clamp01(e2_indications / 3.0))
+        ran_parts.append(1.0 if e2_oracle_available else 0.0)
+
+    action_parts: list[float] = []
+    if policy.require_no_actions:
+        action_parts.append(_clamp01(noop_correctness))
+    if policy.requires_valid_action:
+        action_parts.extend([_clamp01(valid_action_accepted_rate), 1.0 if expected_action_type_correct else 0.0])
+    action_parts.append(_clamp01(invalid_local_rejection_correctness))
+
+    evidence_parts: list[float] = []
+    if policy.require_evidence_before_action:
+        evidence_parts.append(1.0 if evidence_gated_action else 0.0)
+    if policy.stale_metrics_observations:
+        evidence_parts.append(_clamp01(stale_action_avoidance))
+    if policy.requires_e2:
+        evidence_parts.append(1.0 if e2_oracle_available else 0.0)
+    if policy.requires_e2_control:
+        evidence_parts.append(1.0 if e2_control_oracle_available else 0.0)
+
+    safety_parts = [_clamp01(invalid_local_rejection_correctness), 1.0 if action_budget_ok else 0.0, _clamp01(stale_action_avoidance)]
+    if policy.require_no_actions:
+        safety_parts.append(_clamp01(noop_correctness))
+
+    components = {
+        "task_correctness": 1.0 if task_success else 0.0,
+        "action_correctness": _mean(action_parts) if action_parts else 1.0,
+        "evidence_use": _mean(evidence_parts) if evidence_parts else 1.0,
+        "ran_health": _mean(ran_parts) if ran_parts else 0.0,
+        "safety": _mean(safety_parts) if safety_parts else 1.0,
+        "cleanup": 1.0 if cleanup_success else 0.0,
+    }
+    details = {
+        "ran_health": {"ping_success_ratio": ping.get("success_ratio", 0.0), "metrics_frames": len(metrics_frames), "e2_kpm_indications": e2_indications},
+        "action_correctness": {
+            "valid_action_accepted_rate": valid_action_accepted_rate,
+            "invalid_local_rejection_correctness": invalid_local_rejection_correctness,
+            "expected_action_type_correct": expected_action_type_correct,
+        },
+        "evidence_use": {
+            "evidence_gated_action": evidence_gated_action,
+            "stale_action_avoidance": stale_action_avoidance,
+            "e2_oracle_available": e2_oracle_available,
+            "e2_control_oracle_available": e2_control_oracle_available,
+        },
+        "safety": {"action_budget_ok": action_budget_ok, "noop_correctness": noop_correctness},
+    }
+    return components, details
+
+
+def summarize_efficiency(
+    *,
+    actions: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+    decisions: list[dict[str, Any]],
+    episode_started_at: float | None,
+    accepted_expected: list[dict[str, Any]],
+    task_success: bool,
+) -> dict[str, Any]:
+    observation_timestamps = [
+        value for value in (_timestamp_from_observation(item) for item in observations) if value is not None
+    ]
+    action_timestamps = [
+        float(item["timestamp"]) for item in actions if isinstance(item.get("timestamp"), (int, float)) and not isinstance(item.get("timestamp"), bool)
+    ]
+    all_timestamps = observation_timestamps + action_timestamps
+    start_time = episode_started_at if isinstance(episode_started_at, (int, float)) and not isinstance(episode_started_at, bool) else (min(all_timestamps) if all_timestamps else None)
+    end_time = max(all_timestamps) if all_timestamps else None
+    control_durations = []
+    for item in actions:
+        explicit = item.get("control_round_trip_s")
+        if isinstance(explicit, (int, float)) and not isinstance(explicit, bool):
+            control_durations.append(max(0.0, float(explicit)))
+            continue
+        started = item.get("timestamp")
+        completed = item.get("completed_at")
+        if isinstance(started, (int, float)) and isinstance(completed, (int, float)) and not isinstance(started, bool) and not isinstance(completed, bool):
+            control_durations.append(max(0.0, float(completed) - float(started)))
+    decision_latencies = [
+        max(0.0, float(item["decision_latency_s"]))
+        for item in decisions
+        if isinstance(item.get("decision_latency_s"), (int, float)) and not isinstance(item.get("decision_latency_s"), bool)
+    ]
+    first_observation = min(observation_timestamps) if observation_timestamps else None
+    first_action = min(action_timestamps) if action_timestamps else None
+    first_success_action = _first_timestamp(accepted_expected)
+    timing = {
+        "episode_wall_time_s": (max(0.0, end_time - start_time) if start_time is not None and end_time is not None else None),
+        "time_to_first_observation_s": (max(0.0, first_observation - start_time) if start_time is not None and first_observation is not None else None),
+        "time_to_first_action_s": (max(0.0, first_action - start_time) if start_time is not None and first_action is not None else None),
+        "time_to_task_success_s": (max(0.0, first_success_action - start_time) if task_success and start_time is not None and first_success_action is not None else None),
+        "control_round_trip_s_mean": _mean(control_durations),
+        "control_round_trip_s_p50": _percentile(control_durations, 0.50),
+        "control_round_trip_s_p95": _percentile(control_durations, 0.95),
+        "decision_latency_s_mean": _mean(decision_latencies),
+        "decision_latency_s_p50": _percentile(decision_latencies, 0.50),
+        "decision_latency_s_p95": _percentile(decision_latencies, 0.95),
+    }
+
+    token_records = [normalize_token_usage(item.get("token_usage")) for item in decisions]
+    token_records = [item for item in token_records if item]
+    prompt_total = sum(int(item.get("prompt_tokens", 0) or 0) for item in token_records)
+    completion_total = sum(int(item.get("completion_tokens", 0) or 0) for item in token_records)
+    reasoning_total = sum(int(item.get("reasoning_tokens", 0) or 0) for item in token_records)
+    total_tokens = sum(int(item.get("total_tokens", 0) or 0) for item in token_records)
+    cost_values = [float(item["estimated_cost_usd"]) for item in token_records if isinstance(item.get("estimated_cost_usd"), (int, float))]
+    provider = next((item.get("provider") for item in token_records if item.get("provider")), None)
+    model = next((item.get("model") for item in token_records if item.get("model")), None)
+    tokens = {
+        "telemetry_available": bool(token_records),
+        "provider": provider,
+        "model": model,
+        "prompt_tokens_total": prompt_total if token_records else None,
+        "completion_tokens_total": completion_total if token_records else None,
+        "reasoning_tokens_total": reasoning_total if token_records else None,
+        "total_tokens": total_tokens if token_records else None,
+        "tokens_per_decision_mean": (total_tokens / len(decisions)) if decisions and token_records else None,
+        "tokens_to_task_success": total_tokens if task_success and token_records else None,
+        "estimated_cost_usd": sum(cost_values) if cost_values else None,
+    }
+    return {"timing": timing, "tokens": tokens}
+
+
 def score_episode(
     ping: dict[str, Any],
     actions: list[dict[str, Any]],
@@ -688,8 +979,11 @@ def score_episode(
     require_e2: bool = False,
     e2_oracle: dict[str, Any] | None = None,
     task: str = TASK_WS_PRB_PING_V1,
+    decisions: list[dict[str, Any]] | None = None,
+    episode_started_at: float | None = None,
 ) -> dict[str, Any]:
     policy = task_policy(task)
+    decisions = decisions or []
     valid_actions = [item for item in actions if item.get("validation", {}).get("valid")]
     accepted_valid = [item for item in valid_actions if item.get("accepted")]
     def action_record_type(item: dict[str, Any]) -> str | None:
@@ -716,8 +1010,7 @@ def score_episode(
         if item.get("observation", {}).get("metrics", {}).get("present") or item.get("metrics", {}).get("present")
     ]
     setup_failed = bool(unscored_reason)
-    valid_action_requirement_met = bool(accepted_expected) if policy.requires_valid_action else True
-    scored = not setup_failed and valid_action_requirement_met and ping.get("packets_received", 0) > 0 and bool(metrics_frames)
+    scored = not setup_failed and ping.get("packets_received", 0) > 0 and bool(metrics_frames)
     e2_indications = 0
     e2_oracle_available = False
     if e2_oracle:
@@ -817,20 +1110,19 @@ def score_episode(
             task_success = False
             task_failure_reason = "agent acted while metrics were stale"
 
+    runtime_task_failure = task_failure_is_runtime(task_failure_reason)
     if e2_required and (e2_indications < 3 or not e2_oracle_available):
         scored = False
-    if policy.requires_e2_control and (not accepted_e2_control or not expected_e2_control_oracle_available):
+    if policy.requires_e2_control and accepted_expected and not expected_e2_control_oracle_available:
         scored = False
-    if not task_success:
+    if runtime_task_failure:
         scored = False
     if not cleanup_success:
         scored = False
         unscored_reason = unscored_reason or "cleanup failed"
     elif not scored:
-        if unscored_reason is None and task_failure_reason is not None:
+        if unscored_reason is None and runtime_task_failure:
             unscored_reason = task_failure_reason
-        elif unscored_reason is None and policy.requires_valid_action and not accepted_expected:
-            unscored_reason = "no accepted valid expected action"
         elif unscored_reason is None and ping.get("packets_received", 0) <= 0:
             unscored_reason = "no successful ping replies"
         elif unscored_reason is None and not metrics_frames:
@@ -839,34 +1131,74 @@ def score_episode(
             unscored_reason = "insufficient E2 KPM indications"
         elif unscored_reason is None and e2_required and not e2_oracle_available:
             unscored_reason = "E2 oracle unavailable"
-        elif unscored_reason is None and policy.requires_e2_control and not accepted_e2_control:
-            unscored_reason = "no accepted E2 control action"
-        elif unscored_reason is None and policy.requires_e2_control and not e2_control_oracle_available:
+        elif unscored_reason is None and policy.requires_e2_control and accepted_expected and not e2_control_oracle_available:
             unscored_reason = "E2 control oracle unavailable"
-        elif unscored_reason is None and policy.requires_e2_control and not expected_e2_control_oracle_available:
+        elif unscored_reason is None and policy.requires_e2_control and accepted_expected and not expected_e2_control_oracle_available:
             unscored_reason = "E2 control oracle missing expected action type"
+    valid_action_accepted_rate = (len(accepted_valid) / len(valid_actions)) if valid_actions else 0.0
+    invalid_local_rejection_correctness = (len(rejected_invalid) / len(invalid_actions)) if invalid_actions else 1.0
+    expected_action_type_correct = bool(accepted_expected) if policy.requires_valid_action else True
+    action_budget_ok = policy.max_actions is None or len(actions) <= policy.max_actions
+    noop_correctness = 1.0 if (not policy.require_no_actions or not actions) else 0.0
+    evidence_gated_action = bool(evidence_gated_actions) if policy.require_evidence_before_action else True
+    stale_action_avoidance = 1.0 if not actions_during_stale else 0.0
+    failure_category = classify_failure_category(scored, unscored_reason, cleanup_success, task_failure_reason)
+    score_components, component_details = build_score_components(
+        policy=policy,
+        task_success=task_success,
+        cleanup_success=cleanup_success,
+        ping=ping,
+        metrics_frames=metrics_frames,
+        e2_required=e2_required,
+        e2_indications=e2_indications,
+        e2_oracle_available=e2_oracle_available,
+        e2_control_oracle_available=e2_control_oracle_available,
+        valid_action_accepted_rate=valid_action_accepted_rate,
+        invalid_local_rejection_correctness=invalid_local_rejection_correctness,
+        expected_action_type_correct=expected_action_type_correct,
+        action_budget_ok=action_budget_ok,
+        noop_correctness=noop_correctness,
+        evidence_gated_action=evidence_gated_action,
+        stale_action_avoidance=stale_action_avoidance,
+    )
+    efficiency = summarize_efficiency(
+        actions=actions,
+        observations=observations,
+        decisions=decisions,
+        episode_started_at=episode_started_at,
+        accepted_expected=accepted_expected,
+        task_success=task_success,
+    )
     return {
+        "scoring_version": SCORING_VERSION,
         "scored": scored,
         "unscored_reason": None if scored else unscored_reason,
+        "episode_success": 1.0 if scored and task_success and cleanup_success else 0.0,
+        "failure_reason": None if (scored and task_success and cleanup_success) else (task_failure_reason or unscored_reason),
+        "failure_category": failure_category,
+        "score_components": score_components,
+        "component_details": component_details,
+        "efficiency": efficiency,
         "scores": {
-            "valid_action_accepted_rate": (len(accepted_valid) / len(valid_actions)) if valid_actions else 0.0,
-            "invalid_local_rejection_correctness": (len(rejected_invalid) / len(invalid_actions)) if invalid_actions else 1.0,
+            "valid_action_accepted_rate": valid_action_accepted_rate,
+            "invalid_local_rejection_correctness": invalid_local_rejection_correctness,
             "ping_success_ratio": ping.get("success_ratio", 0.0),
             "metrics_continuity": len(metrics_frames),
             "e2_kpm_continuity": e2_indications,
             "e2_oracle_available": e2_oracle_available,
             "e2_control_oracle_available": e2_control_oracle_available,
             "expected_e2_control_oracle_available": expected_e2_control_oracle_available,
-            "expected_action_type_correct": bool(accepted_expected) if policy.requires_valid_action else True,
+            "expected_action_type_correct": expected_action_type_correct,
             "accepted_e2_control_actions": len(accepted_e2_control),
             "clean_teardown": cleanup_success,
             "task_success": task_success,
-            "action_budget_ok": policy.max_actions is None or len(actions) <= policy.max_actions,
-            "noop_correctness": 1.0 if (not policy.require_no_actions or not actions) else 0.0,
-            "evidence_gated_action": bool(evidence_gated_actions) if policy.require_evidence_before_action else True,
-            "stale_action_avoidance": 1.0 if not actions_during_stale else 0.0,
+            "action_budget_ok": action_budget_ok,
+            "noop_correctness": noop_correctness,
+            "evidence_gated_action": evidence_gated_action,
+            "stale_action_avoidance": stale_action_avoidance,
         },
         "counts": {
+            "decisions": len(decisions),
             "actions": len(actions),
             "valid_actions": len(valid_actions),
             "accepted_valid_actions": len(accepted_valid),
@@ -1211,7 +1543,7 @@ def write_e2_oracle():
 episode_dir = pathlib.Path(paths["episode_dir"])
 for key in ["configs_dir", "logs_dir"]:
     pathlib.Path(paths[key]).mkdir(parents=True, exist_ok=True)
-for path_key in ["actions", "observations", "metrics_raw", "e2_kpm_raw", "e2_control_raw"]:
+for path_key in ["actions", "decisions", "observations", "metrics_raw", "e2_kpm_raw", "e2_control_raw"]:
     pathlib.Path(paths[path_key]).write_text("", encoding="utf-8")
 pathlib.Path(paths["scenario"]).write_text(json.dumps(payload["scenario"], indent=2, sort_keys=True), encoding="utf-8")
 shutil.copy2(pathlib.Path(payload["config_dir"]) / "gnb_zmq.yaml", paths["gnb_config"])
@@ -1649,6 +1981,37 @@ stage = payload["stage"]
 print(json.dumps({{"status": "ok", "stage": stage, "run_id": payload["run_id"], "state": "running", "observation": observation}}))
 """
         return self._remote_json(script)
+
+    def record_decision(
+        self,
+        action: Any,
+        telemetry: dict[str, Any] | None = None,
+        decision_latency_s: float | None = None,
+        observation: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        options = self._require_options()
+        frame = observation.get("observation", observation) if isinstance(observation, dict) else None
+        if not isinstance(frame, dict):
+            frame = self._latest_decision_context()
+            frame.pop("_decision_context_error", None)
+        normalized_telemetry = normalize_decision_telemetry(telemetry, decision_latency_s=decision_latency_s)
+        record: dict[str, Any] = {
+            "timestamp": time.time(),
+            "run_id": options.run_id,
+            "task": options.task,
+            "observation_index": frame.get("observation_index") if isinstance(frame, dict) else None,
+            "action_type": action.get("type") if isinstance(action, dict) else None,
+            "no_op": action is None,
+        }
+        record.update(normalized_telemetry)
+        self._append_jsonl(self.paths["decisions"], record)
+        return {
+            "status": "ok",
+            "stage": episode_stage_for_task(options.task),
+            "run_id": options.run_id,
+            "decision_logged": True,
+            "record": record,
+        }
 
     def act(self, action: Any, allowed_types: tuple[str, ...] | None = None) -> dict[str, Any]:
         options = self._require_options()
@@ -2239,7 +2602,14 @@ def build_e2_oracle(paths, requires_e2):
     return oracle
 ping_text = pathlib.Path(paths["ping_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["ping_log"]).exists() else ""
 actions = read_jsonl(paths["actions"])
+decisions = read_jsonl(paths["decisions"])
 observations = read_jsonl(paths["observations"])
+containers = {{}}
+if pathlib.Path(paths["containers"]).exists():
+    try:
+        containers = json.loads(pathlib.Path(paths["containers"]).read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        containers = {{}}
 observations_only = [item.get("observation", item) for item in observations]
 valid_actions = [item for item in actions if item.get("validation", {{}}).get("valid")]
 accepted_valid = [item for item in valid_actions if item.get("accepted")]
@@ -2286,6 +2656,8 @@ scoring = score_episode(
     require_e2=bool(policy.get("requires_e2")),
     e2_oracle=e2_oracle,
     task=payload["task"],
+    decisions=decisions,
+    episode_started_at=containers.get("started_at"),
 )
 summary = {{
     "status": "ok",
@@ -2302,6 +2674,7 @@ print(json.dumps(summary))
 
     def _episode_scoring_remote_source(self) -> str:
         constant_names = [
+            "SCORING_VERSION",
             "ACTION_SET_PRB_POLICY_RATIO_WS",
             "ACTION_SET_PRB_POLICY_RATIO_CCC",
             "ACTION_SET_PRB_POLICY_RATIO_RC_DU",
@@ -2336,6 +2709,19 @@ print(json.dumps(summary))
                 inspect.getsource(EpisodeTaskPolicy),
                 policies,
                 inspect.getsource(task_policy),
+                inspect.getsource(_as_float),
+                inspect.getsource(_clamp01),
+                inspect.getsource(_mean),
+                inspect.getsource(_percentile),
+                inspect.getsource(_non_negative_int),
+                inspect.getsource(normalize_token_usage),
+                inspect.getsource(normalize_decision_telemetry),
+                inspect.getsource(_timestamp_from_observation),
+                inspect.getsource(_first_timestamp),
+                inspect.getsource(task_failure_is_runtime),
+                inspect.getsource(classify_failure_category),
+                inspect.getsource(build_score_components),
+                inspect.getsource(summarize_efficiency),
                 inspect.getsource(score_episode),
             ]
         )
@@ -2380,6 +2766,10 @@ print(json.dumps(summary))
         try:
             observation = self.observe()
             observations.append(observation)
+            def record_and_act(current_action: Any, current_observation: dict[str, Any], latency: float = 0.0) -> dict[str, Any]:
+                self.record_decision(current_action, decision_latency_s=latency, observation=current_observation)
+                return self.act(current_action)
+
             def current_fixed_action(current_observation: dict[str, Any]) -> dict[str, Any]:
                 if action is not None:
                     return action
@@ -2396,30 +2786,33 @@ print(json.dumps(summary))
                         "max_prb_policy_ratio": 10,
                     }
                 )
-                actions.append(self.act(invalid_action))
+                actions.append(record_and_act(invalid_action, observation))
                 sent_invalid = True
                 observation = self.observe()
                 observations.append(observation)
-                actions.append(self.act(current_fixed_action(observation)))
+                actions.append(record_and_act(current_fixed_action(observation), observation))
                 sent_fixed = True
             elif policy.require_no_actions:
+                self.record_decision(None, decision_latency_s=0.0, observation=observation)
                 sent_fixed = False
             elif not policy.require_evidence_before_action:
-                actions.append(self.act(current_fixed_action(observation)))
+                actions.append(record_and_act(current_fixed_action(observation), observation))
                 sent_fixed = True
             elif self._observation_has_required_evidence(observation, policy):
-                actions.append(self.act(current_fixed_action(observation)))
+                actions.append(record_and_act(current_fixed_action(observation), observation))
                 sent_fixed = True
             deadline = time.monotonic() + max(0, options.duration)
             while time.monotonic() < deadline:
                 observation = self.observe()
                 observations.append(observation)
                 if policy.require_first_invalid_then_valid and sent_invalid and not sent_fixed:
-                    actions.append(self.act(current_fixed_action(observation)))
+                    actions.append(record_and_act(current_fixed_action(observation), observation))
                     sent_fixed = True
                 elif not policy.require_no_actions and not sent_fixed and self._observation_has_required_evidence(observation, policy):
-                    actions.append(self.act(current_fixed_action(observation)))
+                    actions.append(record_and_act(current_fixed_action(observation), observation))
                     sent_fixed = True
+                elif policy.require_no_actions:
+                    self.record_decision(None, decision_latency_s=0.0, observation=observation)
                 time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
         except Exception as exc:
             episode_error = str(exc)

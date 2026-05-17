@@ -243,6 +243,8 @@ sources:
         original_episode_runtime = env_module.EpisodeRuntime
 
         class FakeEpisodeRuntime:
+            decisions = []
+
             def __init__(self, remote, repo_root=None) -> None:
                 self.started = None
 
@@ -261,6 +263,17 @@ sources:
 
             def act(self, action):
                 raise AssertionError("None no-op decisions must not be dispatched to the runtime")
+
+            def record_decision(self, action, telemetry=None, decision_latency_s=None, observation=None):
+                type(self).decisions.append(
+                    {
+                        "action": action,
+                        "telemetry": telemetry,
+                        "decision_latency_s": decision_latency_s,
+                        "observation": observation,
+                    }
+                )
+                return {"status": "ok", "decision_logged": True}
 
             def cleanup(self, run_id):
                 return {"status": "ok", "run_id": run_id}
@@ -284,6 +297,7 @@ sources:
                 }
             )
             noop = env.act(None)
+            malformed = env.act("not a dict", telemetry={"prompt_tokens": 5})
         finally:
             env_module.run_conformance = original_run_conformance
             env_module.EpisodeRuntime = original_episode_runtime
@@ -291,8 +305,14 @@ sources:
         self.assertEqual(reset["status"], "ok")
         self.assertEqual(noop["status"], "ok")
         self.assertEqual(noop["reason"], "no-op decision")
+        self.assertEqual(malformed["status"], "rejected")
+        self.assertEqual(malformed["reason"], "action must be a dictionary")
         self.assertFalse(noop["action_logged"])
         self.assertEqual(env.actions, [])
+        self.assertEqual(len(FakeEpisodeRuntime.decisions), 2)
+        self.assertIsNone(FakeEpisodeRuntime.decisions[0]["action"])
+        self.assertEqual(FakeEpisodeRuntime.decisions[1]["action"], "not a dict")
+        self.assertEqual(FakeEpisodeRuntime.decisions[1]["telemetry"], {"prompt_tokens": 5})
 
     def test_v4_episode_lifecycle_uses_v4_conformance_gate(self) -> None:
         original_run_conformance = env_module.run_conformance

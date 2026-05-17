@@ -30,7 +30,7 @@ Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 - **Perceive**: the LLM agent receives a structured observation from `BenchmarkEnv`, such as ping health, JSON metrics, E2 evidence, backend status, task context, and the previous action result.
 - **Reason**: the LLM agent uses the task objective and its history to decide whether to wait, take no RAN action, repair a previous invalid action, or choose a specific RAN-management API.
-- **Execute**: the LLM agent returns a structured action or `None`. `BenchmarkEnv` validates the decision and executes valid actions through OCUDU WebSocket or FlexRIC/E2 control paths.
+- **Execute**: the LLM agent returns a structured action or `None`. `BenchmarkEnv` validates the decision, records decision telemetry when supplied, and executes valid actions through OCUDU WebSocket or FlexRIC/E2 control paths.
 - **Feedback**: the next observation reports validation results, API responses, and updated RAN state.
 - **Repeat**: the loop continues until the episode ends; `close()` then cleans up the runtime and scores the trace.
 
@@ -124,6 +124,19 @@ Current tasks:
 - `ws_ssb_power_repair_v1`: WebSocket SSB block-power episode that scores invalid local rejection followed by one valid `ssb_set` repair.
 
 Each task has a machine-readable manifest under `tasks/<task_id>/task.json` and a human task card under `tasks/<task_id>/README.md`.
+
+## Scoring Model
+
+The benchmark reports component scores rather than one headline agent score. Each episode summary keeps the legacy raw `scores` dictionary for debugging and adds:
+
+- `episode_success`: `1.0` only when setup, runtime, task behavior, oracle requirements, and cleanup all succeed.
+- `scored`: whether the episode produced a valid measurement; bad agent behavior after setup remains scored with `episode_success = 0.0`.
+- `failure_reason`: the concrete setup/runtime/oracle or agent-behavior reason when the episode is not successful.
+- `failure_category`: `setup`, `conformance`, `runtime`, `oracle`, `agent`, `cleanup`, or `unknown`.
+- `score_components`: normalized `task_correctness`, `action_correctness`, `evidence_use`, `ran_health`, `safety`, and `cleanup`.
+- `efficiency`: timing, token, and optional cost telemetry reported separately from correctness.
+
+LLM agents can pass token usage through `BenchmarkEnv.act(action, telemetry=...)`. No-op decisions use `BenchmarkEnv.act(None, telemetry=...)`; they are recorded in `decisions.jsonl` but not in `actions.jsonl`.
 
 ## Provision And Conformance Workflow
 

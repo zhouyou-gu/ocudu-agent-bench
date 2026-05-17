@@ -61,7 +61,7 @@ Lifecycle:
 
 - `reset(config)`: loads local config, optionally runs conformance, starts an episode for implemented tasks, and returns the initial observation.
 - `observe()`: returns the latest normalized observation frame.
-- `act(action)`: validates an action locally, dispatches it through the task's runtime API when valid, and records action context.
+- `act(action, telemetry=None)`: validates an action locally, dispatches it through the task's runtime API when valid, and records action context.
 - `close()`: cleans up remote runtime state, finalizes scoring, and returns the run summary.
 
 Important `reset` fields:
@@ -71,7 +71,9 @@ Important `reset` fields:
 - `duration`: episode duration in seconds.
 - `ws_port`: OCUDU remote-control WebSocket port, default `8001`.
 
-`act(None)` is a no-op decision for episode tasks. It is accepted by the Python API and is not written as an action record. No-op behavior is scored through the absence of action records.
+`act(None)` is a no-op decision for episode tasks. It is accepted by the Python API and is not written as an action record. It is written to `decisions.jsonl` so no-op LLM decisions can still be timed and associated with token telemetry.
+
+The benchmark does not call a provider SDK. External LLM agents or wrappers may pass telemetry such as `decision_latency_s`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens`, `total_tokens`, `provider`, `model`, and `estimated_cost_usd`.
 
 ### CLI API
 
@@ -428,6 +430,14 @@ Invalid local actions are also appended to `actions.jsonl`, but `dispatched` rem
 
 `None` no-op decisions are not appended to `actions.jsonl`.
 
+## Decision Record Semantics
+
+Every LLM or built-in-controller decision may be appended to `decisions.jsonl`, including no-op decisions. This file measures the agent decision loop; `actions.jsonl` measures runtime control attempts.
+
+Decision records include timestamp, observation index, action type or `null`, `no_op`, optional decision latency, optional token usage, and optional estimated cost.
+
+Token usage is efficiency telemetry only. It does not change correctness scores.
+
 ## Observation Frame Semantics
 
 Every observation is a JSON object with:
@@ -452,7 +462,16 @@ Agents should tolerate missing optional fields and branch on backend/task status
 
 Setup, provisioning, conformance, runtime launch, oracle, and cleanup failures make runs unscored. They are not counted as agent failures.
 
-Agent behavior is scored only after setup succeeds. Current score dimensions include:
+Agent behavior is scored only after setup succeeds. Episode summaries keep the legacy raw `scores` object and add scoring v2 fields:
+
+- `episode_success`: `1.0` for a fully successful scored episode, otherwise `0.0`.
+- `scored`: whether the run produced a valid benchmark measurement; a scored run can still have `episode_success = 0.0` when the agent made a wrong decision.
+- `failure_reason`: setup/runtime/oracle reason for unscored runs, or task-behavior reason for scored agent failures.
+- `failure_category`: `setup`, `conformance`, `runtime`, `oracle`, `agent`, `cleanup`, or `unknown`.
+- `score_components`: normalized component scores for `task_correctness`, `action_correctness`, `evidence_use`, `ran_health`, `safety`, and `cleanup`.
+- `efficiency`: separate timing, token, and optional cost telemetry.
+
+Raw score dimensions include:
 
 - accepted valid action rate,
 - invalid local rejection correctness,
@@ -467,7 +486,7 @@ Agent behavior is scored only after setup succeeds. Current score dimensions inc
 - E2 control oracle availability,
 - clean teardown.
 
-The task manifest `scoring` field uses the exact summary score keys, for example `metrics_continuity`, `clean_teardown`, and `e2_oracle_available`.
+The task manifest `scoring` field uses exact raw summary score keys, for example `metrics_continuity`, `clean_teardown`, and `e2_oracle_available`. Cross-agent comparisons should start from `score_components`, `episode_success`, and the separate `efficiency` block, then drill into raw `scores` for debugging.
 
 ## Artifact API
 
@@ -477,6 +496,7 @@ Remote artifact layout:
 <remote.workspace>/runs/<run_id>/episode/
   scenario.json
   actions.jsonl
+  decisions.jsonl
   observations.jsonl
   metrics_raw.jsonl
   e2_kpm_raw.jsonl

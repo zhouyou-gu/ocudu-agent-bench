@@ -189,7 +189,7 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(result["duration"], 7)
 
     def test_aggregate_suite_scores(self) -> None:
-        options = SuiteOptions(suite_id="unit-suite", runs=2)
+        options = SuiteOptions(suite_id="unit-suite", runs=3)
         result = aggregate_suite(
             options=options,
             conformance={"status": "pass", "remote": {"ocudu_commit": "abc"}},
@@ -199,7 +199,13 @@ class SuiteTests(unittest.TestCase):
                     "status": "ok",
                     "summary": {
                         "scored": True,
+                        "episode_success": 1.0,
                         "scores": {"ping_success_ratio": 1.0, "metrics_continuity": 5, "clean_teardown": True},
+                        "score_components": {"task_correctness": 1.0, "ran_health": 1.0, "cleanup": 1.0},
+                        "efficiency": {
+                            "timing": {"episode_wall_time_s": 5.0, "decision_latency_s_mean": 0.2},
+                            "tokens": {"telemetry_available": True, "total_tokens": 100},
+                        },
                         "counts": {"actions": 1},
                         "artifacts": {"summary": "/remote/summary-1.json"},
                     },
@@ -211,9 +217,27 @@ class SuiteTests(unittest.TestCase):
                     "summary": {
                         "scored": False,
                         "unscored_reason": "runtime failed",
+                        "episode_success": 0.0,
+                        "failure_category": "runtime",
                         "scores": {"ping_success_ratio": 0.0},
+                        "efficiency": {"timing": {"episode_wall_time_s": 2.0}, "tokens": {"telemetry_available": False}},
                         "counts": {"actions": 0},
                         "artifacts": {"summary": "/remote/summary-2.json"},
+                    },
+                    "cleanup": {"status": "ok", "leftover_containers": [], "ws_port_open": False, "ric_port_open": False},
+                },
+                {
+                    "run_id": "unit-suite-r003",
+                    "status": "ok",
+                    "summary": {
+                        "scored": True,
+                        "episode_success": 0.0,
+                        "failure_category": "agent",
+                        "failure_reason": "action budget exceeded",
+                        "scores": {"ping_success_ratio": 1.0, "task_success": False},
+                        "score_components": {"task_correctness": 0.0, "ran_health": 1.0, "cleanup": 1.0},
+                        "counts": {"actions": 2},
+                        "artifacts": {"summary": "/remote/summary-3.json"},
                     },
                     "cleanup": {"status": "ok", "leftover_containers": [], "ws_port_open": False, "ric_port_open": False},
                 },
@@ -222,14 +246,22 @@ class SuiteTests(unittest.TestCase):
             remote=FakeRemote(),
         )
         self.assertEqual(result["status"], "error")
-        self.assertEqual(result["scored_runs"], 1)
+        self.assertEqual(result["scored_runs"], 2)
         self.assertEqual(result["controller"], "fixed_prb")
         self.assertEqual(result["agent"], "fixed_prb")
         self.assertIn("agent", result["deprecated_fields"])
         self.assertEqual(result["unscored_runs"], 1)
+        self.assertAlmostEqual(result["success"]["scored_run_rate"], 2 / 3)
+        self.assertAlmostEqual(result["success"]["episode_success_rate"], 1 / 3)
+        self.assertAlmostEqual(result["success"]["unscored_failure_rate"], 1 / 3)
         self.assertEqual(result["aggregate_scores"]["ping_success_ratio"]["mean"], 1.0)
         self.assertEqual(result["aggregate_scores"]["metrics_continuity"]["max"], 5.0)
         self.assertEqual(result["aggregate_scores"]["clean_teardown"]["mean"], 1.0)
+        self.assertEqual(result["aggregate_components"]["task_correctness"]["mean"], 0.5)
+        self.assertEqual(result["aggregate_efficiency"]["timing"]["episode_wall_time_s"]["mean"], 3.5)
+        self.assertEqual(result["aggregate_efficiency"]["tokens"]["total_tokens"]["mean"], 100.0)
+        self.assertEqual(result["runs"][1]["failure_category"], "runtime")
+        self.assertEqual(result["runs"][2]["failure_category"], "agent")
 
     def test_aggregate_suite_counts_cleanup_failures(self) -> None:
         options = SuiteOptions(suite_id="unit-suite", runs=1)
@@ -442,6 +474,7 @@ class SuiteTests(unittest.TestCase):
 
         class FakeRuntime:
             actions = []
+            decisions = []
 
             def __init__(self, remote, repo_root=None):
                 self.options = None
@@ -456,6 +489,12 @@ class SuiteTests(unittest.TestCase):
             def act(self, action):
                 type(self).actions.append(action)
                 return {"status": "ok", "accepted": True}
+
+            def record_decision(self, action, decision_latency_s=None, observation=None):
+                type(self).decisions.append(
+                    {"action": action, "decision_latency_s": decision_latency_s, "observation": observation}
+                )
+                return {"status": "ok", "decision_logged": True}
 
             def _cleanup_after_error(self, run_id):
                 return {"status": "ok", "leftover_containers": [], "ws_port_open": False, "errors": []}
@@ -485,6 +524,8 @@ class SuiteTests(unittest.TestCase):
 
         self.assertEqual(result["task"], "ws_prb_noop_guard_v1")
         self.assertEqual(FakeRuntime.actions, [])
+        self.assertEqual(len(FakeRuntime.decisions), 1)
+        self.assertIsNone(FakeRuntime.decisions[0]["action"])
 
 
 if __name__ == "__main__":

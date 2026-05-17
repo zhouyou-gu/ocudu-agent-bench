@@ -29,6 +29,7 @@ from benchmark.benchmark_api.episode import (
     kpm_record_has_prb_measurement,
     parse_kpm_indication_records,
     parse_ping_log,
+    normalize_decision_telemetry,
     scenario_metadata,
     score_episode,
     task_policy,
@@ -177,13 +178,37 @@ class EpisodeTests(unittest.TestCase):
         summary = score_episode(
             ping={"packets_received": 3, "success_ratio": 1.0},
             actions=[
-                {"validation": {"valid": False}, "dispatched": False, "accepted": False},
-                {"validation": {"valid": True}, "dispatched": True, "accepted": True},
+                {"timestamp": 101.0, "completed_at": 101.1, "validation": {"valid": False}, "dispatched": False, "accepted": False},
+                {"timestamp": 102.0, "completed_at": 102.2, "validation": {"valid": True}, "dispatched": True, "accepted": True},
             ],
-            observations=[{"observation": {"metrics": {"present": True}}}],
+            observations=[{"observation": {"timestamp": 100.0, "metrics": {"present": True}}}],
             cleanup_success=True,
+            decisions=[
+                {
+                    "timestamp": 101.0,
+                    "decision_latency_s": 0.5,
+                    "token_usage": {
+                        "provider": "generic",
+                        "model": "unit-model",
+                        "prompt_tokens": 10,
+                        "completion_tokens": 4,
+                        "reasoning_tokens": 2,
+                        "estimated_cost_usd": 0.01,
+                    },
+                }
+            ],
+            episode_started_at=99.0,
         )
         self.assertTrue(summary["scored"])
+        self.assertEqual(summary["scoring_version"], "v2")
+        self.assertEqual(summary["episode_success"], 1.0)
+        self.assertIsNone(summary["failure_category"])
+        self.assertEqual(summary["score_components"]["task_correctness"], 1.0)
+        self.assertEqual(summary["score_components"]["cleanup"], 1.0)
+        self.assertEqual(summary["counts"]["decisions"], 1)
+        self.assertEqual(summary["efficiency"]["tokens"]["total_tokens"], 16)
+        self.assertEqual(summary["efficiency"]["tokens"]["tokens_per_decision_mean"], 16)
+        self.assertEqual(summary["efficiency"]["timing"]["time_to_first_action_s"], 2.0)
         self.assertEqual(summary["scores"]["valid_action_accepted_rate"], 1.0)
         self.assertEqual(summary["scores"]["invalid_local_rejection_correctness"], 1.0)
 
@@ -197,7 +222,62 @@ class EpisodeTests(unittest.TestCase):
         )
         self.assertFalse(summary["scored"])
         self.assertEqual(summary["unscored_reason"], "setup failed")
+        self.assertEqual(summary["episode_success"], 0.0)
+        self.assertEqual(summary["failure_category"], "setup")
         self.assertEqual(episode_exit_code({"status": "ok", "summary": summary}), 1)
+
+    def test_score_episode_classifies_agent_and_oracle_failures(self) -> None:
+        agent_summary = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[],
+            observations=[{"observation": {"metrics": {"present": True}}}],
+            cleanup_success=True,
+            task=TASK_WS_PRB_PING_V1,
+        )
+        oracle_summary = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[{"validation": {"valid": True}, "dispatched": True, "accepted": True}],
+            observations=[{"observation": {"metrics": {"present": True}}}],
+            cleanup_success=True,
+            task=TASK_E2_KPM_PRB_PING_V1,
+            require_e2=True,
+            e2_oracle={"kpm_indications": 0, "oracle_available": False},
+        )
+
+        self.assertTrue(agent_summary["scored"])
+        self.assertEqual(agent_summary["episode_success"], 0.0)
+        self.assertEqual(agent_summary["failure_category"], "agent")
+        self.assertEqual(agent_summary["failure_reason"], "no accepted valid expected action")
+        self.assertFalse(oracle_summary["scored"])
+        self.assertEqual(oracle_summary["failure_category"], "oracle")
+
+    def test_normalize_decision_telemetry_computes_token_total(self) -> None:
+        telemetry = normalize_decision_telemetry(
+            {
+                "provider": "generic",
+                "model": "unit-model",
+                "prompt_tokens": 10,
+                "completion_tokens": 3,
+                "reasoning_tokens": 2,
+            },
+            decision_latency_s=1.5,
+        )
+
+        self.assertEqual(telemetry["decision_latency_s"], 1.5)
+        self.assertEqual(telemetry["token_usage"]["total_tokens"], 15)
+        self.assertEqual(telemetry["token_usage"]["provider"], "generic")
+
+    def test_normalize_decision_telemetry_rejects_negative_or_fractional_tokens(self) -> None:
+        telemetry = normalize_decision_telemetry(
+            {
+                "prompt_tokens": -1,
+                "completion_tokens": 2.5,
+                "reasoning_tokens": 3.0,
+                "estimated_cost_usd": -0.1,
+            }
+        )
+
+        self.assertEqual(telemetry["token_usage"], {"reasoning_tokens": 3, "total_tokens": 3})
 
     def test_v3_overlay_enables_metrics_and_remote_control(self) -> None:
         overlay = generate_v3_gnb_overlay(9001)
@@ -292,8 +372,11 @@ class EpisodeTests(unittest.TestCase):
 
         self.assertTrue(summary["scored"])
         self.assertEqual(summary["scores"]["noop_correctness"], 1.0)
-        self.assertFalse(failed["scored"])
-        self.assertEqual(failed["unscored_reason"], "agent acted during no-op task")
+        self.assertTrue(failed["scored"])
+        self.assertEqual(failed["episode_success"], 0.0)
+        self.assertEqual(failed["failure_category"], "agent")
+        self.assertEqual(failed["failure_reason"], "agent acted during no-op task")
+        self.assertEqual(failed["score_components"]["task_correctness"], 0.0)
 
     def test_score_episode_supports_error_repair_task(self) -> None:
         summary = score_episode(
@@ -315,8 +398,9 @@ class EpisodeTests(unittest.TestCase):
         )
 
         self.assertTrue(summary["scored"])
-        self.assertFalse(failed["scored"])
-        self.assertIn("invalid action followed by valid repair", failed["unscored_reason"])
+        self.assertTrue(failed["scored"])
+        self.assertEqual(failed["episode_success"], 0.0)
+        self.assertIn("invalid action followed by valid repair", failed["failure_reason"])
 
     def test_score_episode_supports_ssb_repair_task(self) -> None:
         summary = score_episode(
@@ -357,8 +441,10 @@ class EpisodeTests(unittest.TestCase):
 
         self.assertTrue(summary["scored"])
         self.assertTrue(summary["scores"]["action_budget_ok"])
-        self.assertFalse(failed["scored"])
-        self.assertEqual(failed["unscored_reason"], "action budget exceeded")
+        self.assertTrue(failed["scored"])
+        self.assertEqual(failed["episode_success"], 0.0)
+        self.assertEqual(failed["failure_category"], "agent")
+        self.assertEqual(failed["failure_reason"], "action budget exceeded")
 
     def test_score_episode_supports_evidence_and_stale_guards(self) -> None:
         evidence_action = {
@@ -526,8 +612,10 @@ class EpisodeTests(unittest.TestCase):
 
         self.assertTrue(passed["scored"])
         self.assertEqual(passed["scores"]["accepted_e2_control_actions"], 1)
-        self.assertFalse(failed["scored"])
-        self.assertEqual(failed["unscored_reason"], "no accepted valid expected action")
+        self.assertTrue(failed["scored"])
+        self.assertEqual(failed["episode_success"], 0.0)
+        self.assertEqual(failed["failure_category"], "agent")
+        self.assertEqual(failed["failure_reason"], "no accepted valid expected action")
 
     def test_score_episode_requires_expected_e2_control_oracle_type(self) -> None:
         action = {
