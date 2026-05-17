@@ -298,9 +298,11 @@ def generate_v3_gnb_overlay(ws_port: int) -> str:
     )
 
 
-def generate_v4_e2_gnb_overlay(ws_port: int) -> str:
+def generate_v4_e2_gnb_overlay(ws_port: int, enable_rc: bool = False, enable_ccc: bool = False) -> str:
     e2_addr, e2_port = "127.0.0.1", RIC_PORT
     bind_addr = "127.0.0.1"
+    # Keep optional service models disabled unless the matching RIC/xApp tool is part of the task.
+    # Advertising an unsupported RAN function can cause FlexRIC to reject or abort E2 setup.
     return (
         generate_v3_gnb_overlay(ws_port)
         + "e2:\n"
@@ -310,12 +312,20 @@ def generate_v4_e2_gnb_overlay(ws_port: int) -> str:
         + f"  port: {e2_port}\n"
         + f"  bind_addr: {bind_addr}\n"
         + "  e2sm_kpm_enabled: true\n"
-        + "  e2sm_rc_enabled: true\n"
-        + "  e2sm_ccc_enabled: true\n"
+        + f"  e2sm_rc_enabled: {str(enable_rc).lower()}\n"
+        + f"  e2sm_ccc_enabled: {str(enable_ccc).lower()}\n"
         + "pcap:\n"
         + "  e2ap_enable: true\n"
         + "  e2ap_du_filename: /stage/logs/e2ap_du.pcap\n"
         + "  e2ap_cu_cp_filename: /stage/logs/e2ap_cu_cp.pcap\n"
+    )
+
+
+def generate_v4_e2_gnb_overlay_for_policy(ws_port: int, policy: EpisodeTaskPolicy) -> str:
+    return generate_v4_e2_gnb_overlay(
+        ws_port,
+        enable_rc=ACTION_SET_PRB_POLICY_RATIO_RC_DU in policy.allowed_action_types,
+        enable_ccc=ACTION_SET_PRB_POLICY_RATIO_CCC in policy.allowed_action_types,
     )
 
 
@@ -1324,7 +1334,7 @@ print(json.dumps({{
         is_v4 = policy.requires_e2
         stage = episode_stage_for_task(options.task)
         provider = self.remote.config.ric_provider
-        overlay = generate_v4_e2_gnb_overlay(options.ws_port) if is_v4 else generate_v3_gnb_overlay(options.ws_port)
+        overlay = generate_v4_e2_gnb_overlay_for_policy(options.ws_port, policy) if is_v4 else generate_v3_gnb_overlay(options.ws_port)
         payload = {
             "run_id": options.run_id,
             "task": options.task,

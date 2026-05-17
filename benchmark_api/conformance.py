@@ -1024,31 +1024,40 @@ print(json.dumps({{
 
         if "ocudu_e2_config" in run_ids:
             if self._result_passed(existing + results, "docker_e2e_assets"):
-                overlay = self._generate_provider_e2_overlay(options.ws_port)
+                overlay = self._generate_provider_e2_overlay(options.ws_port, run_ids)
                 compatibility = self._detect_ocudu_kpm_compatibility()
                 required = [
                     "enable_du_e2: true",
                     "enable_cu_cp_e2: true",
                     "e2sm_kpm_enabled: true",
-                    "e2sm_rc_enabled: true",
-                    "e2sm_ccc_enabled: true",
                     "e2ap_enable: true",
                     "remote_control:",
                     "enable_json: true",
                 ]
+                if "e2_rc_du_prb_control_path" in run_ids:
+                    required.append("e2sm_rc_enabled: true")
+                if "e2_ccc_prb_control_path" in run_ids:
+                    required.append("e2sm_ccc_enabled: true")
                 missing = [item for item in required if item not in overlay]
+                forbidden = []
+                if "e2_rc_du_prb_control_path" not in run_ids and "e2sm_rc_enabled: true" in overlay:
+                    forbidden.append("e2sm_rc_enabled: true")
+                if "e2_ccc_prb_control_path" not in run_ids and "e2sm_ccc_enabled: true" in overlay:
+                    forbidden.append("e2sm_ccc_enabled: true")
                 compatible = bool(compatibility.get("compatible", True))
                 summary = "Generated v4 E2/KPM overlay is valid"
                 if missing:
                     summary = "Generated v4 overlay is missing: " + ", ".join(missing)
+                elif forbidden:
+                    summary = "Generated v4 overlay enables unsupported control service models: " + ", ".join(forbidden)
                 elif not compatible:
                     summary = compatibility.get("summary", "OCUDU and FlexRIC KPM versions are incompatible")
                 results.append(
                     self._result(
                         "ocudu_e2_config",
-                        RESULT_FAIL if missing or not compatible else RESULT_PASS,
+                        RESULT_FAIL if missing or forbidden or not compatible else RESULT_PASS,
                         summary,
-                        {"missing": missing, "overlay": overlay, "compatibility": compatibility},
+                        {"missing": missing, "forbidden": forbidden, "overlay": overlay, "compatibility": compatibility},
                     )
                 )
             else:
@@ -1567,8 +1576,13 @@ print(json.dumps({{
                 details,
             )
 
-    def _generate_provider_e2_overlay(self, ws_port: int) -> str:
-        return generate_v4_e2_gnb_overlay(ws_port)
+    def _generate_provider_e2_overlay(self, ws_port: int, run_ids: set[str] | None = None) -> str:
+        run_ids = run_ids or set()
+        return generate_v4_e2_gnb_overlay(
+            ws_port,
+            enable_rc="e2_rc_du_prb_control_path" in run_ids,
+            enable_ccc="e2_ccc_prb_control_path" in run_ids,
+        )
 
     def _terminate_gnb(self, options: ConformanceOptions) -> None:
         payload = {

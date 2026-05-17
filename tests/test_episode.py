@@ -26,6 +26,7 @@ from benchmark.benchmark_api.episode import (
     generate_kpm_xapp_config,
     generate_v3_gnb_overlay,
     generate_v4_e2_gnb_overlay,
+    generate_v4_e2_gnb_overlay_for_policy,
     kpm_record_has_prb_measurement,
     parse_kpm_indication_records,
     parse_ping_log,
@@ -297,10 +298,33 @@ class EpisodeTests(unittest.TestCase):
         self.assertIn(f"port: {RIC_PORT}", overlay)
         self.assertIn("bind_addr: 127.0.0.1", overlay)
         self.assertIn("e2sm_kpm_enabled: true", overlay)
-        self.assertIn("e2sm_rc_enabled: true", overlay)
-        self.assertIn("e2sm_ccc_enabled: true", overlay)
+        self.assertIn("e2sm_rc_enabled: false", overlay)
+        self.assertIn("e2sm_ccc_enabled: false", overlay)
         self.assertIn("e2ap_enable: true", overlay)
         self.assertIn("/stage/logs/e2ap_du.pcap", overlay)
+
+    def test_v4_overlay_enables_control_service_models_only_when_requested(self) -> None:
+        overlay = generate_v4_e2_gnb_overlay(9001, enable_rc=True, enable_ccc=True)
+        self.assertIn("e2sm_kpm_enabled: true", overlay)
+        self.assertIn("e2sm_rc_enabled: true", overlay)
+        self.assertIn("e2sm_ccc_enabled: true", overlay)
+
+    def test_v4_overlay_for_kpm_task_disables_control_service_models(self) -> None:
+        overlay = generate_v4_e2_gnb_overlay_for_policy(9001, task_policy(TASK_E2_KPM_PRB_PING_V1))
+        self.assertIn("e2sm_kpm_enabled: true", overlay)
+        self.assertIn("e2sm_rc_enabled: false", overlay)
+        self.assertIn("e2sm_ccc_enabled: false", overlay)
+
+    def test_v4_overlay_for_control_tasks_enables_required_service_models(self) -> None:
+        ccc_overlay = generate_v4_e2_gnb_overlay_for_policy(9001, task_policy(TASK_E2_CCC_PRB_POLICY_PING_V1))
+        rc_overlay = generate_v4_e2_gnb_overlay_for_policy(9001, task_policy(TASK_E2_RC_DU_PRB_POLICY_PING_V1))
+        consistency_overlay = generate_v4_e2_gnb_overlay_for_policy(9001, task_policy(TASK_E2_CONTROL_API_CONSISTENCY_V1))
+        self.assertIn("e2sm_rc_enabled: false", ccc_overlay)
+        self.assertIn("e2sm_ccc_enabled: true", ccc_overlay)
+        self.assertIn("e2sm_rc_enabled: true", rc_overlay)
+        self.assertIn("e2sm_ccc_enabled: false", rc_overlay)
+        self.assertIn("e2sm_rc_enabled: true", consistency_overlay)
+        self.assertIn("e2sm_ccc_enabled: true", consistency_overlay)
 
     def test_v4_kpm_xapp_config_matches_supported_du_style(self) -> None:
         config = generate_kpm_xapp_config()
