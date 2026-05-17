@@ -14,6 +14,7 @@ from benchmark.benchmark_api.episode import (
     ACTION_SET_PRB_POLICY_RATIO_CCC,
     ACTION_SET_PRB_POLICY_RATIO_RC_DU,
     ACTION_SET_PRB_POLICY_RATIO_WS,
+    ACTION_SET_SSB_BLOCK_POWER_WS,
     DEFAULT_ATTACH_TIMEOUT,
     DEFAULT_EPISODE_DURATION,
     DEFAULT_LAUNCH_TIMEOUT,
@@ -24,6 +25,7 @@ from benchmark.benchmark_api.episode import (
     EpisodeRuntime,
     episode_paths,
     fixed_prb_action_for_type,
+    ssb_action_from_observation,
     safe_run_id,
 )
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
@@ -47,6 +49,8 @@ BUILTIN_AGENTS = {
     "ccc_prb",
     "rc_du_prb",
     "e2_control_consistency",
+    "invalid_then_ssb",
+    "ssb_power",
 }
 V3_SUITE_CONFORMANCE_CHECKS = set(V3_EPISODE_GATE_CHECKS)
 V4_SUITE_CONFORMANCE_CHECKS = set(V4_EPISODE_GATE_CHECKS)
@@ -132,6 +136,11 @@ class BaselineAgent:
                 return None
             self.sent_fixed = True
             return fixed_prb_action()
+        if self.name == "ssb_power":
+            if self.sent_fixed:
+                return None
+            self.sent_fixed = True
+            return ssb_action_from_observation(observation)
         if self.name == "fixed_prb":
             if self.sent_fixed:
                 return None
@@ -159,6 +168,20 @@ class BaselineAgent:
                 return {"type": "SET_PRB_POLICY_RATIO_WS", "min_prb_policy_ratio": 90, "max_prb_policy_ratio": 10}
             if self.step == 2:
                 return fixed_prb_action()
+            return None
+        if self.name == "invalid_then_ssb":
+            self.step += 1
+            if self.step == 1:
+                frame = observation.get("observation", observation)
+                cell = frame.get("cell", {}) if isinstance(frame, dict) else {}
+                return {
+                    "type": ACTION_SET_SSB_BLOCK_POWER_WS,
+                    "plmn": str(cell.get("plmn", "00101")) if isinstance(cell, dict) else "00101",
+                    "nci": (cell.get("nci") or 0) if isinstance(cell, dict) else 0,
+                    "ssb_block_power_dbm": 99,
+                }
+            if self.step == 2:
+                return ssb_action_from_observation(observation)
             return None
         self.step += 1
         pairs = [(0, 100), (10, 90), (20, 80), (30, 70), (40, 60)]

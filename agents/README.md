@@ -89,6 +89,8 @@ python3 benchmark/benchctl.py episode cleanup \
 - `ccc_prb`: waits for fresh metrics and E2 PRB evidence, then sends one E2SM-CCC PRB policy action.
 - `rc_du_prb`: waits for fresh metrics, E2 PRB evidence, and DU UE identity, then sends one E2SM-RC DU PRB quota action.
 - `e2_control_consistency`: waits for E2 evidence, then chooses the CCC action for cell/slice PRB policy selection.
+- `ssb_power`: sends one valid WebSocket SSB block-power action using the observed cell identity.
+- `invalid_then_ssb`: sends one locally invalid SSB block-power action, then a valid SSB action using the observed cell identity.
 
 Recommended baseline by task:
 
@@ -104,6 +106,8 @@ Recommended baseline by task:
 | `e2_ccc_prb_policy_ping_v1` | `ccc_prb` |
 | `e2_rc_du_prb_policy_ping_v1` | `rc_du_prb` |
 | `e2_control_api_consistency_v1` | `e2_control_consistency` |
+| `ws_ssb_power_guard_v1` | `noop` |
+| `ws_ssb_power_repair_v1` | `invalid_then_ssb` |
 
 Agents may return `None` when they do not want to act on an observation. Suite loops skip `None` decisions, and `BenchmarkEnv.act(None)` returns a non-logged no-op result for episode tasks.
 
@@ -140,6 +144,19 @@ E2 control tasks use the same PRB fields with different action types:
 
 For `e2_control_api_consistency_v1`, the correct action is `SET_PRB_POLICY_RATIO_CCC`.
 
+SSB power tasks use OCUDU's native WebSocket `ssb_set` command:
+
+```json
+{
+  "type": "SET_SSB_BLOCK_POWER_WS",
+  "plmn": "00101",
+  "nci": 6733824,
+  "ssb_block_power_dbm": -16
+}
+```
+
+`nci` is the 36-bit NR cell identity. `ssb_block_power_dbm` must be an integer in `[-60, 50]`. The harness exposes `cell.nci` in observations so agents do not need to infer it from logs.
+
 ## Observation Rules
 
 Observation frames are normalized dictionaries. Agents should:
@@ -149,6 +166,7 @@ Observation frames are normalized dictionaries. Agents should:
 - Treat E2 fields as meaningful only for E2 tasks.
 - Use `last_action` for the most recent local validation and WebSocket dispatch result.
 - Use `metrics.stale` and `metrics.fresh` in staleness tasks before deciding whether an action is safe.
+- Use `cell.nci` and `cell.plmn` for SSB block-power actions.
 
 Common observation sources are ping counters, JSON metrics status, backend status, and last action result. E2 tasks add RIC, xApp, decoded KPM, and oracle status fields.
 

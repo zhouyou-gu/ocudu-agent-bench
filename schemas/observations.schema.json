@@ -168,6 +168,50 @@
       }
     },
     {
+      "stage": "v3_3_episode",
+      "task": "ws_ssb_power_guard_v1",
+      "state": "running",
+      "fields": {
+        "ping": "same as ws_prb_ping_v1",
+        "metrics": "same as ws_prb_ping_v1",
+        "cell": [
+          "plmn",
+          "nci",
+          "gnb_id",
+          "gnb_id_bit_length",
+          "sector_id",
+          "source"
+        ],
+        "backend": [
+          "websocket",
+          "ping"
+        ],
+        "last_action": "should remain absent unless the agent incorrectly acts"
+      }
+    },
+    {
+      "stage": "v3_3_episode",
+      "task": "ws_ssb_power_repair_v1",
+      "state": "running",
+      "fields": {
+        "ping": "same as ws_prb_ping_v1",
+        "metrics": "same as ws_prb_ping_v1",
+        "cell": [
+          "plmn",
+          "nci",
+          "gnb_id",
+          "gnb_id_bit_length",
+          "sector_id",
+          "source"
+        ],
+        "backend": [
+          "websocket",
+          "ping"
+        ],
+        "last_action": "local validation and WebSocket ssb_set dispatch result used for repair"
+      }
+    },
+    {
       "stage": "v4_2_episode",
       "task": "e2_ccc_prb_policy_ping_v1",
       "state": "running",
@@ -243,6 +287,7 @@
     "e2_kpm",
     "e2_control",
     "websocket_control_outcomes",
+    "cell_identity",
     "decision_context",
     "scenario_metrics_staleness",
     "zmq_broker_state",

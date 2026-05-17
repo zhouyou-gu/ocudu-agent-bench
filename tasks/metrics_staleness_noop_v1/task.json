@@ -29,8 +29,8 @@
     "evidence_gated_action",
     "valid_action_accepted_rate",
     "ping_success_ratio",
-    "json_metrics_continuity",
-    "clean_teardown_success"
+    "metrics_continuity",
+    "clean_teardown"
   ],
   "artifact_groups": [
     "episode/scenario.json",

@@ -4,6 +4,7 @@ from benchmark.benchmark_api.config import RemoteConfig, RuntimeConfig
 from benchmark.benchmark_api.episode import (
     EpisodeOptions,
     EpisodeRuntime,
+    ACTION_SET_SSB_BLOCK_POWER_WS,
     ACTION_SET_PRB_POLICY_RATIO_CCC,
     ACTION_SET_PRB_POLICY_RATIO_RC_DU,
     TASK_E2_KPM_PRB_PING_V1,
@@ -12,10 +13,14 @@ from benchmark.benchmark_api.episode import (
     TASK_E2_CONTROL_API_CONSISTENCY_V1,
     TASK_E2_KPM_JSON_CONSISTENCY_V1,
     TASK_METRICS_STALENESS_NOOP_V1,
+    TASK_WS_SSB_POWER_GUARD_V1,
+    TASK_WS_SSB_POWER_REPAIR_V1,
+    TASK_WS_PRB_PING_V1,
     TASK_WS_PRB_ACTION_BUDGET_V1,
     TASK_WS_PRB_ERROR_REPAIR_V1,
     TASK_WS_PRB_NOOP_GUARD_V1,
     build_prb_request,
+    build_ssb_request,
     episode_paths,
     episode_exit_code,
     generate_kpm_xapp_config,
@@ -28,6 +33,7 @@ from benchmark.benchmark_api.episode import (
     score_episode,
     task_policy,
     validate_prb_action,
+    validate_ssb_action,
     validate_episode_action,
 )
 from benchmark.benchmark_api.ric import RIC_PORT
@@ -108,6 +114,34 @@ class EpisodeTests(unittest.TestCase):
                 self.assertFalse(validation["valid"])
                 self.assertIn(reason, validation["reason"])
 
+    def test_validate_ssb_action_accepts_native_websocket_contract(self) -> None:
+        action = {
+            "type": ACTION_SET_SSB_BLOCK_POWER_WS,
+            "plmn": "00101",
+            "nci": 6733824,
+            "ssb_block_power_dbm": -16,
+        }
+        validation = validate_ssb_action(action)
+
+        self.assertTrue(validation["valid"])
+        self.assertEqual(validation["dispatch"], "websocket")
+        self.assertEqual(validation["request"]["cmd"], "ssb_set")
+        self.assertEqual(validation["request"]["cells"][0]["nci"], 6733824)
+        self.assertEqual(validation["request"]["cells"][0]["ssb_block_power_dbm"], -16)
+
+    def test_validate_ssb_action_rejects_bad_values(self) -> None:
+        cases = [
+            ({"type": ACTION_SET_SSB_BLOCK_POWER_WS, "ssb_block_power_dbm": -16}, "nci"),
+            ({"type": ACTION_SET_SSB_BLOCK_POWER_WS, "nci": True, "ssb_block_power_dbm": -16}, "nci"),
+            ({"type": ACTION_SET_SSB_BLOCK_POWER_WS, "nci": 1, "ssb_block_power_dbm": 51}, "[-60, 50]"),
+            ({"type": ACTION_SET_SSB_BLOCK_POWER_WS, "nci": 1, "ssb_block_power_dbm": False}, "integer"),
+        ]
+        for action, reason in cases:
+            with self.subTest(action=action):
+                validation = validate_ssb_action(action)
+                self.assertFalse(validation["valid"])
+                self.assertIn(reason, validation["reason"])
+
     def test_build_prb_request_omits_optional_sd_when_absent(self) -> None:
         request = build_prb_request(
             {
@@ -122,6 +156,12 @@ class EpisodeTests(unittest.TestCase):
         member = request["policies"]["rRMPolicyMemberList"][0]
         self.assertNotIn("sd", member)
         self.assertNotIn("dedicated_ratio", request["policies"])
+
+    def test_build_ssb_request_uses_ocudu_ssb_set_shape(self) -> None:
+        request = build_ssb_request({"plmn": "00101", "nci": 6733824, "ssb_block_power_dbm": -20})
+
+        self.assertEqual(request["cmd"], "ssb_set")
+        self.assertEqual(request["cells"], [{"plmn": "00101", "nci": 6733824, "ssb_block_power_dbm": -20}])
 
     def test_parse_ping_log_counts_replies_and_summary(self) -> None:
         ping = parse_ping_log(
@@ -278,6 +318,26 @@ class EpisodeTests(unittest.TestCase):
         self.assertFalse(failed["scored"])
         self.assertIn("invalid action followed by valid repair", failed["unscored_reason"])
 
+    def test_score_episode_supports_ssb_repair_task(self) -> None:
+        summary = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[
+                {"validation": {"valid": False, "normalized": {"type": ACTION_SET_SSB_BLOCK_POWER_WS}}, "dispatched": False, "accepted": False},
+                {
+                    "validation": {"valid": True, "normalized": {"type": ACTION_SET_SSB_BLOCK_POWER_WS}},
+                    "dispatched": True,
+                    "accepted": True,
+                    "action": {"type": ACTION_SET_SSB_BLOCK_POWER_WS},
+                },
+            ],
+            observations=[{"observation": {"metrics": {"present": True}, "cell": {"nci": 6733824}}}],
+            cleanup_success=True,
+            task=TASK_WS_SSB_POWER_REPAIR_V1,
+        )
+
+        self.assertTrue(summary["scored"])
+        self.assertEqual(summary["counts"]["accepted_expected_actions"], 1)
+
     def test_score_episode_supports_action_budget_task(self) -> None:
         action = {"validation": {"valid": True}, "dispatched": True, "accepted": True}
         summary = score_episode(
@@ -366,6 +426,8 @@ class EpisodeTests(unittest.TestCase):
         self.assertEqual(task_policy(TASK_E2_CCC_PRB_POLICY_PING_V1).expected_action_type, ACTION_SET_PRB_POLICY_RATIO_CCC)
         self.assertTrue(task_policy(TASK_E2_RC_DU_PRB_POLICY_PING_V1).requires_ue_identity)
         self.assertIn(ACTION_SET_PRB_POLICY_RATIO_RC_DU, task_policy(TASK_E2_CONTROL_API_CONSISTENCY_V1).allowed_action_types)
+        self.assertEqual(task_policy(TASK_WS_SSB_POWER_REPAIR_V1).expected_action_type, ACTION_SET_SSB_BLOCK_POWER_WS)
+        self.assertTrue(task_policy(TASK_WS_SSB_POWER_GUARD_V1).require_no_actions)
         scenario = scenario_metadata(TASK_METRICS_STALENESS_NOOP_V1, duration=5)
         self.assertEqual(scenario["labels"]["stale_metrics_observations"], 2)
         self.assertEqual(scenario["traffic"]["target"], "10.45.1.1")
@@ -397,6 +459,20 @@ class EpisodeTests(unittest.TestCase):
         self.assertEqual(rc["request"]["control_style"], 2)
         self.assertEqual(rc["request"]["control_action"], 6)
 
+    def test_validate_episode_action_routes_ssb_tasks(self) -> None:
+        validation = validate_episode_action(
+            {"type": ACTION_SET_SSB_BLOCK_POWER_WS, "nci": 6733824, "ssb_block_power_dbm": -16},
+            TASK_WS_SSB_POWER_REPAIR_V1,
+        )
+        wrong_task = validate_episode_action(
+            {"type": ACTION_SET_SSB_BLOCK_POWER_WS, "nci": 6733824, "ssb_block_power_dbm": -16},
+            TASK_WS_PRB_PING_V1,
+        )
+
+        self.assertTrue(validation["valid"])
+        self.assertEqual(validation["request"]["cmd"], "ssb_set")
+        self.assertFalse(wrong_task["valid"])
+
     def test_score_episode_requires_expected_e2_control_action_and_oracle(self) -> None:
         action = {
             "validation": {
@@ -422,6 +498,7 @@ class EpisodeTests(unittest.TestCase):
                 "kpm_indications": 3,
                 "oracle_available": True,
                 "control_oracle_available": True,
+                "control_types": [ACTION_SET_PRB_POLICY_RATIO_CCC],
                 "control_records": [{"accepted": True}],
             },
         )
@@ -442,6 +519,7 @@ class EpisodeTests(unittest.TestCase):
                 "kpm_indications": 3,
                 "oracle_available": True,
                 "control_oracle_available": True,
+                "control_types": [ACTION_SET_PRB_POLICY_RATIO_RC_DU],
                 "control_records": [{"accepted": True}],
             },
         )
@@ -450,6 +528,40 @@ class EpisodeTests(unittest.TestCase):
         self.assertEqual(passed["scores"]["accepted_e2_control_actions"], 1)
         self.assertFalse(failed["scored"])
         self.assertEqual(failed["unscored_reason"], "no accepted valid expected action")
+
+    def test_score_episode_requires_expected_e2_control_oracle_type(self) -> None:
+        action = {
+            "validation": {
+                "valid": True,
+                "dispatch": "e2_ccc",
+                "normalized": {"type": ACTION_SET_PRB_POLICY_RATIO_CCC},
+            },
+            "dispatched": True,
+            "accepted": True,
+            "decision_context": {
+                "metrics": {"present": True, "stale": False},
+                "e2": {"kpm_indications": 3, "has_prb_measurement": True},
+            },
+            "action": {"type": ACTION_SET_PRB_POLICY_RATIO_CCC},
+        }
+
+        summary = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[action],
+            observations=[{"observation": {"metrics": {"present": True}}}],
+            cleanup_success=True,
+            task=TASK_E2_CCC_PRB_POLICY_PING_V1,
+            e2_oracle={
+                "kpm_indications": 3,
+                "oracle_available": True,
+                "control_oracle_available": True,
+                "control_types": [ACTION_SET_PRB_POLICY_RATIO_RC_DU],
+                "control_records": [{"accepted": True}],
+            },
+        )
+
+        self.assertFalse(summary["scored"])
+        self.assertEqual(summary["unscored_reason"], "E2 control oracle missing expected action type")
 
     def test_run_cleans_up_and_marks_unscored_on_observe_failure(self) -> None:
         class FailingRuntime(EpisodeRuntime):

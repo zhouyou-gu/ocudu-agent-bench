@@ -2,6 +2,10 @@
 
 A benchmark task is a complete episode contract for an agent. It states what remote runtime is launched, what actions are valid, what observations are produced, which conformance checks must pass, how scoring works, and where artifacts are written.
 
+Tasks are not APIs. A task consumes reusable benchmark APIs documented in [../API_REFERENCE.md](../API_REFERENCE.md), such as OCUDU WebSocket PRB control, WebSocket SSB control, JSON metrics, E2SM-KPM, E2SM-CCC, E2SM-RC, conformance, and artifact/oracle APIs. Task manifests reference action types and observation sources from that catalog; they must not define raw wire protocols or new OCUDU commands.
+
+`NO_ACTION` is a task-level decision. Agents express it by returning Python `None` or by not emitting an action in a suite loop. It is not a runtime API command and is never sent to OCUDU.
+
 Each task has:
 
 - `task.json`: machine-readable metadata used by the registry.
@@ -23,8 +27,11 @@ Use [TASK_AUTHORING_GUIDE.md](TASK_AUTHORING_GUIDE.md) when proposing new tasks.
 | `e2_ccc_prb_policy_ping_v1` | Docker Open5GS + OCUDU gNB + srsUE + FlexRIC | E2SM-CCC PRB policy | UE ping + JSON metrics + decoded KPM + E2 control oracle | accepted CCC action, traffic health, KPM/control oracle, cleanup | scored |
 | `e2_rc_du_prb_policy_ping_v1` | Docker Open5GS + OCUDU gNB + srsUE + FlexRIC | E2SM-RC DU PRB quota | UE ping + JSON metrics + decoded KPM + UE identity + E2 control oracle | accepted RC DU action after identity evidence, traffic health, cleanup | scored |
 | `e2_control_api_consistency_v1` | Docker Open5GS + OCUDU gNB + srsUE + FlexRIC | E2SM-CCC or E2SM-RC DU | UE ping + JSON metrics + decoded KPM + E2 control oracle | correct API selection for a cell/slice PRB objective | scored |
+| `ws_ssb_power_guard_v1` | Docker Open5GS + OCUDU gNB + srsUE | no action expected; SSB API available | UE ping + JSON metrics + cell identity | correct restraint, traffic health, metrics continuity, cleanup | scored |
+| `ws_ssb_power_repair_v1` | Docker Open5GS + OCUDU gNB + srsUE | OCUDU WebSocket SSB block power | UE ping + JSON metrics + cell identity + last action result | invalid local rejection, valid `ssb_set` repair, traffic health | scored |
 
 The v4.2 E2-control tasks are scored only when conformance proves the FlexRIC-derived runtime image exposes the required one-shot control tools and oracle artifacts.
+The v3.3 SSB tasks are scored only for API validation, command acceptance, traffic health, metrics continuity, and cleanup; they do not claim RF-performance effects in ZMQ.
 
 ## Task Metadata Contract
 
@@ -33,10 +40,10 @@ Task manifests include:
 - Stable task id and display name.
 - Episode and suite stage labels.
 - Runtime family.
-- Allowed action types.
-- Observation sources.
+- Allowed action types from the API catalog, not raw wire commands.
+- Observation sources from the API catalog.
 - Required conformance check ids.
-- Scoring dimensions.
+- Canonical scoring dimensions emitted by episode summaries.
 - Expected remote artifact groups.
 - Readiness status.
 

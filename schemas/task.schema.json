@@ -28,5 +28,59 @@
     "required_conformance": "Conformance check ids that must pass before scored runs.",
     "scoring": "Score dimensions used by summaries and suite aggregation.",
     "artifact_groups": "Expected remote artifact files or directories under the run episode directory."
+  },
+  "allowed_values": {
+    "runtime": [
+      "docker_e2e",
+      "docker_e2e_flexric"
+    ],
+    "readiness": [
+      "idea",
+      "designed",
+      "conformance_needed",
+      "implemented_unscored",
+      "scored"
+    ],
+    "action_types": [
+      "NO_ACTION",
+      "SET_PRB_POLICY_RATIO_WS",
+      "SET_SSB_BLOCK_POWER_WS",
+      "SET_PRB_POLICY_RATIO_CCC",
+      "SET_PRB_POLICY_RATIO_RC_DU"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "websocket_control",
+      "websocket_control_outcomes",
+      "cell_identity",
+      "scenario_metrics_staleness",
+      "e2_kpm_v05",
+      "e2_control_outcome",
+      "ue_identity",
+      "pcap_log_oracle"
+    ],
+    "scoring": [
+      "valid_action_accepted_rate",
+      "invalid_local_rejection_correctness",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "e2_kpm_continuity",
+      "e2_oracle_available",
+      "e2_control_oracle_available",
+      "expected_e2_control_oracle_available",
+      "expected_action_type_correct",
+      "accepted_e2_control_actions",
+      "clean_teardown",
+      "task_success",
+      "action_budget_ok",
+      "noop_correctness",
+      "evidence_gated_action",
+      "stale_action_avoidance"
+    ]
+  },
+  "boundary_rules": {
+    "action_types": "Use benchmark action type names only. Raw OCUDU wire commands such as rrm_policy_ratio_set, ssb_set, and metrics_subscribe are not task action types.",
+    "artifact_groups": "Use relative episode artifact paths only, such as episode/summary.json or episode/logs."
   }
 }

@@ -122,6 +122,16 @@
       "launch_required": true
     },
     {
+      "id": "websocket_ssb_power_action",
+      "name": "WebSocket SSB block power action",
+      "backend": "websocket",
+      "stage": "v3.3",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": true
+    },
+    {
       "id": "scenario_metrics_staleness_mask",
       "name": "Scenario metrics staleness mask",
       "backend": "scenario",

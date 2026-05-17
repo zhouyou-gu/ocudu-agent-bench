@@ -169,6 +169,7 @@ export OCUDU_ROOT BENCHMARK_WORKSPACE OPEN5GS_COMPOSE E2E_CONFIG_DIR RIC_PROVIDE
         source_rel = source.resolve().relative_to(repo_root)
         expected = [
             "README.md",
+            "API_REFERENCE.md",
             "__init__.py",
             "benchctl.py",
             "benchmark_api/__init__.py",
@@ -209,6 +210,10 @@ export OCUDU_ROOT BENCHMARK_WORKSPACE OPEN5GS_COMPOSE E2E_CONFIG_DIR RIC_PROVIDE
             "tasks/e2_rc_du_prb_policy_ping_v1/task.json",
             "tasks/e2_control_api_consistency_v1/README.md",
             "tasks/e2_control_api_consistency_v1/task.json",
+            "tasks/ws_ssb_power_guard_v1/README.md",
+            "tasks/ws_ssb_power_guard_v1/task.json",
+            "tasks/ws_ssb_power_repair_v1/README.md",
+            "tasks/ws_ssb_power_repair_v1/task.json",
         ]
         files = [source_rel / item for item in expected if (repo_root / source_rel / item).is_file()]
         provision_root = repo_root / source_rel / "provision"

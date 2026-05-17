@@ -30,10 +30,10 @@
     "expected_action_type_correct",
     "valid_action_accepted_rate",
     "ping_success_ratio",
-    "json_metrics_continuity",
+    "metrics_continuity",
     "e2_kpm_continuity",
     "e2_control_oracle_available",
-    "clean_teardown_success"
+    "clean_teardown"
   ],
   "artifact_groups": [
     "episode/scenario.json",

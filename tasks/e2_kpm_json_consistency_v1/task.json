@@ -28,10 +28,10 @@
     "evidence_gated_action",
     "valid_action_accepted_rate",
     "ping_success_ratio",
-    "json_metrics_continuity",
+    "metrics_continuity",
     "e2_kpm_continuity",
-    "e2_oracle_availability",
-    "clean_teardown_success"
+    "e2_oracle_available",
+    "clean_teardown"
   ],
   "artifact_groups": [
     "episode/scenario.json",

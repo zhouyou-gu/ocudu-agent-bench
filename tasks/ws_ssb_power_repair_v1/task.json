@@ -1,38 +1,40 @@
 {
-  "id": "ws_prb_ping_v1",
-  "name": "WebSocket PRB Policy With UE Ping",
-  "summary": "A Docker Open5GS, OCUDU gNB, and srsUE episode where the agent controls PRB policy over OCUDU WebSocket remote control while observing UE ping and JSON metrics.",
-  "stage": "v3_episode",
-  "suite_stage": "v3_1_suite",
+  "id": "ws_ssb_power_repair_v1",
+  "name": "WebSocket SSB Power Error Repair",
+  "summary": "A healthy Docker Open5GS, OCUDU gNB, and srsUE episode where the agent must recover from one locally rejected SSB block-power action by issuing one valid OCUDU WebSocket ssb_set command.",
+  "stage": "v3_3_episode",
+  "suite_stage": "v3_3_suite",
   "runtime": "docker_e2e",
   "readiness": "scored",
   "action_types": [
-    "SET_PRB_POLICY_RATIO_WS"
+    "SET_SSB_BLOCK_POWER_WS"
   ],
   "observation_sources": [
     "ping",
     "json_metrics",
-    "websocket_control"
+    "cell_identity",
+    "websocket_control_outcomes"
   ],
   "required_conformance": [
     "docker_e2e_assets",
     "open5gs_core_health",
     "srsue_zmq_attach",
     "ping_traffic_path",
-    "websocket_prb_policy_action"
+    "websocket_ssb_power_action"
   ],
   "scoring": [
-    "valid_action_accepted_rate",
     "invalid_local_rejection_correctness",
+    "valid_action_accepted_rate",
     "ping_success_ratio",
     "metrics_continuity",
     "clean_teardown"
   ],
   "artifact_groups": [
+    "episode/scenario.json",
     "episode/actions.jsonl",
     "episode/observations.jsonl",
     "episode/metrics_raw.jsonl",
     "episode/summary.json",
-    "episode/logs"
+    "episode/logs/"
   ]
 }

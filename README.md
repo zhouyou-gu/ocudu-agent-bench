@@ -18,7 +18,7 @@
 +--------------------------------------------+
 ```
 
-The benchmark owns orchestration, local action validation, conformance gating, agent loops, scoring, and summaries. The remote workspace owns OCUDU source/build/install trees, runtime processes, raw logs, PCAPs, metrics, and run artifacts.
+The benchmark owns orchestration, local action validation, conformance gating, agent loops, scoring, and summaries. The remote workspace owns OCUDU source/build/install trees, runtime processes, raw logs, PCAPs, metrics, and run artifacts. [API_REFERENCE.md](API_REFERENCE.md) is the standalone source of truth for implemented benchmark APIs and the boundary between reusable APIs and scored tasks.
 
 ## Quick Start
 
@@ -87,6 +87,8 @@ python3 benchmark/benchctl.py episode suite \
 
 Benchmark tasks are explicit episode contracts. A task defines the runtime stack, allowed actions, observation sources, required conformance checks, scoring dimensions, and expected artifacts.
 
+Tasks consume APIs; they do not define APIs. A task manifest may reference action types such as `SET_PRB_POLICY_RATIO_WS` or observation sources such as `json_metrics`, but wire commands such as `rrm_policy_ratio_set` and `ssb_set` belong to the API reference. `NO_ACTION` in a task manifest means the agent should return Python `None`; it is not sent as a runtime command.
+
 Current tasks:
 
 - `ws_prb_ping_v1`: Docker Open5GS, OCUDU gNB, srsUE, UE ping traffic, WebSocket PRB policy control, and JSON metrics.
@@ -99,6 +101,8 @@ Current tasks:
 - `e2_ccc_prb_policy_ping_v1`: E2SM-CCC PRB policy control episode with ping, JSON metrics, decoded KPM, and E2 control oracle evidence.
 - `e2_rc_du_prb_policy_ping_v1`: E2SM-RC DU PRB quota control episode that waits for UE identity evidence before dispatch.
 - `e2_control_api_consistency_v1`: E2 control selection episode where the agent must choose CCC for a cell/slice PRB policy objective.
+- `ws_ssb_power_guard_v1`: healthy episode where the SSB block-power API is available but the correct behavior is no action.
+- `ws_ssb_power_repair_v1`: WebSocket SSB block-power episode that scores invalid local rejection followed by one valid `ssb_set` repair.
 
 Each task has a machine-readable manifest under `tasks/<task_id>/task.json` and a human task card under `tasks/<task_id>/README.md`.
 
@@ -145,6 +149,7 @@ Conformance is the pre-scoring validation step. Task manifests list the required
 - `e2_rc_du_prb_policy_ping_v1`: the v4 E2/KPM gate plus the E2SM-RC DU PRB control path.
 - `e2_control_api_consistency_v1`: the v4 E2/KPM gate plus both CCC and RC DU control paths.
 - `metrics_staleness_noop_v1`: the v3 WebSocket gate plus a scenario-mask check proving early observation frames are marked stale before scoring.
+- `ws_ssb_power_guard_v1` and `ws_ssb_power_repair_v1`: the v3 WebSocket gate plus `websocket_ssb_power_action`, which verifies the native OCUDU `ssb_set` path.
 
 Run conformance manually after provisioning, after changing config/source pins, or when debugging a failed suite. `episode suite` runs the required gate automatically unless `--skip-conformance` is used; skipped conformance marks the suite unscored.
 
@@ -158,6 +163,7 @@ This deletes prior source/build/install state and run artifacts under `remote.wo
 
 ## Main Entry Points
 
+- [Implemented API reference](API_REFERENCE.md): benchmark harness APIs, OCUDU runtime APIs, action contracts, observations, and task/API mapping.
 - [Agent guide](agents/README.md): Python API, CLI suite usage, built-in baselines, scoring rules, and safety rules.
 - [Task catalog](tasks/README.md): task comparison table and task manifest contract.
 - [Action schema](schemas/actions.schema.json): shared action catalog.
@@ -171,9 +177,3 @@ This deletes prior source/build/install state and run artifacts under `remote.wo
 - Do not skip conformance for scored runs.
 - Treat setup, conformance, runtime, and oracle failures as unscored benchmark failures, not agent failures.
 - Keep examples generic so another operator can reuse the project with their own remote host and workspace.
-
-## Research And Setup Docs
-
-- [Runtime API survey](../skillful-ran-research/benchmark/benchmark_design.md)
-- [Benchmark architecture](../skillful-ran-research/benchmark/benchmark_architecture.md)
-- [Remote OCUDU API setup](../skillful-ran-research/benchmark/remote_ocudu_api_setup.md)

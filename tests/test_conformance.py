@@ -142,6 +142,7 @@ class ConformanceTests(unittest.TestCase):
             "srsue_zmq_attach",
             "ping_traffic_path",
             "websocket_prb_policy_action",
+            "websocket_ssb_power_action",
             "flexric_docker_assets",
             "near_rt_ric_health",
             "ocudu_e2_config",
@@ -195,6 +196,11 @@ class ConformanceTests(unittest.TestCase):
         )
         self.assertTrue(control_enablement["e2_control"])
         self.assertTrue(control_enablement["e2_ccc"])
+        ssb_enablement = compute_backend_enablement(
+            [ConformanceCheckResult("websocket_ssb_power_action", "SSB", "websocket", True, "pass", "ok", {})]
+        )
+        self.assertTrue(ssb_enablement["websocket"])
+        self.assertTrue(ssb_enablement["v3_websocket_ssb"])
 
     def test_missing_runtime_dependencies_block_launch_checks(self) -> None:
         runner = ConformanceRunner(
@@ -493,6 +499,67 @@ class ConformanceTests(unittest.TestCase):
         self.assertEqual(result["status"], "pass")
         self.assertEqual(FakeEpisodeRuntime.started_tasks, [conformance_module.TASK_METRICS_STALENESS_NOOP_V1])
         self.assertEqual(by_id["scenario_metrics_staleness_mask"]["status"], "pass")
+
+    def test_v3_ssb_conformance_dispatches_ssb_action(self) -> None:
+        original_runtime = conformance_module.EpisodeRuntime
+
+        class FakeEpisodeRuntime:
+            actions = []
+
+            def __init__(self, remote, repo_root=None) -> None:
+                self.options = None
+
+            def check_docker_assets(self):
+                return {"status": "pass", "summary": "assets ok", "details": {}}
+
+            def start(self, options):
+                self.options = options
+                return {"status": "ok", "stage": "v3_3_episode"}
+
+            def observe(self):
+                return {
+                    "status": "ok",
+                    "observation": {
+                        "ping": {"packets_received": 2},
+                        "metrics": {"present": True},
+                        "cell": {"plmn": "00101", "nci": 6733824},
+                    },
+                }
+
+            def act(self, action, allowed_types=None):
+                type(self).actions.append(action)
+                if action.get("ssb_block_power_dbm") == 99:
+                    return {"status": "rejected", "accepted": False}
+                return {"status": "ok", "accepted": action.get("type") == "SET_SSB_BLOCK_POWER_WS"}
+
+            def cleanup(self, run_id):
+                return {"status": "ok", "run_id": run_id}
+
+            def finalize(self, unscored_reason=None, cleanup_success=True):
+                return {"status": "ok", "scored": cleanup_success}
+
+        conformance_module.EpisodeRuntime = FakeEpisodeRuntime
+        try:
+            runner = ConformanceRunner(
+                remote=FakeRemoteManager(),
+                repo_root=Path(".").resolve(),
+                specs_path=Path("benchmark/conformance/tests.json"),
+            )
+            result = runner.run(
+                options=ConformanceOptions(
+                    run_id="unit-v3-ssb",
+                    checks={"websocket_ssb_power_action"},
+                    ws_port=8001,
+                    launch_timeout=1,
+                    probe_timeout=1,
+                )
+            )
+        finally:
+            conformance_module.EpisodeRuntime = original_runtime
+
+        by_id = {check["id"]: check for check in result["checks"]}
+        self.assertEqual(by_id["websocket_ssb_power_action"]["status"], "pass")
+        self.assertTrue(any(action.get("type") == "SET_SSB_BLOCK_POWER_WS" for action in FakeEpisodeRuntime.actions))
 
     def test_v4_e2_checks_use_flexric_and_episode_runtime_adapters(self) -> None:
         original_runtime = conformance_module.EpisodeRuntime

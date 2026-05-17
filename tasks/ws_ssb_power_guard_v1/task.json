@@ -1,29 +1,30 @@
 {
-  "id": "ws_prb_action_budget_v1",
-  "name": "WebSocket PRB Action Budget",
-  "summary": "A healthy Docker OCUDU episode where the agent must use at most one valid WebSocket PRB policy action and avoid invalid or repeated control churn.",
-  "stage": "v3_2_episode",
-  "suite_stage": "v3_2_suite",
+  "id": "ws_ssb_power_guard_v1",
+  "name": "WebSocket SSB Power No-Op Guard",
+  "summary": "A healthy Docker Open5GS, OCUDU gNB, and srsUE episode where the SSB block-power API is available but the correct agent behavior is to avoid unnecessary RF-parameter changes.",
+  "stage": "v3_3_episode",
+  "suite_stage": "v3_3_suite",
   "runtime": "docker_e2e",
   "readiness": "scored",
   "action_types": [
-    "SET_PRB_POLICY_RATIO_WS"
+    "SET_SSB_BLOCK_POWER_WS",
+    "NO_ACTION"
   ],
   "observation_sources": [
     "ping",
     "json_metrics",
-    "websocket_control"
+    "cell_identity",
+    "websocket_control_outcomes"
   ],
   "required_conformance": [
     "docker_e2e_assets",
     "open5gs_core_health",
     "srsue_zmq_attach",
     "ping_traffic_path",
-    "websocket_prb_policy_action"
+    "websocket_ssb_power_action"
   ],
   "scoring": [
-    "valid_action_accepted_rate",
-    "action_budget_ok",
+    "noop_correctness",
     "ping_success_ratio",
     "metrics_continuity",
     "clean_teardown"
@@ -34,6 +35,6 @@
     "episode/observations.jsonl",
     "episode/metrics_raw.jsonl",
     "episode/summary.json",
-    "episode/logs"
+    "episode/logs/"
   ]
 }

@@ -117,10 +117,24 @@ class SuiteTests(unittest.TestCase):
             BaselineAgent("e2_control_consistency", seed=1).next_action(e2_frame)["type"],
             "SET_PRB_POLICY_RATIO_CCC",
         )
+        ssb_frame = {"observation": {"cell": {"plmn": "00101", "nci": 6733824}}}
+        self.assertEqual(BaselineAgent("ssb_power", seed=1).next_action(ssb_frame)["type"], "SET_SSB_BLOCK_POWER_WS")
+        invalid_ssb = BaselineAgent("invalid_then_ssb", seed=1)
+        self.assertEqual(invalid_ssb.next_action(ssb_frame)["ssb_block_power_dbm"], 99)
+        self.assertEqual(invalid_ssb.next_action(ssb_frame)["ssb_block_power_dbm"], -16)
 
     def test_builtin_agent_catalog_contains_task_specific_agents(self) -> None:
         self.assertTrue(
-            {"noop", "evidence_gated_prb", "stale_guard_prb", "ccc_prb", "rc_du_prb", "e2_control_consistency"}.issubset(
+            {
+                "noop",
+                "evidence_gated_prb",
+                "stale_guard_prb",
+                "ccc_prb",
+                "rc_du_prb",
+                "e2_control_consistency",
+                "ssb_power",
+                "invalid_then_ssb",
+            }.issubset(
                 BUILTIN_AGENTS
             )
         )

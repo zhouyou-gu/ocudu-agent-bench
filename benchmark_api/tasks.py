@@ -19,6 +19,8 @@ TASK_METRICS_STALENESS_NOOP_V1 = "metrics_staleness_noop_v1"
 TASK_E2_CCC_PRB_POLICY_PING_V1 = "e2_ccc_prb_policy_ping_v1"
 TASK_E2_RC_DU_PRB_POLICY_PING_V1 = "e2_rc_du_prb_policy_ping_v1"
 TASK_E2_CONTROL_API_CONSISTENCY_V1 = "e2_control_api_consistency_v1"
+TASK_WS_SSB_POWER_GUARD_V1 = "ws_ssb_power_guard_v1"
+TASK_WS_SSB_POWER_REPAIR_V1 = "ws_ssb_power_repair_v1"
 
 IMPLEMENTED_EPISODE_TASKS = {
     TASK_WS_PRB_PING_V1,
@@ -31,9 +33,65 @@ IMPLEMENTED_EPISODE_TASKS = {
     TASK_E2_CCC_PRB_POLICY_PING_V1,
     TASK_E2_RC_DU_PRB_POLICY_PING_V1,
     TASK_E2_CONTROL_API_CONSISTENCY_V1,
+    TASK_WS_SSB_POWER_GUARD_V1,
+    TASK_WS_SSB_POWER_REPAIR_V1,
 }
 DEFAULT_TASKS_DIR = Path(__file__).resolve().parents[1] / "tasks"
 _TASK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_]*_v[0-9]+$")
+
+ACTION_TYPES = {
+    "NO_ACTION",
+    "SET_PRB_POLICY_RATIO_WS",
+    "SET_SSB_BLOCK_POWER_WS",
+    "SET_PRB_POLICY_RATIO_CCC",
+    "SET_PRB_POLICY_RATIO_RC_DU",
+}
+RUNTIME_FAMILIES = {
+    "docker_e2e",
+    "docker_e2e_flexric",
+}
+READINESS_LEVELS = {
+    "idea",
+    "designed",
+    "conformance_needed",
+    "implemented_unscored",
+    "scored",
+}
+OBSERVATION_SOURCES = {
+    "ping",
+    "json_metrics",
+    "websocket_control",
+    "websocket_control_outcomes",
+    "cell_identity",
+    "scenario_metrics_staleness",
+    "e2_kpm_v05",
+    "e2_control_outcome",
+    "ue_identity",
+    "pcap_log_oracle",
+}
+SCORE_DIMENSIONS = {
+    "valid_action_accepted_rate",
+    "invalid_local_rejection_correctness",
+    "ping_success_ratio",
+    "metrics_continuity",
+    "e2_kpm_continuity",
+    "e2_oracle_available",
+    "e2_control_oracle_available",
+    "expected_e2_control_oracle_available",
+    "expected_action_type_correct",
+    "accepted_e2_control_actions",
+    "clean_teardown",
+    "task_success",
+    "action_budget_ok",
+    "noop_correctness",
+    "evidence_gated_action",
+    "stale_action_avoidance",
+}
+WIRE_COMMAND_NAMES = {
+    "rrm_policy_ratio_set",
+    "ssb_set",
+    "metrics_subscribe",
+}
 
 
 @dataclass(frozen=True)
@@ -58,19 +116,35 @@ class TaskSpec:
             raise ValueError(f"Invalid task id in {source}: {task_id!r}")
         if source.parent.name != task_id:
             raise ValueError(f"Task id {task_id!r} must match directory name {source.parent.name!r}")
+        name = _required_str(data, "name", source)
+        summary = _required_str(data, "summary", source)
+        stage = _required_str(data, "stage", source)
+        suite_stage = _required_str(data, "suite_stage", source)
+        runtime = _required_str(data, "runtime", source)
+        readiness = _required_str(data, "readiness", source)
+        action_types = _required_str_tuple(data, "action_types", source)
+        observation_sources = _required_str_tuple(data, "observation_sources", source)
+        scoring = _required_str_tuple(data, "scoring", source)
+        artifact_groups = _required_str_tuple(data, "artifact_groups", source)
+        _validate_catalog_value("runtime", runtime, RUNTIME_FAMILIES, source)
+        _validate_catalog_value("readiness", readiness, READINESS_LEVELS, source)
+        _validate_catalog_items("action_types", action_types, ACTION_TYPES, source, reject_wire_commands=True)
+        _validate_catalog_items("observation_sources", observation_sources, OBSERVATION_SOURCES, source)
+        _validate_catalog_items("scoring", scoring, SCORE_DIMENSIONS, source)
+        _validate_artifact_groups(artifact_groups, source)
         return cls(
             id=task_id,
-            name=_required_str(data, "name", source),
-            summary=_required_str(data, "summary", source),
-            stage=_required_str(data, "stage", source),
-            suite_stage=_required_str(data, "suite_stage", source),
-            runtime=_required_str(data, "runtime", source),
-            readiness=_required_str(data, "readiness", source),
-            action_types=_required_str_tuple(data, "action_types", source),
-            observation_sources=_required_str_tuple(data, "observation_sources", source),
+            name=name,
+            summary=summary,
+            stage=stage,
+            suite_stage=suite_stage,
+            runtime=runtime,
+            readiness=readiness,
+            action_types=action_types,
+            observation_sources=observation_sources,
             required_conformance=_required_str_tuple(data, "required_conformance", source),
-            scoring=_required_str_tuple(data, "scoring", source),
-            artifact_groups=_required_str_tuple(data, "artifact_groups", source),
+            scoring=scoring,
+            artifact_groups=artifact_groups,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -107,6 +181,43 @@ def _required_str_tuple(data: dict[str, Any], key: str, source: Path) -> tuple[s
             raise ValueError(f"Invalid item in {key!r} for {source}")
         items.append(item)
     return tuple(items)
+
+
+def _validate_catalog_value(key: str, value: str, allowed: set[str], source: Path) -> None:
+    if value not in allowed:
+        raise ValueError(f"Unknown {key!r} value in {source}: {value!r}")
+
+
+def _validate_catalog_items(
+    key: str,
+    items: tuple[str, ...],
+    allowed: set[str],
+    source: Path,
+    reject_wire_commands: bool = False,
+) -> None:
+    unknown = sorted(set(items) - allowed)
+    if reject_wire_commands:
+        wire_commands = sorted(set(items) & WIRE_COMMAND_NAMES)
+        if wire_commands:
+            joined = ", ".join(wire_commands)
+            raise ValueError(f"Wire command names are not task action types in {source}: {joined}")
+    if unknown:
+        joined = ", ".join(unknown)
+        raise ValueError(f"Unknown {key!r} item(s) in {source}: {joined}")
+
+
+def _validate_artifact_groups(items: tuple[str, ...], source: Path) -> None:
+    malformed = [
+        item
+        for item in items
+        if item.startswith("/")
+        or item.startswith("~")
+        or ".." in Path(item).parts
+        or not item.startswith("episode/")
+    ]
+    if malformed:
+        joined = ", ".join(sorted(malformed))
+        raise ValueError(f"Malformed artifact_groups item(s) in {source}: {joined}")
 
 
 def load_task_specs(tasks_dir: Path | str | None = None) -> dict[str, TaskSpec]:

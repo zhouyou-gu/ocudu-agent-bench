@@ -99,6 +99,7 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         files = self.manager._bootstrap_manifest_files(Path(".").resolve(), Path("benchmark").resolve())
         rel = {path.as_posix() for path in files}
 
+        self.assertIn("benchmark/API_REFERENCE.md", rel)
         self.assertIn("benchmark/agents/README.md", rel)
         self.assertIn("benchmark/benchmark_api/tasks.py", rel)
         self.assertIn("benchmark/schemas/task.schema.json", rel)
@@ -111,6 +112,8 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertIn("benchmark/tasks/ws_prb_action_budget_v1/task.json", rel)
         self.assertIn("benchmark/tasks/e2_kpm_json_consistency_v1/task.json", rel)
         self.assertIn("benchmark/tasks/metrics_staleness_noop_v1/task.json", rel)
+        self.assertIn("benchmark/tasks/ws_ssb_power_guard_v1/task.json", rel)
+        self.assertIn("benchmark/tasks/ws_ssb_power_repair_v1/task.json", rel)
 
     def test_prepare_runtime_deps_dry_run_reports_workspace_root(self) -> None:
         result = self.manager.prepare_runtime_deps(dry_run=True)

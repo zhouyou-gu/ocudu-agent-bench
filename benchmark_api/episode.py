@@ -26,6 +26,8 @@ from benchmark.benchmark_api.tasks import (
     TASK_E2_KPM_PRB_PING_V1,
     TASK_E2_KPM_JSON_CONSISTENCY_V1,
     TASK_METRICS_STALENESS_NOOP_V1,
+    TASK_WS_SSB_POWER_GUARD_V1,
+    TASK_WS_SSB_POWER_REPAIR_V1,
     TASK_WS_PRB_ACTION_BUDGET_V1,
     TASK_WS_PRB_ERROR_REPAIR_V1,
     TASK_WS_PRB_NOOP_GUARD_V1,
@@ -46,6 +48,13 @@ STALE_METRICS_OBSERVATIONS = 2
 ACTION_SET_PRB_POLICY_RATIO_WS = "SET_PRB_POLICY_RATIO_WS"
 ACTION_SET_PRB_POLICY_RATIO_CCC = "SET_PRB_POLICY_RATIO_CCC"
 ACTION_SET_PRB_POLICY_RATIO_RC_DU = "SET_PRB_POLICY_RATIO_RC_DU"
+ACTION_SET_SSB_BLOCK_POWER_WS = "SET_SSB_BLOCK_POWER_WS"
+DEFAULT_PLMN = "00101"
+DEFAULT_GNB_ID = 411
+DEFAULT_GNB_ID_BIT_LENGTH = 22
+DEFAULT_SECTOR_ID = 0
+DEFAULT_NCI = DEFAULT_GNB_ID << (36 - DEFAULT_GNB_ID_BIT_LENGTH)
+DEFAULT_SSB_BLOCK_POWER_DBM = -16
 E2_CCC_CONTROL_TOOL = "ocudu-ccc-prb-control"
 E2_RC_DU_CONTROL_TOOL = "ocudu-rc-du-prb-control"
 
@@ -161,6 +170,28 @@ TASK_POLICIES: dict[str, EpisodeTaskPolicy] = {
         require_evidence_before_action=True,
         allowed_action_types=(ACTION_SET_PRB_POLICY_RATIO_CCC, ACTION_SET_PRB_POLICY_RATIO_RC_DU),
         expected_action_type=ACTION_SET_PRB_POLICY_RATIO_CCC,
+    ),
+    TASK_WS_SSB_POWER_GUARD_V1: EpisodeTaskPolicy(
+        task_id=TASK_WS_SSB_POWER_GUARD_V1,
+        scenario_name="healthy_ssb_power_guard",
+        runtime_family="docker_e2e",
+        default_smoke_agent="noop",
+        expected_behavior="take no SSB power action when ping and JSON metrics are healthy",
+        requires_valid_action=False,
+        require_no_actions=True,
+        allowed_action_types=(ACTION_SET_SSB_BLOCK_POWER_WS,),
+        expected_action_type=ACTION_SET_SSB_BLOCK_POWER_WS,
+    ),
+    TASK_WS_SSB_POWER_REPAIR_V1: EpisodeTaskPolicy(
+        task_id=TASK_WS_SSB_POWER_REPAIR_V1,
+        scenario_name="ssb_power_invalid_action_repair",
+        runtime_family="docker_e2e",
+        default_smoke_agent="invalid_then_ssb",
+        expected_behavior="recover from one locally rejected invalid SSB power action by issuing one accepted valid SSB power action",
+        require_first_invalid_then_valid=True,
+        max_actions=2,
+        allowed_action_types=(ACTION_SET_SSB_BLOCK_POWER_WS,),
+        expected_action_type=ACTION_SET_SSB_BLOCK_POWER_WS,
     ),
     TASK_METRICS_STALENESS_NOOP_V1: EpisodeTaskPolicy(
         task_id=TASK_METRICS_STALENESS_NOOP_V1,
@@ -412,6 +443,27 @@ def scenario_metadata(task_id: str, duration: int) -> dict[str, Any]:
     }
 
 
+def validate_action(
+    action: Any,
+    allowed_types: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(action, dict):
+        return {"valid": False, "reason": "action must be a dictionary", "normalized": None, "request": None}
+    allowed = allowed_types or (ACTION_SET_PRB_POLICY_RATIO_WS,)
+    action_type = action.get("type")
+    if action_type not in allowed:
+        return {
+            "valid": False,
+            "reason": "unsupported action type for this task",
+            "normalized": None,
+            "request": None,
+            "dispatch": None,
+        }
+    if action_type == ACTION_SET_SSB_BLOCK_POWER_WS:
+        return validate_ssb_action(action, allowed_types=allowed)
+    return validate_prb_action(action, allowed_types=allowed)
+
+
 def validate_prb_action(
     action: Any,
     allowed_types: tuple[str, ...] | None = None,
@@ -428,10 +480,12 @@ def validate_prb_action(
             "request": None,
             "dispatch": None,
         }
+    if action_type == ACTION_SET_SSB_BLOCK_POWER_WS:
+        return {"valid": False, "reason": "unsupported PRB action type", "normalized": None, "request": None, "dispatch": None}
 
     normalized: dict[str, Any] = {
         "type": str(action_type),
-        "plmn": str(action.get("plmn", "00101")),
+        "plmn": str(action.get("plmn", DEFAULT_PLMN)),
         "sst": action.get("sst", 1),
         "sd": action.get("sd"),
         "min_prb_policy_ratio": action.get("min_prb_policy_ratio"),
@@ -468,6 +522,54 @@ def validate_prb_action(
             return {"valid": False, "reason": "du_ue_id must be a non-negative integer", "normalized": normalized, "request": None}
 
     request = build_prb_request(normalized)
+    return {
+        "valid": True,
+        "reason": "valid",
+        "normalized": normalized,
+        "request": request,
+        "dispatch": dispatch_for_action_type(normalized["type"]),
+    }
+
+
+def validate_ssb_action(
+    action: Any,
+    allowed_types: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(action, dict):
+        return {"valid": False, "reason": "action must be a dictionary", "normalized": None, "request": None}
+    allowed = allowed_types or (ACTION_SET_SSB_BLOCK_POWER_WS,)
+    action_type = action.get("type")
+    if action_type not in allowed:
+        return {
+            "valid": False,
+            "reason": "unsupported action type for this task",
+            "normalized": None,
+            "request": None,
+            "dispatch": None,
+        }
+    if action_type != ACTION_SET_SSB_BLOCK_POWER_WS:
+        return {"valid": False, "reason": "unsupported SSB action type", "normalized": None, "request": None, "dispatch": None}
+    normalized: dict[str, Any] = {
+        "type": ACTION_SET_SSB_BLOCK_POWER_WS,
+        "plmn": str(action.get("plmn", DEFAULT_PLMN)),
+        "nci": action.get("nci"),
+        "ssb_block_power_dbm": action.get("ssb_block_power_dbm"),
+    }
+    if isinstance(normalized["nci"], bool) or not isinstance(normalized["nci"], int):
+        return {"valid": False, "reason": "nci must be an integer", "normalized": normalized, "request": None}
+    if normalized["nci"] < 0 or normalized["nci"] > ((1 << 36) - 1):
+        return {"valid": False, "reason": "nci must be in [0, 68719476735]", "normalized": normalized, "request": None}
+    value = normalized["ssb_block_power_dbm"]
+    if isinstance(value, bool) or not isinstance(value, int):
+        return {"valid": False, "reason": "ssb_block_power_dbm must be an integer", "normalized": normalized, "request": None}
+    if value < -60 or value > 50:
+        return {
+            "valid": False,
+            "reason": "ssb_block_power_dbm must be in [-60, 50]",
+            "normalized": normalized,
+            "request": None,
+        }
+    request = build_ssb_request(normalized)
     return {
         "valid": True,
         "reason": "valid",
@@ -515,8 +617,23 @@ def build_prb_request(action: dict[str, Any]) -> dict[str, Any]:
     raise ValueError(f"Unsupported PRB action type: {action_type}")
 
 
+def build_ssb_request(action: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "cmd": "ssb_set",
+        "cells": [
+            {
+                "plmn": action.get("plmn", DEFAULT_PLMN),
+                "nci": action["nci"],
+                "ssb_block_power_dbm": action["ssb_block_power_dbm"],
+            }
+        ],
+    }
+
+
 def dispatch_for_action_type(action_type: str) -> str:
     if action_type == ACTION_SET_PRB_POLICY_RATIO_WS:
+        return "websocket"
+    if action_type == ACTION_SET_SSB_BLOCK_POWER_WS:
         return "websocket"
     if action_type == ACTION_SET_PRB_POLICY_RATIO_CCC:
         return "e2_ccc"
@@ -526,7 +643,7 @@ def dispatch_for_action_type(action_type: str) -> str:
 
 
 def validate_episode_action(action: Any, task: str) -> dict[str, Any]:
-    return validate_prb_action(action, allowed_types=task_policy(task).allowed_action_types)
+    return validate_action(action, allowed_types=task_policy(task).allowed_action_types)
 
 
 def fixed_prb_action_for_type(action_type: str = ACTION_SET_PRB_POLICY_RATIO_WS) -> dict[str, Any]:
@@ -539,6 +656,27 @@ def fixed_prb_action_for_type(action_type: str = ACTION_SET_PRB_POLICY_RATIO_WS)
         "max_prb_policy_ratio": 90,
         "dedicated_ratio": 0,
     }
+
+
+def fixed_ssb_action(nci: int = DEFAULT_NCI, ssb_block_power_dbm: int = DEFAULT_SSB_BLOCK_POWER_DBM) -> dict[str, Any]:
+    return {
+        "type": ACTION_SET_SSB_BLOCK_POWER_WS,
+        "plmn": DEFAULT_PLMN,
+        "nci": nci,
+        "ssb_block_power_dbm": ssb_block_power_dbm,
+    }
+
+
+def ssb_action_from_observation(observation: dict[str, Any], ssb_block_power_dbm: int = DEFAULT_SSB_BLOCK_POWER_DBM) -> dict[str, Any]:
+    frame = observation.get("observation", observation)
+    cell = frame.get("cell", {}) if isinstance(frame, dict) else {}
+    action = fixed_ssb_action(
+        nci=(cell.get("nci") or DEFAULT_NCI) if isinstance(cell, dict) else DEFAULT_NCI,
+        ssb_block_power_dbm=ssb_block_power_dbm,
+    )
+    if isinstance(cell, dict) and cell.get("plmn"):
+        action["plmn"] = str(cell["plmn"])
+    return action
 
 
 def score_episode(
@@ -589,6 +727,15 @@ def score_episode(
     if not isinstance(e2_control_records, list):
         e2_control_records = []
     e2_control_oracle_available = bool(e2_oracle.get("control_oracle_available")) if e2_oracle else False
+    e2_control_types = set(e2_oracle.get("control_types", []) if isinstance(e2_oracle, dict) else [])
+    expected_e2_control_oracle_available = (
+        e2_control_oracle_available
+        and (
+            policy.expected_action_type is None
+            or policy.expected_action_type not in {ACTION_SET_PRB_POLICY_RATIO_CCC, ACTION_SET_PRB_POLICY_RATIO_RC_DU}
+            or policy.expected_action_type in e2_control_types
+        )
+    )
 
     e2_required = require_e2 or policy.requires_e2
     observations_only = [item.get("observation", item) for item in observations]
@@ -672,7 +819,7 @@ def score_episode(
 
     if e2_required and (e2_indications < 3 or not e2_oracle_available):
         scored = False
-    if policy.requires_e2_control and (not accepted_e2_control or not e2_control_oracle_available):
+    if policy.requires_e2_control and (not accepted_e2_control or not expected_e2_control_oracle_available):
         scored = False
     if not task_success:
         scored = False
@@ -696,6 +843,8 @@ def score_episode(
             unscored_reason = "no accepted E2 control action"
         elif unscored_reason is None and policy.requires_e2_control and not e2_control_oracle_available:
             unscored_reason = "E2 control oracle unavailable"
+        elif unscored_reason is None and policy.requires_e2_control and not expected_e2_control_oracle_available:
+            unscored_reason = "E2 control oracle missing expected action type"
     return {
         "scored": scored,
         "unscored_reason": None if scored else unscored_reason,
@@ -707,6 +856,7 @@ def score_episode(
             "e2_kpm_continuity": e2_indications,
             "e2_oracle_available": e2_oracle_available,
             "e2_control_oracle_available": e2_control_oracle_available,
+            "expected_e2_control_oracle_available": expected_e2_control_oracle_available,
             "expected_action_type_correct": bool(accepted_expected) if policy.requires_valid_action else True,
             "accepted_e2_control_actions": len(accepted_e2_control),
             "clean_teardown": cleanup_success,
@@ -733,6 +883,7 @@ def score_episode(
             "decision_context_errors": len(decision_context_errors),
             "e2_kpm_indications": e2_indications,
             "e2_control_records": len(e2_control_records),
+            "e2_control_types": sorted(e2_control_types),
         },
         "ping": ping,
         "e2_oracle": e2_oracle or {},
@@ -1014,21 +1165,44 @@ def write_e2_oracle():
     control_types = sorted({{record.get("action", {{}}).get("type") for record in accepted_control_records if isinstance(record.get("action"), dict)}})
     control_oracle_available = bool(accepted_control_records) and e2_setup and pcap_available and log_available
     oracle_available = e2_setup and decode_error is None and len(records) >= 3 and has_prb_measurement and pcap_available
+    e2_setup_oracle = {{"available": e2_setup, "sources": ["ric.log", "gnb.log"]}}
+    kpm_oracle = {{
+        "available": oracle_available,
+        "indications": len(records),
+        "has_prb_measurement": has_prb_measurement,
+        "decode_error": decode_error,
+        "raw_kpm_available": raw_kpm_available,
+    }}
+    pcap_log_oracle = {{
+        "available": pcap_available and log_available,
+        "pcap_sizes": pcap,
+        "log_available": log_available,
+    }}
+    control_oracle = {{
+        "available": control_oracle_available,
+        "accepted_records": len(accepted_control_records),
+        "control_types": control_types,
+        "requires_pcap_log": True,
+    }}
     oracle = {{
         "provider": payload.get("ric_provider"),
         "e2_setup_seen": e2_setup,
+        "e2_setup_oracle": e2_setup_oracle,
         "kpm_indications": len(records),
         "last_kpm": records[-1] if records else None,
         "decode_error": decode_error,
         "has_prb_measurement": has_prb_measurement,
+        "kpm_oracle": kpm_oracle,
         "pcap_sizes": pcap,
         "pcap_available": pcap_available,
         "log_available": log_available,
+        "pcap_log_oracle": pcap_log_oracle,
         "raw_kpm_available": raw_kpm_available,
         "control_records": control_records,
         "accepted_control_records": len(accepted_control_records),
         "control_types": control_types,
         "control_oracle_available": control_oracle_available,
+        "control_oracle": control_oracle,
         "oracle_available": oracle_available,
     }}
     pathlib.Path(paths["e2_oracle"]).write_text(json.dumps(oracle, indent=2, sort_keys=True), encoding="utf-8")
@@ -1321,6 +1495,46 @@ def discover_du_ue_id():
             return int(matches[-1])
     return None
 
+def parse_int(value, default):
+    if value is None:
+        return default
+    text = str(value).strip()
+    try:
+        return int(text, 0)
+    except ValueError:
+        return default
+
+def discover_cell_identity():
+    config_text = pathlib.Path(paths["gnb_config"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["gnb_config"]).exists() else ""
+    log_text = read_tail(paths["gnb_log"], 50000)
+    plmn_match = re.search(r"\\bplmn\\s*:\\s*[\\\"']?([0-9]{{5,6}})[\\\"']?", config_text)
+    gnb_id_match = re.search(r"\\bgnb_id\\s*:\\s*([0-9]+)", config_text)
+    bit_length_match = re.search(r"\\bgnb_id_bit_length\\s*:\\s*([0-9]+)", config_text)
+    sector_id_match = re.search(r"\\bsector_id\\s*:\\s*([0-9]+)", config_text)
+    nci_match = None
+    for pattern in [
+        r"\\bnci\\D+(0x[0-9a-fA-F]+|\\d+)",
+        r"nr[_ -]?cell[_ -]?id(?:entity)?\\D+(0x[0-9a-fA-F]+|\\d+)",
+    ]:
+        matches = re.findall(pattern, log_text, flags=re.IGNORECASE)
+        if matches:
+            nci_match = matches[-1]
+            break
+    plmn = plmn_match.group(1) if plmn_match else "00101"
+    gnb_id = parse_int(gnb_id_match.group(1) if gnb_id_match else None, 411)
+    bit_length = parse_int(bit_length_match.group(1) if bit_length_match else None, 22)
+    sector_id = parse_int(sector_id_match.group(1) if sector_id_match else None, 0)
+    derived_nci = (gnb_id << (36 - bit_length)) | sector_id if 22 <= bit_length <= 32 else None
+    nci = parse_int(nci_match, derived_nci) if nci_match is not None else derived_nci
+    return {{
+        "plmn": plmn,
+        "gnb_id": gnb_id,
+        "gnb_id_bit_length": bit_length,
+        "sector_id": sector_id,
+        "nci": nci,
+        "source": "log" if nci_match is not None else "config_defaults",
+    }}
+
 ping_text = pathlib.Path(paths["ping_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["ping_log"]).exists() else ""
 metric = None
 metric_error = None
@@ -1400,6 +1614,7 @@ observation = {{
         "stale_metrics_window": int(payload.get("stale_metrics_observations", 0) or 0),
     }},
     "ping": parse_ping(ping_text),
+    "cell": discover_cell_identity(),
     "metrics": metrics,
     "e2": {{
         "enabled": bool(payload.get("requires_e2")),
@@ -1435,9 +1650,9 @@ print(json.dumps({{"status": "ok", "stage": stage, "run_id": payload["run_id"], 
 """
         return self._remote_json(script)
 
-    def act(self, action: Any) -> dict[str, Any]:
+    def act(self, action: Any, allowed_types: tuple[str, ...] | None = None) -> dict[str, Any]:
         options = self._require_options()
-        validation = validate_episode_action(action, options.task)
+        validation = validate_action(action, allowed_types=allowed_types or task_policy(options.task).allowed_action_types)
         decision_context = self._latest_decision_context()
         decision_context_error = decision_context.pop("_decision_context_error", None)
         record = {
@@ -1982,20 +2197,42 @@ def build_e2_oracle(paths, requires_e2):
         and has_prb_measurement
         and pcap_available
     )
+    e2_setup_oracle = {{"available": e2_setup_seen, "sources": ["ric.log", "gnb.log"]}}
+    kpm_oracle = {{
+        "available": oracle_available,
+        "indications": len(records),
+        "has_prb_measurement": has_prb_measurement,
+        "raw_kpm_available": raw_kpm_available,
+    }}
+    pcap_log_oracle = {{
+        "available": pcap_available and log_available,
+        "pcap_sizes": pcap_sizes,
+        "log_available": log_available,
+    }}
+    control_oracle = {{
+        "available": control_oracle_available,
+        "accepted_records": len(accepted_control_records),
+        "control_types": control_types,
+        "requires_pcap_log": True,
+    }}
     oracle = {{
         "provider": payload.get("ric_provider"),
         "e2_setup_seen": e2_setup_seen,
+        "e2_setup_oracle": e2_setup_oracle,
         "kpm_indications": len(records),
         "last_kpm": records[-1] if records else None,
         "has_prb_measurement": has_prb_measurement,
+        "kpm_oracle": kpm_oracle,
         "pcap_sizes": pcap_sizes,
         "pcap_available": pcap_available,
         "log_available": log_available,
+        "pcap_log_oracle": pcap_log_oracle,
         "raw_kpm_available": raw_kpm_available,
         "control_records": control_records,
         "accepted_control_records": len(accepted_control_records),
         "control_types": control_types,
         "control_oracle_available": control_oracle_available,
+        "control_oracle": control_oracle,
         "oracle_available": oracle_available,
     }}
     pathlib.Path(paths["e2_oracle"]).write_text(json.dumps(oracle, indent=2, sort_keys=True), encoding="utf-8")
@@ -2068,10 +2305,13 @@ print(json.dumps(summary))
             "ACTION_SET_PRB_POLICY_RATIO_WS",
             "ACTION_SET_PRB_POLICY_RATIO_CCC",
             "ACTION_SET_PRB_POLICY_RATIO_RC_DU",
+            "ACTION_SET_SSB_BLOCK_POWER_WS",
             "TASK_WS_PRB_PING_V1",
             "TASK_E2_KPM_PRB_PING_V1",
             "TASK_E2_CCC_PRB_POLICY_PING_V1",
             "TASK_E2_RC_DU_PRB_POLICY_PING_V1",
+            "TASK_WS_SSB_POWER_GUARD_V1",
+            "TASK_WS_SSB_POWER_REPAIR_V1",
             "TASK_WS_PRB_NOOP_GUARD_V1",
             "TASK_WS_PRB_ERROR_REPAIR_V1",
             "TASK_WS_PRB_ACTION_BUDGET_V1",
@@ -2107,7 +2347,10 @@ print(json.dumps(summary))
         unscored_reason: str | None = None,
     ) -> dict[str, Any]:
         policy = task_policy(options.task)
-        fixed_action = action or fixed_prb_action_for_type(policy.expected_action_type or policy.allowed_action_types[0])
+        expected_action_type = policy.expected_action_type or policy.allowed_action_types[0]
+        fixed_action = action or (
+            fixed_ssb_action() if expected_action_type == ACTION_SET_SSB_BLOCK_POWER_WS else fixed_prb_action_for_type(expected_action_type)
+        )
         try:
             start = self.start(options)
         except Exception as exc:
@@ -2137,38 +2380,45 @@ print(json.dumps(summary))
         try:
             observation = self.observe()
             observations.append(observation)
+            def current_fixed_action(current_observation: dict[str, Any]) -> dict[str, Any]:
+                if action is not None:
+                    return action
+                if expected_action_type == ACTION_SET_SSB_BLOCK_POWER_WS:
+                    return ssb_action_from_observation(current_observation)
+                return fixed_action
             if policy.require_first_invalid_then_valid:
-                actions.append(
-                    self.act(
-                        {
-                            "type": policy.expected_action_type or policy.allowed_action_types[0],
-                            "min_prb_policy_ratio": 90,
-                            "max_prb_policy_ratio": 10,
-                        }
-                    )
+                invalid_action = (
+                    {"type": ACTION_SET_SSB_BLOCK_POWER_WS, "nci": DEFAULT_NCI, "ssb_block_power_dbm": 99}
+                    if expected_action_type == ACTION_SET_SSB_BLOCK_POWER_WS
+                    else {
+                        "type": expected_action_type,
+                        "min_prb_policy_ratio": 90,
+                        "max_prb_policy_ratio": 10,
+                    }
                 )
+                actions.append(self.act(invalid_action))
                 sent_invalid = True
                 observation = self.observe()
                 observations.append(observation)
-                actions.append(self.act(fixed_action))
+                actions.append(self.act(current_fixed_action(observation)))
                 sent_fixed = True
             elif policy.require_no_actions:
                 sent_fixed = False
             elif not policy.require_evidence_before_action:
-                actions.append(self.act(fixed_action))
+                actions.append(self.act(current_fixed_action(observation)))
                 sent_fixed = True
             elif self._observation_has_required_evidence(observation, policy):
-                actions.append(self.act(fixed_action))
+                actions.append(self.act(current_fixed_action(observation)))
                 sent_fixed = True
             deadline = time.monotonic() + max(0, options.duration)
             while time.monotonic() < deadline:
                 observation = self.observe()
                 observations.append(observation)
                 if policy.require_first_invalid_then_valid and sent_invalid and not sent_fixed:
-                    actions.append(self.act(fixed_action))
+                    actions.append(self.act(current_fixed_action(observation)))
                     sent_fixed = True
                 elif not policy.require_no_actions and not sent_fixed and self._observation_has_required_evidence(observation, policy):
-                    actions.append(self.act(fixed_action))
+                    actions.append(self.act(current_fixed_action(observation)))
                     sent_fixed = True
                 time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
         except Exception as exc:

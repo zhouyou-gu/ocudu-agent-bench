@@ -9,7 +9,6 @@ class RepoGenericityTests(unittest.TestCase):
         tracked = [Path(item.decode("utf-8")) for item in proc.stdout.split(b"\0") if item]
         searched_roots = {
             Path("benchmark"),
-            Path("skillful-ran-research/benchmark"),
             Path(".config.example"),
             Path(".gitignore"),
         }
@@ -37,7 +36,6 @@ class RepoGenericityTests(unittest.TestCase):
         tracked = [Path(item.decode("utf-8")) for item in proc.stdout.split(b"\0") if item]
         searched_roots = {
             Path("benchmark"),
-            Path("skillful-ran-research/benchmark"),
             Path(".config.example"),
         }
         allowed = {
@@ -72,7 +70,6 @@ class RepoGenericityTests(unittest.TestCase):
         tracked = [Path(item.decode("utf-8")) for item in proc.stdout.split(b"\0") if item]
         searched_roots = {
             Path("benchmark"),
-            Path("skillful-ran-research/benchmark"),
             Path(".config.example"),
         }
         bad_tokens = ["d" + "rax", "d" + "RAX", "D" + "rax", "DR" + "AX"]
@@ -103,6 +100,22 @@ class RepoGenericityTests(unittest.TestCase):
         for path in tracked:
             if not path.exists():
                 continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for token in bad_tokens:
+                if token in text:
+                    offenders.append(f"{path}: {token}")
+
+        self.assertEqual(offenders, [])
+
+    def test_standalone_benchmark_markdown_does_not_link_to_parent_research_docs(self) -> None:
+        bad_tokens = [
+            "../skillful-" + "ran-research",
+            "skillful-" + "ran-research/benchmark/benchmark_" + "design.md",
+            "skillful-" + "ran-research/benchmark/benchmark_" + "architecture.md",
+            "skillful-" + "ran-research/benchmark/remote_" + "ocudu_api_setup.md",
+        ]
+        offenders = []
+        for path in Path("benchmark").rglob("*.md"):
             text = path.read_text(encoding="utf-8", errors="replace")
             for token in bad_tokens:
                 if token in text:

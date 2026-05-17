@@ -5,12 +5,19 @@ from pathlib import Path
 
 from benchmark.benchmark_api.conformance import load_conformance_specs
 from benchmark.benchmark_api.tasks import (
+    ACTION_TYPES,
+    OBSERVATION_SOURCES,
+    READINESS_LEVELS,
+    RUNTIME_FAMILIES,
+    SCORE_DIMENSIONS,
     TASK_E2_CCC_PRB_POLICY_PING_V1,
     TASK_E2_CONTROL_API_CONSISTENCY_V1,
     TASK_E2_KPM_PRB_PING_V1,
     TASK_E2_KPM_JSON_CONSISTENCY_V1,
     TASK_E2_RC_DU_PRB_POLICY_PING_V1,
     TASK_METRICS_STALENESS_NOOP_V1,
+    TASK_WS_SSB_POWER_GUARD_V1,
+    TASK_WS_SSB_POWER_REPAIR_V1,
     TASK_WS_PRB_ACTION_BUDGET_V1,
     TASK_WS_PRB_ERROR_REPAIR_V1,
     TASK_WS_PRB_NOOP_GUARD_V1,
@@ -24,6 +31,23 @@ from benchmark.benchmark_api.tasks import (
     suite_stage_for_task,
     supported_task_ids,
 )
+
+
+def valid_manifest(task_id: str = "unit_task_v1") -> dict[str, object]:
+    return {
+        "id": task_id,
+        "name": "Unit Task",
+        "summary": "unit task",
+        "stage": "v3_episode",
+        "suite_stage": "v3_suite",
+        "runtime": "docker_e2e",
+        "readiness": "scored",
+        "action_types": ["SET_PRB_POLICY_RATIO_WS"],
+        "observation_sources": ["ping", "json_metrics", "websocket_control"],
+        "required_conformance": ["remote_tools_ocudu_root"],
+        "scoring": ["valid_action_accepted_rate", "metrics_continuity", "clean_teardown"],
+        "artifact_groups": ["episode/summary.json"],
+    }
 
 
 class TaskRegistryTests(unittest.TestCase):
@@ -41,6 +65,8 @@ class TaskRegistryTests(unittest.TestCase):
             TASK_E2_CCC_PRB_POLICY_PING_V1,
             TASK_E2_RC_DU_PRB_POLICY_PING_V1,
             TASK_E2_CONTROL_API_CONSISTENCY_V1,
+            TASK_WS_SSB_POWER_GUARD_V1,
+            TASK_WS_SSB_POWER_REPAIR_V1,
         }
         self.assertEqual(set(specs), expected)
         self.assertEqual(implemented_episode_task_ids(), expected)
@@ -53,6 +79,7 @@ class TaskRegistryTests(unittest.TestCase):
         self.assertEqual(suite_stage_for_task(TASK_E2_KPM_JSON_CONSISTENCY_V1), "v4_1_suite")
         self.assertEqual(episode_stage_for_task(TASK_E2_CCC_PRB_POLICY_PING_V1), "v4_2_episode")
         self.assertEqual(suite_stage_for_task(TASK_E2_CONTROL_API_CONSISTENCY_V1), "v4_2_suite")
+        self.assertEqual(episode_stage_for_task(TASK_WS_SSB_POWER_REPAIR_V1), "v3_3_episode")
 
     def test_task_conformance_checks_match_manifest_contract(self) -> None:
         v3 = conformance_checks_for_task(TASK_WS_PRB_PING_V1)
@@ -62,6 +89,8 @@ class TaskRegistryTests(unittest.TestCase):
         ccc = conformance_checks_for_task(TASK_E2_CCC_PRB_POLICY_PING_V1)
         rc_du = conformance_checks_for_task(TASK_E2_RC_DU_PRB_POLICY_PING_V1)
         consistency = conformance_checks_for_task(TASK_E2_CONTROL_API_CONSISTENCY_V1)
+        ssb_guard = conformance_checks_for_task(TASK_WS_SSB_POWER_GUARD_V1)
+        ssb_repair = conformance_checks_for_task(TASK_WS_SSB_POWER_REPAIR_V1)
 
         expected_v3 = {
             "docker_e2e_assets",
@@ -88,6 +117,8 @@ class TaskRegistryTests(unittest.TestCase):
             consistency,
             expected_v4 | {"e2_ccc_prb_control_path", "e2_rc_du_prb_control_path"},
         )
+        self.assertEqual(ssb_guard, expected_v3 - {"websocket_prb_policy_action"} | {"websocket_ssb_power_action"})
+        self.assertEqual(ssb_repair, expected_v3 - {"websocket_prb_policy_action"} | {"websocket_ssb_power_action"})
 
     def test_every_task_conformance_check_exists(self) -> None:
         conformance_ids = {spec.id for spec in load_conformance_specs(Path("benchmark/conformance/tests.json"))}
@@ -119,28 +150,72 @@ class TaskRegistryTests(unittest.TestCase):
             for prefix in ("a", "b"):
                 task_dir = root / prefix / "dup_task_v1"
                 task_dir.mkdir(parents=True)
-                (task_dir / "task.json").write_text(
-                    json.dumps(
-                        {
-                            "id": "dup_task_v1",
-                            "name": "Duplicate",
-                            "summary": "duplicate",
-                            "stage": "v1_episode",
-                            "suite_stage": "v1_suite",
-                            "runtime": "unit",
-                            "readiness": "test",
-                            "action_types": ["STUB_NOOP"],
-                            "observation_sources": ["stub"],
-                            "required_conformance": ["remote_tools_ocudu_root"],
-                            "scoring": ["stub"],
-                            "artifact_groups": ["episode/summary.json"],
-                        }
-                    ),
-                    encoding="utf-8",
-                )
+                manifest = valid_manifest("dup_task_v1")
+                manifest["name"] = "Duplicate"
+                (task_dir / "task.json").write_text(json.dumps(manifest), encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "Duplicate task id"):
                 load_task_specs(root)
+
+    def test_task_manifest_catalogs_are_exported(self) -> None:
+        self.assertIn("SET_PRB_POLICY_RATIO_WS", ACTION_TYPES)
+        self.assertIn("NO_ACTION", ACTION_TYPES)
+        self.assertIn("docker_e2e", RUNTIME_FAMILIES)
+        self.assertIn("scored", READINESS_LEVELS)
+        self.assertIn("json_metrics", OBSERVATION_SOURCES)
+        self.assertIn("metrics_continuity", SCORE_DIMENSIONS)
+
+    def test_task_manifest_rejects_unknown_catalog_values(self) -> None:
+        cases = [
+            ("runtime", "bad_runtime", "Unknown 'runtime'"),
+            ("readiness", "bad_readiness", "Unknown 'readiness'"),
+            ("action_types", ["BAD_ACTION"], "Unknown 'action_types'"),
+            ("observation_sources", ["bad_source"], "Unknown 'observation_sources'"),
+            ("scoring", ["bad_score"], "Unknown 'scoring'"),
+            ("artifact_groups", ["/tmp/summary.json"], "Malformed artifact_groups"),
+        ]
+        for field, value, expected_error in cases:
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    task_dir = Path(tmpdir) / "unit_task_v1"
+                    task_dir.mkdir()
+                    manifest = valid_manifest()
+                    manifest[field] = value
+                    (task_dir / "task.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+                    with self.assertRaisesRegex(ValueError, expected_error):
+                        load_task_specs(task_dir.parent)
+
+    def test_task_manifest_rejects_raw_wire_commands_as_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "unit_task_v1"
+            task_dir.mkdir()
+            manifest = valid_manifest()
+            manifest["action_types"] = ["ssb_set"]
+            (task_dir / "task.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "Wire command names are not task action types"):
+                load_task_specs(task_dir.parent)
+
+    def test_no_action_is_manifest_only_decision_not_runtime_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "unit_task_v1"
+            task_dir.mkdir()
+            manifest = valid_manifest()
+            manifest["action_types"] = ["NO_ACTION"]
+            (task_dir / "task.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+            specs = load_task_specs(task_dir.parent)
+            self.assertEqual(specs["unit_task_v1"].action_types, ("NO_ACTION",))
+
+    def test_every_task_uses_canonical_scoring_dimensions(self) -> None:
+        invalid = {
+            task_id: sorted(set(spec.scoring) - SCORE_DIMENSIONS)
+            for task_id, spec in load_task_specs().items()
+            if set(spec.scoring) - SCORE_DIMENSIONS
+        }
+
+        self.assertEqual(invalid, {})
 
     def test_shared_schemas_and_docs_mention_current_tasks(self) -> None:
         paths = [
@@ -149,11 +224,22 @@ class TaskRegistryTests(unittest.TestCase):
             Path("benchmark/README.md"),
             Path("benchmark/tasks/README.md"),
             Path("benchmark/agents/README.md"),
+            Path("benchmark/API_REFERENCE.md"),
         ]
         text = "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
         for task_id in supported_task_ids():
             self.assertIn(task_id, text)
+
+    def test_docs_explain_task_api_boundary_and_future_roadmap(self) -> None:
+        api_reference = Path("benchmark/API_REFERENCE.md").read_text(encoding="utf-8")
+        task_readme = Path("benchmark/tasks/README.md").read_text(encoding="utf-8")
+
+        self.assertIn("Boundary Model", api_reference)
+        self.assertIn("Future API Implementation Roadmap", api_reference)
+        self.assertIn("Task manifests consume APIs", api_reference)
+        self.assertIn("NO_ACTION", task_readme)
+        self.assertIn("not a runtime API command", task_readme)
 
 
 if __name__ == "__main__":

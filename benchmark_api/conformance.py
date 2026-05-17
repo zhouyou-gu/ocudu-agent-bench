@@ -13,6 +13,7 @@ from benchmark.benchmark_api.episode import (
     ACTION_SET_PRB_POLICY_RATIO_CCC,
     ACTION_SET_PRB_POLICY_RATIO_RC_DU,
     ACTION_SET_PRB_POLICY_RATIO_WS,
+    ACTION_SET_SSB_BLOCK_POWER_WS,
     DEFAULT_ATTACH_TIMEOUT as DEFAULT_EPISODE_ATTACH_TIMEOUT,
     DEFAULT_LAUNCH_TIMEOUT as DEFAULT_EPISODE_LAUNCH_TIMEOUT,
     DEFAULT_PROBE_TIMEOUT as DEFAULT_EPISODE_PROBE_TIMEOUT,
@@ -24,12 +25,14 @@ from benchmark.benchmark_api.episode import (
     TASK_E2_KPM_PRB_PING_V1,
     TASK_E2_RC_DU_PRB_POLICY_PING_V1,
     TASK_METRICS_STALENESS_NOOP_V1,
+    TASK_WS_SSB_POWER_REPAIR_V1,
     TASK_WS_PRB_PING_V1,
     EpisodeOptions,
     EpisodeRuntime,
     container_suffix,
     generate_v4_e2_gnb_overlay,
     fixed_prb_action_for_type,
+    ssb_action_from_observation,
 )
 from benchmark.benchmark_api.ric import (
     RIC_PROVIDER_FLEXRIC,
@@ -108,6 +111,7 @@ CHECK_DEPENDENCIES = {
     "srsue_zmq_attach": {"open5gs_core_health"},
     "ping_traffic_path": {"srsue_zmq_attach"},
     "websocket_prb_policy_action": {"srsue_zmq_attach"},
+    "websocket_ssb_power_action": {"srsue_zmq_attach"},
     "scenario_metrics_staleness_mask": {"ping_traffic_path"},
     "flexric_docker_assets": {"remote_tools_ocudu_root", "remote_workspace_artifacts"},
     "near_rt_ric_health": {"flexric_docker_assets"},
@@ -124,6 +128,7 @@ V3_DOCKER_CHECKS = {
     "srsue_zmq_attach",
     "ping_traffic_path",
     "websocket_prb_policy_action",
+    "websocket_ssb_power_action",
     "scenario_metrics_staleness_mask",
 }
 V4_E2_CHECKS = {
@@ -260,7 +265,8 @@ def compute_backend_enablement(results: list[ConformanceCheckResult]) -> dict[st
         "ssh": by_id.get("remote_tools_ocudu_root") == RESULT_PASS
         and by_id.get("remote_workspace_artifacts") == RESULT_PASS,
         "websocket": by_id.get("websocket_command_path") == RESULT_PASS
-        or by_id.get("websocket_prb_policy_action") == RESULT_PASS,
+        or by_id.get("websocket_prb_policy_action") == RESULT_PASS
+        or by_id.get("websocket_ssb_power_action") == RESULT_PASS,
         "json_metrics": by_id.get("json_metrics_stream") == RESULT_PASS,
         "e2_kpm": by_id.get("e2_kpm") == RESULT_PASS or by_id.get("e2_kpm_subscription") == RESULT_PASS,
         "v4_e2_kpm": by_id.get("e2_kpm_subscription") == RESULT_PASS,
@@ -274,6 +280,7 @@ def compute_backend_enablement(results: list[ConformanceCheckResult]) -> dict[st
         "docker_e2e": by_id.get("docker_e2e_assets") == RESULT_PASS,
         "ue_traffic": by_id.get("ping_traffic_path") == RESULT_PASS,
         "v3_websocket_prb": by_id.get("websocket_prb_policy_action") == RESULT_PASS,
+        "v3_websocket_ssb": by_id.get("websocket_ssb_power_action") == RESULT_PASS,
         "scenario_metrics_staleness": by_id.get("scenario_metrics_staleness_mask") == RESULT_PASS,
     }
 
@@ -824,6 +831,7 @@ print(json.dumps({{
             "srsue_zmq_attach",
             "ping_traffic_path",
             "websocket_prb_policy_action",
+            "websocket_ssb_power_action",
             "scenario_metrics_staleness_mask",
         }
         need_episode = bool(run_ids & v3_episode_checks)
@@ -837,7 +845,12 @@ print(json.dumps({{
                     results.append(self._blocked_result(check_id, "Docker e2e assets check did not pass"))
             return results
 
-        episode_task = TASK_METRICS_STALENESS_NOOP_V1 if "scenario_metrics_staleness_mask" in run_ids else TASK_WS_PRB_PING_V1
+        if "scenario_metrics_staleness_mask" in run_ids:
+            episode_task = TASK_METRICS_STALENESS_NOOP_V1
+        elif "websocket_ssb_power_action" in run_ids and "websocket_prb_policy_action" not in run_ids:
+            episode_task = TASK_WS_SSB_POWER_REPAIR_V1
+        else:
+            episode_task = TASK_WS_PRB_PING_V1
         episode_options = EpisodeOptions(
             run_id=f"{options.run_id}-v3",
             task=episode_task,
@@ -909,6 +922,30 @@ print(json.dumps({{
                             {"invalid": invalid, "valid": valid},
                         )
                     )
+                if "websocket_ssb_power_action" in run_ids:
+                    cell_nci = observation.get("observation", {}).get("cell", {}).get("nci")
+                    invalid = runtime.act(
+                        {
+                            "type": ACTION_SET_SSB_BLOCK_POWER_WS,
+                            "plmn": "00101",
+                            "nci": cell_nci or 0,
+                            "ssb_block_power_dbm": 99,
+                        },
+                        allowed_types=(ACTION_SET_SSB_BLOCK_POWER_WS,),
+                    )
+                    valid_action = ssb_action_from_observation(observation)
+                    valid = runtime.act(valid_action, allowed_types=(ACTION_SET_SSB_BLOCK_POWER_WS,))
+                    ok = invalid.get("status") == "rejected" and valid.get("accepted") is True
+                    results.append(
+                        self._result(
+                            "websocket_ssb_power_action",
+                            RESULT_PASS if ok else RESULT_FAIL,
+                            "SSB power action rejects invalid input locally and accepts valid WebSocket command"
+                            if ok
+                            else "SSB power action validation or WebSocket dispatch failed",
+                            {"invalid": invalid, "valid": valid, "cell": observation.get("observation", {}).get("cell", {})},
+                        )
+                    )
             else:
                 stage = str(start.get("stage", "v3_episode"))
                 self._append_v3_start_failure(results, run_ids, stage, start)
@@ -950,6 +987,7 @@ print(json.dumps({{
             results.append(self._result("ping_traffic_path", RESULT_FAIL, start.get("summary", "ping traffic failed"), start))
         for check_id, reason in [
             ("websocket_prb_policy_action", "srsUE/gNB startup did not pass"),
+            ("websocket_ssb_power_action", "srsUE/gNB startup did not pass"),
             ("scenario_metrics_staleness_mask", "srsUE/gNB startup did not pass"),
         ]:
             if check_id in run_ids:

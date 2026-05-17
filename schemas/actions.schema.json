@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Benchmark action catalog for local validation before dispatch to OCUDU runtime interfaces.",
+  "description": "Benchmark action catalog for local validation before dispatch to OCUDU runtime interfaces. Action type names are benchmark API contracts; raw wire command names such as rrm_policy_ratio_set, ssb_set, and metrics_subscribe are not task action types.",
   "actions": [
     {
       "type": "STUB_NOOP",
@@ -19,7 +19,7 @@
         "e2_kpm_json_consistency_v1",
         "metrics_staleness_noop_v1"
       ],
-      "description": "WebSocket PRB policy action used by both current scored tasks. Min/max ratios are scored; dedicated ratio is validity-only.",
+      "description": "WebSocket PRB policy action used by PRB-control tasks. Min/max ratios are scored; dedicated ratio is validity-only.",
       "required_fields": [
         "min_prb_policy_ratio",
         "max_prb_policy_ratio"
@@ -88,6 +88,27 @@
         "ordering": "min_prb_policy_ratio <= max_prb_policy_ratio"
       },
       "wire_command": "E2SM-RC DU control style 2 action 6 via FlexRIC control xApp"
+    },
+    {
+      "type": "SET_SSB_BLOCK_POWER_WS",
+      "stage": "v3.3",
+      "tasks": [
+        "ws_ssb_power_guard_v1",
+        "ws_ssb_power_repair_v1"
+      ],
+      "description": "OCUDU WebSocket SSB block-power action using the native ssb_set command. This is scored for validation and command-path correctness, not RF effect in ZMQ.",
+      "required_fields": [
+        "nci",
+        "ssb_block_power_dbm"
+      ],
+      "defaults": {
+        "plmn": "00101"
+      },
+      "constraints": {
+        "nci": "integer NR cell identity in [0, 68719476735]",
+        "ssb_block_power_dbm": "integer in [-60, 50]"
+      },
+      "wire_command": "ssb_set"
     }
   ]
 }
