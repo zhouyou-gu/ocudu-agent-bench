@@ -276,6 +276,15 @@ class EpisodeTests(unittest.TestCase):
         self.assertIn("e2ap_sctp.pcap", scripts[0])
         self.assertNotIn("/home/", scripts[0])
 
+    def test_start_rejects_unimplemented_task_even_if_manifest_exists_later(self) -> None:
+        class FakeRemote:
+            config = sample_remote_config()
+
+        runtime = EpisodeRuntime(FakeRemote())  # type: ignore[arg-type]
+
+        with self.assertRaisesRegex(ValueError, "Unsupported episode task"):
+            runtime.start(EpisodeOptions(run_id="unit-unsupported", task="future_task_v1"))
+
     def test_cleanup_script_reports_postcondition_status(self) -> None:
         class FakeRemote:
             config = sample_remote_config()

@@ -95,6 +95,17 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         )
         self.assertEqual(result["tracked_file_count"], 2)
 
+    def test_bootstrap_manifest_includes_task_and_agent_metadata(self) -> None:
+        files = self.manager._bootstrap_manifest_files(Path(".").resolve(), Path("benchmark").resolve())
+        rel = {path.as_posix() for path in files}
+
+        self.assertIn("benchmark/agents/README.md", rel)
+        self.assertIn("benchmark/benchmark_api/tasks.py", rel)
+        self.assertIn("benchmark/schemas/task.schema.json", rel)
+        self.assertIn("benchmark/tasks/README.md", rel)
+        self.assertIn("benchmark/tasks/ws_prb_ping_v1/task.json", rel)
+        self.assertIn("benchmark/tasks/e2_kpm_prb_ping_v1/task.json", rel)
+
     def test_prepare_runtime_deps_dry_run_reports_workspace_root(self) -> None:
         result = self.manager.prepare_runtime_deps(dry_run=True)
         self.assertEqual(result["status"], "ok")

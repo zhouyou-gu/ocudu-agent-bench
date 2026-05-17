@@ -99,6 +99,12 @@ sources:
         self.assertEqual(observation["status"], "error")
         self.assertEqual(observation["reason"], "reset required before observe")
 
+    def test_unknown_task_is_rejected(self) -> None:
+        env = BenchmarkEnv(self.config_path, remote_manager_factory=FakeRemoteManager)
+
+        with self.assertRaisesRegex(ValueError, "Unsupported benchmark task"):
+            env.reset({"run_id": "bad-task", "task": "does_not_exist_v1"})
+
     def test_act_before_reset_and_malformed_actions_are_rejected(self) -> None:
         env = BenchmarkEnv(self.config_path, remote_manager_factory=FakeRemoteManager)
         before_reset = env.act({"type": "STUB_NOOP", "stub": True})

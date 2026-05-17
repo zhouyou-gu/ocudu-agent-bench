@@ -19,11 +19,15 @@ from benchmark.benchmark_api.ric import (
     RIC_PROVIDER_FLEXRIC,
 )
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
+from benchmark.benchmark_api.tasks import (
+    TASK_E2_KPM_PRB_PING_V1,
+    TASK_WS_PRB_PING_V1,
+    episode_stage_for_task,
+    is_implemented_episode_task,
+)
 from benchmark.benchmark_api.websocket_client import WebSocketClient, WebSocketFrame, WebSocketProtocolError
 
 
-TASK_WS_PRB_PING_V1 = "ws_prb_ping_v1"
-TASK_E2_KPM_PRB_PING_V1 = "e2_kpm_prb_ping_v1"
 DEFAULT_EPISODE_DURATION = 30
 DEFAULT_WS_PORT = 8001
 DEFAULT_ATTACH_TIMEOUT = 90
@@ -440,18 +444,20 @@ print(json.dumps({{
         }
 
     def start(self, options: EpisodeOptions) -> dict[str, Any]:
-        if options.task not in {TASK_WS_PRB_PING_V1, TASK_E2_KPM_PRB_PING_V1}:
+        if not is_implemented_episode_task(options.task):
             raise ValueError(f"Unsupported episode task: {options.task}")
         safe_run_id(options.run_id)
         self.options = options
         self.paths = episode_paths(self.remote.config.workspace, options.run_id)
         suffix = container_suffix(options.run_id)
         is_v4 = options.task == TASK_E2_KPM_PRB_PING_V1
+        stage = episode_stage_for_task(options.task)
         provider = self.remote.config.ric_provider
         overlay = generate_v4_e2_gnb_overlay(options.ws_port) if is_v4 else generate_v3_gnb_overlay(options.ws_port)
         payload = {
             "run_id": options.run_id,
             "task": options.task,
+            "stage": stage,
             "is_v4": is_v4,
             "ric_provider": provider,
             "paths": self.paths,
@@ -799,7 +805,7 @@ containers = {{
 pathlib.Path(paths["containers"]).write_text(json.dumps(containers, indent=2, sort_keys=True), encoding="utf-8")
 print(json.dumps({{
     "status": "ok",
-    "stage": "v4_episode" if payload["is_v4"] else "v3_episode",
+    "stage": payload["stage"],
     "summary": "Docker e2e episode is running",
     "containers": containers,
     "paths": paths,
@@ -815,6 +821,7 @@ print(json.dumps({{
         payload = {
             "run_id": options.run_id,
             "task": options.task,
+            "stage": episode_stage_for_task(options.task),
             "ric_provider": self.remote.config.ric_provider,
             "paths": self.paths,
             "ws_port": options.ws_port,
@@ -947,7 +954,7 @@ observation = {{
 record = {{"run_id": payload["run_id"], "state": "running", "observation": observation}}
 with open(paths["observations"], "a", encoding="utf-8") as handle:
     handle.write(json.dumps(record, sort_keys=True) + "\\n")
-stage = "v4_episode" if payload["task"] == "e2_kpm_prb_ping_v1" else "v3_episode"
+stage = payload["stage"]
 print(json.dumps({{"status": "ok", "stage": stage, "run_id": payload["run_id"], "state": "running", "observation": observation}}))
 """
         return self._remote_json(script)
@@ -969,7 +976,7 @@ print(json.dumps({{"status": "ok", "stage": stage, "run_id": payload["run_id"], 
             self._append_jsonl(self.paths["actions"], record)
             return {
                 "status": "rejected",
-                "stage": "v3_episode",
+                "stage": episode_stage_for_task(options.task),
                 "run_id": options.run_id,
                 "accepted": False,
                 "reason": validation["reason"],
@@ -978,6 +985,7 @@ print(json.dumps({{"status": "ok", "stage": stage, "run_id": payload["run_id"], 
         payload = {
             "run_id": options.run_id,
             "task": options.task,
+            "stage": episode_stage_for_task(options.task),
             "paths": self.paths,
             "ws_port": options.ws_port,
             "timeout": options.probe_timeout,
@@ -1014,7 +1022,7 @@ with open(paths["actions"], "a", encoding="utf-8") as handle:
     handle.write(json.dumps(record, sort_keys=True) + "\\n")
 print(json.dumps({{
     "status": "ok" if record["accepted"] else "rejected",
-    "stage": "v4_episode" if payload["task"] == "e2_kpm_prb_ping_v1" else "v3_episode",
+    "stage": payload["stage"],
     "run_id": payload["run_id"],
     "accepted": record["accepted"],
     "reason": record["reason"],
@@ -1117,6 +1125,7 @@ print(json.dumps(result))
         payload = {
             "run_id": options.run_id,
             "task": options.task,
+            "stage": episode_stage_for_task(options.task),
             "ric_provider": self.remote.config.ric_provider,
             "paths": self.paths,
             "unscored_reason": unscored_reason,
@@ -1278,7 +1287,7 @@ if not scored and unscored_reason is None:
         unscored_reason = "E2 oracle unavailable"
 summary = {{
     "status": "ok",
-    "stage": "v4_episode" if payload["task"] == "e2_kpm_prb_ping_v1" else "v3_episode",
+    "stage": payload["stage"],
     "task": payload["task"],
     "run_id": payload["run_id"],
     "scored": scored,
@@ -1400,7 +1409,7 @@ print(json.dumps(summary))
             options = self._require_options()
             return {
                 "status": "error",
-                "stage": "v3_episode",
+                "stage": episode_stage_for_task(options.task),
                 "run_id": options.run_id,
                 "scored": False,
                 "unscored_reason": reason or str(exc),

@@ -14,31 +14,17 @@ from benchmark.benchmark_api.episode import (
     DEFAULT_LAUNCH_TIMEOUT,
     DEFAULT_PROBE_TIMEOUT,
     DEFAULT_WS_PORT,
-    TASK_E2_KPM_PRB_PING_V1,
-    TASK_WS_PRB_PING_V1,
     EpisodeOptions,
     EpisodeRuntime,
 )
 from benchmark.benchmark_api.remote import RemoteManager
-from benchmark.benchmark_api.ric import v4_checks_for_provider
-
-
-V3_EPISODE_GATE_CHECKS = {
-    "docker_e2e_assets",
-    "open5gs_core_health",
-    "srsue_zmq_attach",
-    "ping_traffic_path",
-    "websocket_prb_policy_action",
-}
-V4_EPISODE_GATE_CHECKS = {
-    "flexric_docker_assets",
-    "near_rt_ric_health",
-    "ocudu_e2_config",
-    "e2_setup_path",
-    "e2_kpm_subscription",
-    "e2_pcap_log_oracle",
-}
-EPISODE_TASKS = {TASK_WS_PRB_PING_V1, TASK_E2_KPM_PRB_PING_V1}
+from benchmark.benchmark_api.tasks import (
+    EPISODE_TASKS,
+    V3_EPISODE_GATE_CHECKS,
+    V4_EPISODE_GATE_CHECKS,
+    conformance_checks_for_task,
+    episode_stage_for_task,
+)
 
 
 class BenchmarkEnv:
@@ -66,6 +52,9 @@ class BenchmarkEnv:
             raise ValueError("reset config must be a dictionary")
         self.remote_config = parse_config(self.config_path)
         self.task = str(config.get("task", "v1_stub"))
+        if self.task != "v1_stub" and self.task not in EPISODE_TASKS:
+            supported = ", ".join(sorted(EPISODE_TASKS | {"v1_stub"}))
+            raise ValueError(f"Unsupported benchmark task: {self.task}. Supported tasks: {supported}")
         self.run_id = str(config.get("run_id") or (f"ep-{int(time.time())}" if self.task in EPISODE_TASKS else f"v1-{int(time.time())}"))
         self.remote = self.remote_manager_factory(self.remote_config)
         self.actions = []
@@ -154,10 +143,8 @@ class BenchmarkEnv:
             raise ValueError("conformance must be one of: skip, observe, required")
         if conformance_mode in {"observe", "required"}:
             check_value = config.get("conformance_checks")
-            if self.task == TASK_E2_KPM_PRB_PING_V1 and check_value is None:
-                checks = v4_checks_for_provider(self.remote.config.ric_provider)
-            elif self.task == TASK_WS_PRB_PING_V1 and check_value is None:
-                checks = set(V3_EPISODE_GATE_CHECKS)
+            if self.task in EPISODE_TASKS and check_value is None:
+                checks = conformance_checks_for_task(self.task)
             elif isinstance(check_value, str) or check_value is None:
                 checks = parse_checks(check_value)
             elif isinstance(check_value, list):
@@ -439,4 +426,4 @@ class BenchmarkEnv:
             }
 
     def _episode_stage(self) -> str:
-        return "v4_episode" if self.task == TASK_E2_KPM_PRB_PING_V1 else "v3_episode"
+        return episode_stage_for_task(self.task) if self.task in EPISODE_TASKS else "v1_stub"

@@ -16,7 +16,6 @@ from benchmark.benchmark_api.episode import (
     DEFAULT_LAUNCH_TIMEOUT,
     DEFAULT_PROBE_TIMEOUT,
     DEFAULT_WS_PORT,
-    TASK_E2_KPM_PRB_PING_V1,
     TASK_WS_PRB_PING_V1,
     EpisodeOptions,
     EpisodeRuntime,
@@ -24,26 +23,20 @@ from benchmark.benchmark_api.episode import (
     safe_run_id,
 )
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
-from benchmark.benchmark_api.ric import v4_checks_for_provider
+from benchmark.benchmark_api.tasks import (
+    V3_EPISODE_GATE_CHECKS,
+    V4_EPISODE_GATE_CHECKS,
+    conformance_checks_for_task,
+    episode_stage_for_task,
+    suite_stage_for_task,
+    supported_task_ids,
+)
 
 
 BUILTIN_AGENTS = {"fixed_prb", "sweep_prb", "invalid_then_fixed"}
-V3_SUITE_CONFORMANCE_CHECKS = {
-    "docker_e2e_assets",
-    "open5gs_core_health",
-    "srsue_zmq_attach",
-    "ping_traffic_path",
-    "websocket_prb_policy_action",
-}
-V4_SUITE_CONFORMANCE_CHECKS = {
-    "flexric_docker_assets",
-    "near_rt_ric_health",
-    "ocudu_e2_config",
-    "e2_setup_path",
-    "e2_kpm_subscription",
-    "e2_pcap_log_oracle",
-}
-SUPPORTED_SUITE_TASKS = {TASK_WS_PRB_PING_V1, TASK_E2_KPM_PRB_PING_V1}
+V3_SUITE_CONFORMANCE_CHECKS = set(V3_EPISODE_GATE_CHECKS)
+V4_SUITE_CONFORMANCE_CHECKS = set(V4_EPISODE_GATE_CHECKS)
+SUPPORTED_SUITE_TASKS = supported_task_ids()
 _SUITE_COUNTER = itertools.count()
 
 
@@ -83,11 +76,11 @@ def suite_paths(workspace: str, suite_id: str) -> dict[str, str]:
 
 
 def suite_stage(task: str) -> str:
-    return "v4_suite" if task == TASK_E2_KPM_PRB_PING_V1 else "v3_1_suite"
+    return suite_stage_for_task(task)
 
 
 def episode_stage(task: str) -> str:
-    return "v4_episode" if task == TASK_E2_KPM_PRB_PING_V1 else "v3_episode"
+    return episode_stage_for_task(task)
 
 
 class BaselineAgent:
@@ -262,7 +255,7 @@ class SuiteRunner:
                 "scored": False,
                 "reason": "--skip-conformance was used; suite and runs are unscored",
             }
-        checks = v4_checks_for_provider(self.remote.config.ric_provider) if options.task == TASK_E2_KPM_PRB_PING_V1 else V3_SUITE_CONFORMANCE_CHECKS
+        checks = conformance_checks_for_task(options.task)
         return run_conformance(
             remote=self.remote,
             repo_root=self.repo_root,

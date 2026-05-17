@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "description": "Documentation schema for benchmark task manifests. The Python task registry performs lightweight stdlib validation against this shape.",
+  "required": [
+    "id",
+    "name",
+    "summary",
+    "stage",
+    "suite_stage",
+    "runtime",
+    "readiness",
+    "action_types",
+    "observation_sources",
+    "required_conformance",
+    "scoring",
+    "artifact_groups"
+  ],
+  "fields": {
+    "id": "Stable task id. Must match the containing directory name.",
+    "name": "Human-readable task name.",
+    "summary": "One-paragraph description of the task contract.",
+    "stage": "Episode stage label returned by runtime APIs.",
+    "suite_stage": "Suite stage label returned by suite APIs.",
+    "runtime": "Runtime family used by the task.",
+    "readiness": "Task readiness, such as scored or experimental.",
+    "action_types": "Allowed local action type names.",
+    "observation_sources": "Normalized observation sources expected by the task.",
+    "required_conformance": "Conformance check ids that must pass before scored runs.",
+    "scoring": "Score dimensions used by summaries and suite aggregation.",
+    "artifact_groups": "Expected remote artifact files or directories under the run episode directory."
+  }
+}

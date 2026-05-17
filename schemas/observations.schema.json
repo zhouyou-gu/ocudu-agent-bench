@@ -1,32 +1,71 @@
 {
   "version": 1,
   "description": "Benchmark observation catalog for agent-facing episode frames.",
-  "observation": {
-    "stage": "v3_episode",
-    "task": "ws_prb_ping_v1",
-    "state": "running",
-    "fields": {
-      "ping": [
-        "packets_transmitted",
-        "packets_received",
-        "reply_lines",
-        "loss_percent",
-        "success_ratio"
-      ],
-      "metrics": [
-        "present",
-        "component_keys",
-        "timestamp",
-        "raw",
-        "error"
-      ],
-      "backend": [
-        "websocket",
-        "ping"
-      ],
-      "last_action": "most recent local validation and WebSocket dispatch result"
+  "observations": [
+    {
+      "stage": "v3_episode",
+      "task": "ws_prb_ping_v1",
+      "state": "running",
+      "fields": {
+        "ping": [
+          "packets_transmitted",
+          "packets_received",
+          "reply_lines",
+          "loss_percent",
+          "success_ratio"
+        ],
+        "metrics": [
+          "present",
+          "component_keys",
+          "timestamp",
+          "raw",
+          "error"
+        ],
+        "backend": [
+          "websocket",
+          "ping"
+        ],
+        "last_action": "most recent local validation and WebSocket dispatch result"
+      }
+    },
+    {
+      "stage": "v4_episode",
+      "task": "e2_kpm_prb_ping_v1",
+      "state": "running",
+      "fields": {
+        "ping": [
+          "packets_transmitted",
+          "packets_received",
+          "reply_lines",
+          "loss_percent",
+          "success_ratio"
+        ],
+        "metrics": [
+          "present",
+          "component_keys",
+          "timestamp",
+          "raw",
+          "error"
+        ],
+        "e2": [
+          "enabled",
+          "kpm_indications",
+          "last_kpm",
+          "has_prb_measurement",
+          "oracle_available",
+          "pcap_available",
+          "log_available",
+          "raw_path"
+        ],
+        "backend": [
+          "websocket",
+          "ping",
+          "e2_kpm"
+        ],
+        "last_action": "most recent local validation and WebSocket dispatch result"
+      }
     }
-  },
+  ],
   "other_sources": [
     "v1_stub",
     "json_metrics",

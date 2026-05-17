@@ -10,8 +10,11 @@
     {
       "type": "SET_PRB_POLICY_RATIO_WS",
       "stage": "v3",
-      "task": "ws_prb_ping_v1",
-      "description": "WebSocket PRB policy action. Min/max ratios are scored; dedicated ratio is validity-only.",
+      "tasks": [
+        "ws_prb_ping_v1",
+        "e2_kpm_prb_ping_v1"
+      ],
+      "description": "WebSocket PRB policy action used by both current scored tasks. Min/max ratios are scored; dedicated ratio is validity-only.",
       "required_fields": [
         "min_prb_policy_ratio",
         "max_prb_policy_ratio"

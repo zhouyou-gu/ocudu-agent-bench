@@ -28,33 +28,21 @@ from benchmark.benchmark_api.episode import (
     DEFAULT_LAUNCH_TIMEOUT as DEFAULT_EPISODE_LAUNCH_TIMEOUT,
     DEFAULT_PROBE_TIMEOUT as DEFAULT_EPISODE_PROBE_TIMEOUT,
     DEFAULT_WS_PORT as DEFAULT_EPISODE_WS_PORT,
-    TASK_E2_KPM_PRB_PING_V1,
-    TASK_WS_PRB_PING_V1,
     cleanup_episode,
     episode_exit_code,
     run_episode,
 )
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
 from benchmark.benchmark_api.provision import PROVISION_STAGE_CHOICES
-from benchmark.benchmark_api.ric import v4_checks_for_provider
 from benchmark.benchmark_api.suite import BUILTIN_AGENTS, run_suite, suite_exit_code
-
-
-V3_EPISODE_GATE_CHECKS = {
-    "docker_e2e_assets",
-    "open5gs_core_health",
-    "srsue_zmq_attach",
-    "ping_traffic_path",
-    "websocket_prb_policy_action",
-}
-V4_EPISODE_GATE_CHECKS = {
-    "flexric_docker_assets",
-    "near_rt_ric_health",
-    "ocudu_e2_config",
-    "e2_setup_path",
-    "e2_kpm_subscription",
-    "e2_pcap_log_oracle",
-}
+from benchmark.benchmark_api.tasks import (
+    TASK_WS_PRB_PING_V1,
+    V3_EPISODE_GATE_CHECKS,
+    V4_EPISODE_GATE_CHECKS,
+    conformance_checks_for_task,
+    episode_stage_for_task,
+    supported_task_ids,
+)
 
 
 def emit(data: dict[str, Any], as_json: bool) -> None:
@@ -169,10 +157,9 @@ def cmd_conformance_run(args: argparse.Namespace) -> int:
 def cmd_episode_run(args: argparse.Namespace) -> int:
     manager = remote_manager(args)
     conformance: dict[str, Any] | None = None
-    stage = "v4_episode" if args.task == TASK_E2_KPM_PRB_PING_V1 else "v3_episode"
+    stage = episode_stage_for_task(args.task)
     if not args.skip_conformance:
-        provider = getattr(getattr(manager, "config", None), "ric_provider", "flexric")
-        checks = v4_checks_for_provider(provider) if args.task == TASK_E2_KPM_PRB_PING_V1 else V3_EPISODE_GATE_CHECKS
+        checks = conformance_checks_for_task(args.task)
         conformance = run_conformance(
             remote=manager,
             repo_root=ROOT,
@@ -332,10 +319,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     episode = subparsers.add_parser("episode", help="Scored episode helpers")
     episode_sub = episode.add_subparsers(dest="episode_command", required=True)
+    task_choices = sorted(supported_task_ids())
 
     episode_run = episode_sub.add_parser("run", help="Run a benchmark episode")
     episode_run.add_argument("--config", default=".config", help="Path to local remote config")
-    episode_run.add_argument("--task", default=TASK_WS_PRB_PING_V1, help="Benchmark task id")
+    episode_run.add_argument("--task", choices=task_choices, default=TASK_WS_PRB_PING_V1, help="Benchmark task id")
     episode_run.add_argument("--duration", type=int, default=DEFAULT_EPISODE_DURATION, help="Episode duration in seconds")
     episode_run.add_argument("--json", action="store_true", help="Emit JSON output")
     episode_run.add_argument("--run-id", default=None, help="Episode run id")
@@ -373,7 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     episode_suite = episode_sub.add_parser("suite", help="Run a repeated benchmark suite")
     episode_suite.add_argument("--config", default=".config", help="Path to local remote config")
-    episode_suite.add_argument("--task", default=TASK_WS_PRB_PING_V1, help="Benchmark task id")
+    episode_suite.add_argument("--task", choices=task_choices, default=TASK_WS_PRB_PING_V1, help="Benchmark task id")
     episode_suite.add_argument(
         "--agent", choices=sorted(BUILTIN_AGENTS), default="fixed_prb", help="Built-in baseline agent"
     )

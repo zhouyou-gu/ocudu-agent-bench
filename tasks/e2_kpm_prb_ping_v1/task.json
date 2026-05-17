@@ -1,0 +1,45 @@
+{
+  "id": "e2_kpm_prb_ping_v1",
+  "name": "E2SM-KPM v05 Observation With WebSocket PRB Policy",
+  "summary": "A Docker Open5GS, OCUDU gNB, srsUE, FlexRIC, and KPM xApp episode where WebSocket PRB control is scored only when decoded E2SM-KPM v05 observations and oracle artifacts are available.",
+  "stage": "v4_episode",
+  "suite_stage": "v4_suite",
+  "runtime": "docker_e2e_flexric",
+  "readiness": "scored",
+  "action_types": [
+    "SET_PRB_POLICY_RATIO_WS"
+  ],
+  "observation_sources": [
+    "ping",
+    "json_metrics",
+    "websocket_control",
+    "e2_kpm_v05",
+    "pcap_log_oracle"
+  ],
+  "required_conformance": [
+    "flexric_docker_assets",
+    "near_rt_ric_health",
+    "ocudu_e2_config",
+    "e2_setup_path",
+    "e2_kpm_subscription",
+    "e2_pcap_log_oracle"
+  ],
+  "scoring": [
+    "valid_action_accepted_rate",
+    "invalid_local_rejection_correctness",
+    "ping_success_ratio",
+    "json_metrics_continuity",
+    "e2_kpm_continuity",
+    "e2_oracle_availability",
+    "clean_teardown_success"
+  ],
+  "artifact_groups": [
+    "episode/actions.jsonl",
+    "episode/observations.jsonl",
+    "episode/metrics_raw.jsonl",
+    "episode/e2_kpm_raw.jsonl",
+    "episode/e2_oracle.json",
+    "episode/summary.json",
+    "episode/logs"
+  ]
+}

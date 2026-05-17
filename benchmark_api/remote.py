@@ -168,6 +168,7 @@ export OCUDU_ROOT BENCHMARK_WORKSPACE OPEN5GS_COMPOSE E2E_CONFIG_DIR RIC_PROVIDE
         repo_root = repo_root.resolve()
         source_rel = source.resolve().relative_to(repo_root)
         expected = [
+            "README.md",
             "__init__.py",
             "benchctl.py",
             "benchmark_api/__init__.py",
@@ -179,10 +180,18 @@ export OCUDU_ROOT BENCHMARK_WORKSPACE OPEN5GS_COMPOSE E2E_CONFIG_DIR RIC_PROVIDE
             "benchmark_api/remote.py",
             "benchmark_api/ric.py",
             "benchmark_api/suite.py",
+            "benchmark_api/tasks.py",
             "benchmark_api/websocket_client.py",
+            "agents/README.md",
             "conformance/tests.json",
             "schemas/actions.schema.json",
             "schemas/observations.schema.json",
+            "schemas/task.schema.json",
+            "tasks/README.md",
+            "tasks/ws_prb_ping_v1/README.md",
+            "tasks/ws_prb_ping_v1/task.json",
+            "tasks/e2_kpm_prb_ping_v1/README.md",
+            "tasks/e2_kpm_prb_ping_v1/task.json",
         ]
         files = [source_rel / item for item in expected if (repo_root / source_rel / item).is_file()]
         provision_root = repo_root / source_rel / "provision"
