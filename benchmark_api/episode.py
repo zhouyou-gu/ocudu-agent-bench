@@ -659,6 +659,7 @@ def validate_episode_action(action: Any, task: str) -> dict[str, Any]:
 
 
 def fixed_prb_action_for_type(action_type: str = ACTION_SET_PRB_POLICY_RATIO_WS) -> dict[str, Any]:
+    dedicated_ratio = 1 if action_type in {ACTION_SET_PRB_POLICY_RATIO_CCC, ACTION_SET_PRB_POLICY_RATIO_RC_DU} else 0
     return {
         "type": action_type,
         "plmn": "00101",
@@ -666,7 +667,7 @@ def fixed_prb_action_for_type(action_type: str = ACTION_SET_PRB_POLICY_RATIO_WS)
         "sd": 0xFFFFFF,
         "min_prb_policy_ratio": 10,
         "max_prb_policy_ratio": 90,
-        "dedicated_ratio": 0,
+        "dedicated_ratio": dedicated_ratio,
     }
 
 
@@ -1825,10 +1826,21 @@ def e2_setup_seen():
     return "e2" in text and ("setup" in text or "connected" in text or "ric" in text)
 
 def discover_du_ue_id():
-    text = read_tail(paths["gnb_log"], 50000) + "\\n" + read_tail(paths["ric_log"], 50000) + "\\n" + read_tail(paths["kpm_xapp_log"], 50000)
+    internal_gnb_log = str(pathlib.Path(paths["logs_dir"]) / "gnb_internal.log")
+    text = (
+        read_tail(paths["gnb_log"], 50000)
+        + "\\n"
+        + read_tail(internal_gnb_log, 50000)
+        + "\\n"
+        + read_tail(paths["ric_log"], 50000)
+        + "\\n"
+        + read_tail(paths["kpm_xapp_log"], 50000)
+    )
     patterns = [
+        r"cu_ue=(\\d+)",
         r"gNB-DU-UE-F1AP-ID\\D+(\\d+)",
         r"gnb[_ -]?du[_ -]?ue[_ -]?f1ap[_ -]?id\\D+(\\d+)",
+        r"du_ue=(\\d+)",
         r"du[_ -]?ue[_ -]?id\\D+(\\d+)",
     ]
     for pattern in patterns:
@@ -2150,10 +2162,21 @@ def discover_du_ue_id():
     explicit = normalized.get("du_ue_id")
     if isinstance(explicit, int) and explicit >= 0:
         return explicit
-    text = read_tail(paths["gnb_log"]) + "\\n" + read_tail(paths["ric_log"]) + "\\n" + read_tail(paths["kpm_xapp_log"])
+    internal_gnb_log = str(pathlib.Path(paths["logs_dir"]) / "gnb_internal.log")
+    text = (
+        read_tail(paths["gnb_log"])
+        + "\\n"
+        + read_tail(internal_gnb_log)
+        + "\\n"
+        + read_tail(paths["ric_log"])
+        + "\\n"
+        + read_tail(paths["kpm_xapp_log"])
+    )
     patterns = [
+        r"cu_ue=(\\d+)",
         r"gNB-DU-UE-F1AP-ID\\D+(\\d+)",
         r"gnb[_ -]?du[_ -]?ue[_ -]?f1ap[_ -]?id\\D+(\\d+)",
+        r"du_ue=(\\d+)",
         r"du[_ -]?ue[_ -]?id\\D+(\\d+)",
     ]
     for pattern in patterns:

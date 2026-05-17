@@ -23,6 +23,7 @@ from benchmark.benchmark_api.episode import (
     build_ssb_request,
     episode_paths,
     episode_exit_code,
+    fixed_prb_action_for_type,
     generate_kpm_xapp_config,
     generate_v3_gnb_overlay,
     generate_v4_e2_gnb_overlay,
@@ -569,6 +570,11 @@ class EpisodeTests(unittest.TestCase):
         self.assertEqual(rc["request"]["control_style"], 2)
         self.assertEqual(rc["request"]["control_action"], 6)
 
+    def test_fixed_e2_prb_actions_use_ocudu_accepted_dedicated_ratio(self) -> None:
+        self.assertEqual(fixed_prb_action_for_type()["dedicated_ratio"], 0)
+        self.assertEqual(fixed_prb_action_for_type(ACTION_SET_PRB_POLICY_RATIO_CCC)["dedicated_ratio"], 1)
+        self.assertEqual(fixed_prb_action_for_type(ACTION_SET_PRB_POLICY_RATIO_RC_DU)["dedicated_ratio"], 1)
+
     def test_validate_episode_action_routes_ssb_tasks(self) -> None:
         validation = validate_episode_action(
             {"type": ACTION_SET_SSB_BLOCK_POWER_WS, "nci": 6733824, "ssb_block_power_dbm": -16},
@@ -830,6 +836,8 @@ class EpisodeTests(unittest.TestCase):
 
         self.assertIn('quoted_args = " ".join(shlex.quote(arg) for arg in args)', scripts[0])
         self.assertIn('f"$TOOL {quoted_args}"', scripts[0])
+        self.assertIn("gnb_internal.log", scripts[0])
+        self.assertIn('r"cu_ue=(\\d+)"', scripts[0])
 
     def test_docker_asset_check_uses_configured_images(self) -> None:
         class FakeRemote:
