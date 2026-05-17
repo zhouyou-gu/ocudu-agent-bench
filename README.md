@@ -18,7 +18,23 @@
 +--------------------------------------------+
 ```
 
-The benchmark owns orchestration, local action validation, conformance gating, agent loops, scoring, and summaries. The remote workspace owns OCUDU source/build/install trees, runtime processes, raw logs, PCAPs, metrics, and run artifacts. [API_REFERENCE.md](API_REFERENCE.md) is the standalone source of truth for implemented benchmark APIs and the boundary between reusable APIs and scored tasks.
+The benchmark owns orchestration, local action validation, conformance gating, the LLM-agent execution loop, scoring, and summaries. The remote workspace owns OCUDU source/build/install trees, runtime processes, raw logs, PCAPs, metrics, and run artifacts. [API_REFERENCE.md](API_REFERENCE.md) is the standalone source of truth for implemented benchmark APIs and the boundary between reusable APIs and scored tasks.
+
+## LLM-Agent Execution Model
+
+The benchmark uses this locked loop for LLM-agent evaluation:
+
+```text
+Perceive -> Reason -> Execute -> Feedback -> Repeat
+```
+
+- **Perceive**: the LLM agent receives a structured observation from `BenchmarkEnv`, such as ping health, JSON metrics, E2 evidence, backend status, task context, and the previous action result.
+- **Reason**: the LLM agent uses the task objective and its history to decide whether to wait, take no RAN action, repair a previous invalid action, or choose a specific RAN-management API.
+- **Execute**: the LLM agent returns a structured action or `None`. `BenchmarkEnv` validates the decision and executes valid actions through OCUDU WebSocket or FlexRIC/E2 control paths.
+- **Feedback**: the next observation reports validation results, API responses, and updated RAN state.
+- **Repeat**: the loop continues until the episode ends; `close()` then cleans up the runtime and scores the trace.
+
+Built-in CLI controllers follow the same loop with scripted decisions. They are not LLM agents.
 
 ## Quick Start
 
@@ -69,7 +85,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-`--controller` selects a built-in deterministic baseline controller, not an LLM agent. For example, `fixed_prb` always sends one fixed valid PRB action and then stops. These controllers are smoke tests and reference baselines for the benchmark itself. Real LLM agents normally use the Python API, inspect observations, choose actions, and are scored against the same task contracts. The old `--agent` spelling is accepted only as a compatibility alias for `--controller`.
+`--controller` selects a built-in deterministic baseline controller, not an LLM agent. For example, `fixed_prb` always sends one fixed valid PRB action and then stops. These controllers are smoke tests and reference baselines for the benchmark itself. Real LLM agents normally use the Python API to Perceive, Reason, Execute, receive Feedback, and Repeat against the same task contracts. The old `--agent` spelling is accepted only as a compatibility alias for `--controller`.
 Suite summaries use `controller` as the canonical field and may keep a deprecated `agent` alias for older consumers.
 
 Run the E2SM-KPM v05 task after FlexRIC preparation:

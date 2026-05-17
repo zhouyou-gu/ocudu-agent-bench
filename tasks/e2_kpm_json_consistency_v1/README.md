@@ -27,7 +27,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-## Agent Interaction Loop
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 The agent returns `None` until an observation contains fresh JSON metrics and E2 PRB evidence. It then sends one valid WebSocket PRB action and stops acting. The action log snapshots the observation used for the decision.
 

@@ -27,7 +27,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-## Agent Interaction Loop
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 The agent observes healthy ping, JSON metrics, and cell identity, then returns `None` for every decision. A SSB power action is available for validation but is the wrong behavior in this guard task.
 
@@ -48,7 +48,7 @@ Canonical score dimensions:
 - `metrics_continuity`
 - `clean_teardown`
 
-The task rewards correct restraint while the cell is healthy.
+The task scores correct restraint while the cell is healthy.
 
 ## Unscored Conditions
 

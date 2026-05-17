@@ -27,7 +27,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-## Agent Interaction Loop
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 The agent observes early frames where `metrics.stale` or `scenario.metrics_stale` is true and returns `None`. After fresh metrics are present, it may emit at most one valid PRB policy action.
 
@@ -64,7 +64,7 @@ Canonical score dimensions:
 - `metrics_continuity`
 - `clean_teardown`
 
-The task rewards zero actions while stale and at most one accepted valid action after fresh evidence returns.
+The task scores zero actions while stale and at most one accepted valid action after fresh evidence returns.
 
 ## Unscored Conditions
 

@@ -242,13 +242,15 @@ class TaskRegistryTests(unittest.TestCase):
         self.assertIn("not a runtime API command", task_readme)
         self.assertIn("built-in deterministic controller", task_readme)
         self.assertIn("--controller", task_readme)
+        self.assertIn("Perceive -> Reason -> Execute -> Feedback -> Repeat", api_reference)
+        self.assertIn("Perceive -> Reason -> Execute -> Feedback -> Repeat", task_readme)
 
     def test_task_readmes_have_agent_facing_contract_sections(self) -> None:
         required_headers = [
             "## Goal",
             "## APIs Used",
             "## How To Trigger",
-            "## Agent Interaction Loop",
+            "## Perceive -> Reason -> Execute -> Feedback -> Repeat",
             "## Allowed Actions",
             "## Observation Contract",
             "## Scoring",

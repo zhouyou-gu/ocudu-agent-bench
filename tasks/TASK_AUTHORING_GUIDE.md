@@ -15,7 +15,7 @@ The guide allows planned tasks to be broader than today's executable runtime sup
 
 ## Good Task Definition
 
-A good task is a bounded, reproducible RAN-management episode in which an LLM agent receives structured observations from one or more runtime APIs, chooses an allowed action or structured output, and is scored against objective oracles that measure operational correctness, safety, and task success.
+A good task is a bounded, reproducible RAN-management episode in which an LLM agent uses the Perceive -> Reason -> Execute -> Feedback -> Repeat loop over structured observations and allowed actions, then is scored against objective oracles that measure operational correctness, safety, and task success.
 
 ```text
 good task =
@@ -84,11 +84,17 @@ If any scenario element is randomized, the task must state how the seed is store
 
 Each task must define how an LLM agent is evaluated. The default protocol is:
 
-- the agent sees only `reset`, `observe`, `act`, and `close` results plus its own prior actions and action results,
-- one structured action or `None` may be returned per decision point,
-- `None` means the agent intentionally takes no RAN action and is not an invalid action,
-- malformed JSON, schema violations, and out-of-range values are local agent action failures after setup succeeds,
-- direct remote access, artifact scraping, side-channel WebSocket clients, and direct container control are forbidden.
+```text
+Perceive -> Reason -> Execute -> Feedback -> Repeat
+```
+
+- **Perceive**: the agent sees only `reset`, `observe`, `act`, and `close` results plus its own prior actions and action results.
+- **Reason**: the agent uses the task objective, observation frame, and history to decide whether to wait, no-op, repair a previous action, or choose an allowed RAN-management action.
+- **Execute**: one structured action or `None` may be returned per decision point; `None` means the agent intentionally takes no RAN action and is not an invalid action.
+- **Feedback**: validation errors, API responses, and updated RAN state return through `act` results and later observations.
+- **Repeat**: the cycle continues until the episode ends and the benchmark scores the trace.
+
+Malformed JSON, schema violations, and out-of-range values are local agent action failures after setup succeeds. Direct remote access, artifact scraping, side-channel WebSocket clients, and direct container control are forbidden.
 
 Task proposals must state any deviations from the default, including decision cadence, maximum action count, action cooldown, retry budget, per-decision latency limit, whether memory may span episodes in a suite, and how free-form LLM output is converted into the structured action or output schema.
 

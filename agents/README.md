@@ -2,16 +2,30 @@
 
 This page separates two roles that are easy to confuse:
 
-- **LLM agent**: the external system being evaluated. It reads observations, decides whether to return an action or `None`, and is scored by the task.
+- **LLM agent**: the external system being evaluated. It follows the Perceive -> Reason -> Execute -> Feedback -> Repeat loop and is scored by the task.
 - **Built-in baseline controller**: a deterministic scripted policy selected by CLI `--controller`, such as `fixed_prb` or `noop`. It is used for smoke tests and reference baselines; it is not an LLM agent.
 
-Use the Python API for real LLM-agent observe/act loops. Use the CLI for setup, conformance, smoke tests, cleanup, and deterministic baseline controllers. The old CLI spelling `--agent` is still accepted as a compatibility alias for `--controller`.
+Use the Python API for real LLM-agent execution loops. Use the CLI for setup, conformance, smoke tests, cleanup, and deterministic baseline controllers. The old CLI spelling `--agent` is still accepted as a compatibility alias for `--controller`.
 
 Suite JSON summaries use `controller` as the canonical field. They may also include a legacy `agent` field for older consumers; treat that field as deprecated and equivalent to `controller`.
 
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
+
+Use this loop to frame every LLM-agent episode:
+
+```text
+Perceive -> Reason -> Execute -> Feedback -> Repeat
+```
+
+- **Perceive**: call `observe()` or read the observation returned by `reset()`. The observation is structured RAN context, not raw remote shell access.
+- **Reason**: use the task objective, current observation, and prior history to decide whether the safest next decision is no-op, retry, repair, or a RAN-management action.
+- **Execute**: return either `None` or one allowed action dictionary. `BenchmarkEnv` validates it locally and executes valid actions through OCUDU or FlexRIC.
+- **Feedback**: inspect the next observation and `last_action` result for validation errors, API acceptance, updated metrics, and E2 evidence.
+- **Repeat**: continue until the episode reaches its duration or terminal state, then call `close()` and use the returned summary for evaluation.
+
 ## Setup Workflow Concepts
 
-Agents should distinguish provisioning from conformance:
+LLM agents and operators should distinguish provisioning from conformance:
 
 - **Provision** prepares the remote testbed. It installs or builds workspace-owned OCUDU, srsUE, Open5GS assets, runtime libraries, Docker images, and FlexRIC/KPM assets from the configured source pins.
 - **Conformance** validates that the provisioned testbed can run the task APIs and episode path before the agent is scored.
@@ -29,7 +43,7 @@ python3 benchmark/benchctl.py remote ric-prepare --config .config --json
 python3 benchmark/benchctl.py conformance run --config .config --json
 ```
 
-After this, agents can use `BenchmarkEnv.reset({"conformance": "required"})` or `episode suite` for scored runs. Rerun provisioning when source pins, Docker images, or workspace-owned runtime assets change. Rerun conformance after provisioning, after config changes, or after a runtime failure that may have left stale state.
+After this, LLM agents can use `BenchmarkEnv.reset({"conformance": "required"})` or operators can use `episode suite` for scored runs. Rerun provisioning when source pins, Docker images, or workspace-owned runtime assets change. Rerun conformance after provisioning, after config changes, or after a runtime failure that may have left stale state.
 
 ## Python API Lifecycle
 

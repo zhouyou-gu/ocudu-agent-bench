@@ -41,6 +41,14 @@ Ping, cleanup, artifact collection, PCAP/log parsing, and ZMQ scenario control a
 
 ## Agent-Facing Harness APIs
 
+The canonical LLM-agent loop is:
+
+```text
+Perceive -> Reason -> Execute -> Feedback -> Repeat
+```
+
+`BenchmarkEnv` implements the wrapper side of this loop. The LLM agent perceives normalized observations, reasons outside the benchmark, returns an action or `None` for execution, receives feedback through action results and later observations, and repeats until the episode is closed and scored.
+
 ### Python API
 
 Primary module:

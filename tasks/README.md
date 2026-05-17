@@ -66,7 +66,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-LLM agents usually operate through `BenchmarkEnv`: call `reset`, inspect each `observe` frame, return either one allowed action dictionary or `None`, then call `close`. The CLI baseline controllers exercise the same episode contracts and are useful for smoke tests.
+LLM agents usually operate through `BenchmarkEnv` using the benchmark loop: **Perceive -> Reason -> Execute -> Feedback -> Repeat**. In code, the agent calls `reset`, perceives each `observe` frame, reasons over task context and history, executes by returning one allowed action dictionary or `None`, receives feedback through `last_action` and later observations, then calls `close`. The CLI baseline controllers exercise the same episode contracts and are useful for smoke tests.
 
 ## Task Metadata Contract
 

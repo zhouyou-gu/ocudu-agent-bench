@@ -27,7 +27,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-## Agent Interaction Loop
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 The agent observes healthy ping and JSON metrics and returns `None` for every decision. `None` is a task-level no-op decision; it is not sent to OCUDU and is not recorded as an action.
 

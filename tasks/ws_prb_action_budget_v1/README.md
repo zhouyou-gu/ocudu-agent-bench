@@ -27,7 +27,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-## Agent Interaction Loop
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 The agent observes the healthy episode, emits one valid PRB policy action, confirms the action result, and then returns `None` for subsequent observations.
 
@@ -61,7 +61,7 @@ Canonical score dimensions:
 - `metrics_continuity`
 - `clean_teardown`
 
-The task rewards one accepted valid action and penalizes invalid actions or repeated control churn.
+The task scores one accepted valid action and marks down invalid actions or repeated control churn.
 
 ## Unscored Conditions
 

@@ -27,7 +27,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-## Agent Interaction Loop
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 The agent first emits a malformed PRB action, reads the local validation failure from the next observation, then emits one corrected PRB action. A good LLM agent should not repeatedly send invalid variants after the error is explained.
 

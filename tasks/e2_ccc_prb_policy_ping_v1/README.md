@@ -27,7 +27,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-## Agent Interaction Loop
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 The agent waits for fresh metrics and E2 PRB evidence, emits one CCC PRB policy action, observes the E2 control outcome, and then stops acting. The correct control path is CCC, not WebSocket PRB or UE-scoped RC.
 

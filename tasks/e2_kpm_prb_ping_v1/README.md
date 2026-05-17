@@ -27,7 +27,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-## Agent Interaction Loop
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 The agent observes ping, JSON metrics, and E2 KPM backend status, sends one valid WebSocket PRB action, then stops acting. KPM records are not the control path in this task; they are required observation and oracle evidence.
 

@@ -29,7 +29,7 @@ python3 benchmark/benchctl.py episode suite \
 
 The suite runner performs the required conformance gate before scored episodes unless `--skip-conformance` is used for debugging, which makes the run unscored.
 
-## Agent Interaction Loop
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 The agent calls `reset`, observes ping and JSON metrics, emits one bounded PRB policy action, observes the action result, and then stops acting. A custom LLM agent should use `None` when it has no further action.
 
@@ -63,7 +63,7 @@ Canonical score dimensions:
 - `metrics_continuity`
 - `clean_teardown`
 
-The task rewards one accepted valid PRB action while ping and metrics remain healthy.
+The task scores one accepted valid PRB action while ping and metrics remain healthy.
 
 ## Unscored Conditions
 

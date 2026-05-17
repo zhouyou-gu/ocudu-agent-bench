@@ -27,7 +27,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-## Agent Interaction Loop
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 The agent first emits an invalid SSB power value, reads the local validation failure, then builds a valid action using the observed `cell.nci` and `cell.plmn`.
 

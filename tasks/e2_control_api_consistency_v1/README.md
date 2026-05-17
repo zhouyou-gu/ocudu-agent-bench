@@ -27,7 +27,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-## Agent Interaction Loop
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 The agent reads the task context and observations, recognizes that the objective is cell/slice PRB policy, waits for E2 evidence, sends one CCC action, and stops acting. Choosing the UE-scoped RC DU action is the wrong API selection for this task.
 

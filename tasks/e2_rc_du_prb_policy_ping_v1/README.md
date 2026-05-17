@@ -27,7 +27,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-## Agent Interaction Loop
+## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 The agent returns `None` until fresh metrics, E2 PRB evidence, and DU UE identity are available. It then emits one RC DU PRB action, observes the control outcome, and stops acting.
 
