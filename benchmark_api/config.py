@@ -6,8 +6,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_RIC_PROVIDER = "flexric"
-DEFAULT_DRAX_NAMESPACE = "default"
-DEFAULT_DRAX_KUBECTL_IMAGE = "bitnami/kubectl:1.30.8"
 
 
 @dataclass(frozen=True)
@@ -21,8 +19,8 @@ class RuntimeConfig:
 
 @dataclass(frozen=True)
 class SourcesConfig:
-    srsran_project_repo: str = ""
-    srsran_project_ref: str = ""
+    ocudu_repo: str = ""
+    ocudu_ref: str = ""
     srsran_4g_repo: str = ""
     srsran_4g_ref: str = ""
     open5gs_ref: str = ""
@@ -31,16 +29,6 @@ class SourcesConfig:
 @dataclass(frozen=True)
 class ProvisionConfig:
     mode: str = "workspace-owned"
-
-
-@dataclass(frozen=True)
-class DraxConfig:
-    kubeconfig: str = ""
-    namespace: str = DEFAULT_DRAX_NAMESPACE
-    kubectl_image: str = DEFAULT_DRAX_KUBECTL_IMAGE
-    e2_endpoint: str = ""
-    e2_bind_addr: str = "0.0.0.0"
-    kpm_api_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -54,7 +42,6 @@ class RemoteConfig:
     provision: ProvisionConfig = field(default_factory=ProvisionConfig)
     connect_timeout: int = 8
     ric_provider: str = DEFAULT_RIC_PROVIDER
-    drax: DraxConfig = field(default_factory=DraxConfig)
 
 
 def _strip_value(value: str) -> str:
@@ -99,19 +86,24 @@ def parse_config(path: Path) -> RemoteConfig:
     sources = values.get("sources", {})
     provision = values.get("provision", {})
     ric = values.get("ric", {})
-    drax = values.get("drax", {})
     ssh_target = _required(remote, "remote", "ssh")
     ssh_key = _required(remote, "remote", "ssh-key")
     ocudu_root = _required(remote, "remote", "ocudu-root")
     workspace = _required(remote, "remote", "workspace")
 
     provider = ric.get("provider", remote.get("ric-provider", DEFAULT_RIC_PROVIDER))
-    if provider not in {"flexric", "drax-existing"}:
-        raise ValueError("ric.provider must be one of: flexric, drax-existing")
+    if provider != DEFAULT_RIC_PROVIDER:
+        raise ValueError(
+            "ric.provider must be flexric; external RIC providers were removed from the active benchmark path"
+        )
 
-    if provider == "drax-existing":
-        for key in ["kubeconfig", "e2-endpoint", "kpm-api-url"]:
-            _required(drax, "drax", key)
+    stale_sut_keys = [key for key in ["srsran-project-repo", "srsran-project-ref"] if sources.get(key)]
+    if stale_sut_keys:
+        raise ValueError(
+            "srsRAN Project is no longer the benchmark SUT source; replace "
+            + ", ".join(f"sources.{key}" for key in stale_sut_keys)
+            + " with sources.ocudu-repo and sources.ocudu-ref"
+        )
 
     return RemoteConfig(
         ssh_target=ssh_target,
@@ -126,8 +118,8 @@ def parse_config(path: Path) -> RemoteConfig:
             ue_image=_required(runtime, "runtime", "ue-image"),
         ),
         sources=SourcesConfig(
-            srsran_project_repo=sources.get("srsran-project-repo", ""),
-            srsran_project_ref=sources.get("srsran-project-ref", ""),
+            ocudu_repo=sources.get("ocudu-repo", ""),
+            ocudu_ref=sources.get("ocudu-ref", ""),
             srsran_4g_repo=sources.get("srsran-4g-repo", ""),
             srsran_4g_ref=sources.get("srsran-4g-ref", ""),
             open5gs_ref=sources.get("open5gs-ref", ""),
@@ -136,12 +128,4 @@ def parse_config(path: Path) -> RemoteConfig:
             mode=provision.get("mode", "workspace-owned"),
         ),
         ric_provider=provider,
-        drax=DraxConfig(
-            kubeconfig=drax.get("kubeconfig", ""),
-            namespace=drax.get("namespace", DEFAULT_DRAX_NAMESPACE),
-            kubectl_image=drax.get("kubectl-image", DEFAULT_DRAX_KUBECTL_IMAGE),
-            e2_endpoint=drax.get("e2-endpoint", ""),
-            e2_bind_addr=drax.get("e2-bind-addr", "0.0.0.0"),
-            kpm_api_url=drax.get("kpm-api-url", ""),
-        ),
     )

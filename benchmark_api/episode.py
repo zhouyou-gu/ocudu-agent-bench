@@ -16,9 +16,7 @@ from benchmark.benchmark_api.ric import (
     FLEXRIC_IMAGE,
     KPM_XAPP_CONTAINER_PREFIX,
     RIC_PORT,
-    RIC_PROVIDER_DRAX_EXISTING,
     RIC_PROVIDER_FLEXRIC,
-    parse_e2_endpoint,
 )
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
 from benchmark.benchmark_api.websocket_client import WebSocketClient, WebSocketFrame, WebSocketProtocolError
@@ -97,6 +95,10 @@ def generate_v3_gnb_overlay(ws_port: int) -> str:
         "metrics:\n"
         "  enable_json: true\n"
         "  autostart_stdout_metrics: false\n"
+        "  layers:\n"
+        "    enable_app_usage: true\n"
+        "  periodicity:\n"
+        "    app_usage_report_period: 1000\n"
         "remote_control:\n"
         "  enabled: true\n"
         "  bind_addr: 127.0.0.1\n"
@@ -107,13 +109,9 @@ def generate_v3_gnb_overlay(ws_port: int) -> str:
     )
 
 
-def generate_v4_e2_gnb_overlay(ws_port: int, e2_endpoint: str | None = None, e2_bind_addr: str | None = None) -> str:
-    if e2_endpoint:
-        e2_addr, e2_port = parse_e2_endpoint(e2_endpoint)
-        bind_addr = e2_bind_addr or "0.0.0.0"
-    else:
-        e2_addr, e2_port = "127.0.0.1", RIC_PORT
-        bind_addr = e2_bind_addr or "127.0.0.1"
+def generate_v4_e2_gnb_overlay(ws_port: int) -> str:
+    e2_addr, e2_port = "127.0.0.1", RIC_PORT
+    bind_addr = "127.0.0.1"
     return (
         generate_v3_gnb_overlay(ws_port)
         + "e2:\n"
@@ -145,8 +143,10 @@ def generate_kpm_xapp_config() -> str:
         "      format = 1,\n"
         '      ran_type = "ngran_gNB_DU",\n'
         "      actions = (\n"
-        '            { name = "DRB.UEThpDl" },\n'
-        '            { name = "DRB.UEThpUl" }\n'
+        '            { name = "RRU.PrbUsedDl" },\n'
+        '            { name = "RRU.PrbUsedUl" },\n'
+        '            { name = "RRU.PrbTotDl" },\n'
+        '            { name = "RRU.PrbTotUl" }\n'
         "            )\n"
         "    }\n"
         ")\n"
@@ -175,6 +175,20 @@ def parse_kpm_indication_records(text: str) -> list[dict[str, Any]]:
     if current is not None:
         records.append(current)
     return records
+
+
+def kpm_record_has_prb_measurement(record: dict[str, Any]) -> bool:
+    measurements = record.get("measurements")
+    if not isinstance(measurements, list):
+        return False
+    for measurement in measurements:
+        if isinstance(measurement, dict):
+            haystack = " ".join(str(measurement.get(key, "")) for key in ("name", "text")).lower()
+        else:
+            haystack = str(measurement).lower()
+        if "prb" in haystack:
+            return True
+    return False
 
 
 def parse_ping_log(text: str) -> dict[str, Any]:
@@ -392,7 +406,7 @@ files = {{
     "compose": pathlib.Path(payload["compose"]).is_file(),
     "gnb_config": (pathlib.Path(payload["config_dir"]) / "gnb_zmq.yaml").is_file(),
     "ue_config": (pathlib.Path(payload["config_dir"]) / "ue_zmq.conf").is_file(),
-    "gnb_install": (pathlib.Path(payload["ocudu_root"]) / "install" / "srsran-project").is_dir(),
+    "gnb_install": (pathlib.Path(payload["ocudu_root"]) / "install" / "ocudu").is_dir(),
     "ue_install": (pathlib.Path(payload["ocudu_root"]) / "install" / "srsran-4g").is_dir(),
 }}
 workspace_owned = {{
@@ -434,20 +448,12 @@ print(json.dumps({{
         suffix = container_suffix(options.run_id)
         is_v4 = options.task == TASK_E2_KPM_PRB_PING_V1
         provider = self.remote.config.ric_provider
-        drax = self.remote.config.drax
-        overlay = (
-            generate_v4_e2_gnb_overlay(options.ws_port, e2_endpoint=drax.e2_endpoint, e2_bind_addr=drax.e2_bind_addr)
-            if is_v4 and provider == RIC_PROVIDER_DRAX_EXISTING
-            else generate_v4_e2_gnb_overlay(options.ws_port)
-            if is_v4
-            else generate_v3_gnb_overlay(options.ws_port)
-        )
+        overlay = generate_v4_e2_gnb_overlay(options.ws_port) if is_v4 else generate_v3_gnb_overlay(options.ws_port)
         payload = {
             "run_id": options.run_id,
             "task": options.task,
             "is_v4": is_v4,
             "ric_provider": provider,
-            "drax_kpm_api_url": drax.kpm_api_url.rstrip("/"),
             "paths": self.paths,
             "compose": self.remote.config.runtime.open5gs_compose,
             "config_dir": self.remote.config.runtime.e2e_config_dir,
@@ -478,8 +484,6 @@ import re
 import shutil
 import subprocess
 import time
-import urllib.parse
-import urllib.request
 payload = json.loads({json.dumps(json.dumps(payload))})
 
 def expand_remote_path(value):
@@ -515,49 +519,28 @@ def read_tail(path, limit=4000):
     p = pathlib.Path(path)
     return p.read_text(encoding="utf-8", errors="replace")[-limit:] if p.exists() else ""
 
-def is_drax():
-    return payload.get("ric_provider") == "drax-existing"
-
 def file_size(path):
     item = pathlib.Path(path)
     return item.stat().st_size if item.exists() else 0
-
-def fetch_drax_records():
-    base = payload.get("drax_kpm_api_url") or ""
-    if not base:
-        return {{"records": [], "count": 0, "error": "drax.kpm-api-url is not configured"}}
-    query = urllib.parse.urlencode({{"run_id": payload["run_id"]}})
-    try:
-        with urllib.request.urlopen(base + "/records?" + query, timeout=float(payload["probe_timeout"])) as response:
-            body = response.read().decode("utf-8", errors="replace")
-        decoded = json.loads(body)
-        records = decoded.get("records", []) if isinstance(decoded, dict) else []
-        return {{"records": records, "count": int(decoded.get("count", len(records))) if isinstance(decoded, dict) else len(records), "raw": decoded}}
-    except Exception as exc:
-        return {{"records": [], "count": 0, "error": str(exc)}}
-
-def reset_drax_records():
-    base = payload.get("drax_kpm_api_url") or ""
-    if not base:
-        return {{"ok": False, "error": "drax.kpm-api-url is not configured"}}
-    body = json.dumps({{"run_id": payload["run_id"]}}).encode("utf-8")
-    req = urllib.request.Request(base + "/reset", data=body, headers={{"Content-Type": "application/json"}}, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=float(payload["probe_timeout"])) as response:
-            data = response.read().decode("utf-8", errors="replace")
-        return {{"ok": 200 <= response.status < 300, "status": response.status, "body": data}}
-    except Exception as exc:
-        return {{"ok": False, "error": str(exc)}}
 
 def e2_setup_seen():
     text = (read_tail(paths["ric_log"], 12000) + "\\n" + read_tail(paths["gnb_log"], 12000)).lower()
     return "e2" in text and ("setup" in text or "connected" in text or "ric" in text)
 
 def parse_kpm_records():
+    records = []
+    raw = pathlib.Path(paths["e2_kpm_raw"])
+    if raw.exists():
+        for line in raw.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(record, dict):
+                records.append(record)
     log = pathlib.Path(paths["kpm_xapp_log"])
     if not log.exists():
-        return []
-    records = []
+        return records
     current = None
     for index, line in enumerate(log.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
         if re.search(r"\\bKPM v\\d+\\s+ind_msg\\b", line, flags=re.IGNORECASE):
@@ -570,13 +553,27 @@ def parse_kpm_records():
         records.append(current)
     return records
 
+def flexric_decode_error():
+    text = read_tail(paths["ric_log"], 12000)
+    if "kpm_dec_ind_msg_asn" in text or "Are you sending data in ATS_ALIGNED_BASIC_PER syntax" in text:
+        return "FlexRIC KPM decoder failed while decoding OCUDU KPM indication payload"
+    return None
+
+def record_has_prb_measurement(record):
+    measurements = record.get("measurements")
+    if not isinstance(measurements, list):
+        return False
+    for measurement in measurements:
+        if isinstance(measurement, dict):
+            haystack = " ".join(str(measurement.get(key, "")) for key in ("name", "text")).lower()
+        else:
+            haystack = str(measurement).lower()
+        if "prb" in haystack:
+            return True
+    return False
+
 def write_e2_oracle():
-    if is_drax():
-        fetched = fetch_drax_records()
-        records = fetched.get("records", [])
-    else:
-        fetched = {{}}
-        records = parse_kpm_records()
+    records = parse_kpm_records()
     with open(paths["e2_kpm_raw"], "w", encoding="utf-8") as handle:
         for record in records:
             handle.write(json.dumps(record, sort_keys=True) + "\\n")
@@ -587,17 +584,18 @@ def write_e2_oracle():
     }}
     pcap_available = any(size > 0 for size in pcap.values())
     raw_kpm_available = file_size(paths["e2_kpm_raw"]) > 0
-    log_available = file_size(paths["gnb_log"]) > 0 and (
-        raw_kpm_available if is_drax() else file_size(paths["kpm_xapp_log"]) > 0
-    )
+    log_available = file_size(paths["gnb_log"]) > 0 and file_size(paths["kpm_xapp_log"]) > 0
     e2_setup = e2_setup_seen()
-    oracle_available = e2_setup and len(records) >= 3 and (pcap_available or (is_drax() and log_available))
+    decode_error = flexric_decode_error()
+    has_prb_measurement = any(record_has_prb_measurement(record) for record in records)
+    oracle_available = e2_setup and decode_error is None and len(records) >= 3 and has_prb_measurement and pcap_available
     oracle = {{
         "provider": payload.get("ric_provider"),
         "e2_setup_seen": e2_setup,
         "kpm_indications": len(records),
         "last_kpm": records[-1] if records else None,
-        "drax_api": fetched,
+        "decode_error": decode_error,
+        "has_prb_measurement": has_prb_measurement,
         "pcap_sizes": pcap,
         "pcap_available": pcap_available,
         "log_available": log_available,
@@ -617,12 +615,6 @@ shutil.copy2(pathlib.Path(payload["config_dir"]) / "ue_zmq.conf", paths["ue_conf
 pathlib.Path(paths["gnb_overlay"]).write_text(payload["overlay"], encoding="utf-8")
 if payload["is_v4"]:
     pathlib.Path(paths["kpm_xapp_config"]).write_text(payload["kpm_xapp_config"], encoding="utf-8")
-    if is_drax():
-        pathlib.Path(paths["ric_log"]).write_text("using external dRAX RIC provider\\n", encoding="utf-8")
-        reset_result = reset_drax_records()
-        pathlib.Path(paths["kpm_xapp_log"]).write_text(json.dumps({{"reset": reset_result}}, sort_keys=True) + "\\n", encoding="utf-8")
-        if not reset_result.get("ok"):
-            fail("e2_kpm_subscription", "dRAX KPM xApp reset API failed", reset_result)
 
 run(["docker", "rm", "-f", payload["gnb_container"], payload["ue_container"], payload["ric_container"], payload["kpm_xapp_container"], payload["e2_pcap_container"]])
 
@@ -645,7 +637,7 @@ while time.monotonic() < deadline:
 if not core_healthy:
     fail("open5gs_core_health", "Open5GS healthcheck timed out")
 
-if payload["is_v4"] and not is_drax():
+if payload["is_v4"]:
     capture_cmd = "tcpdump -i lo -s 0 -w /stage/logs/e2ap_sctp.pcap 'sctp and port 36421' >/stage/logs/e2ap_tcpdump.log 2>&1"
     capture = run([
         "docker", "run", "-d", "--name", payload["e2_pcap_container"], "--network", "host",
@@ -658,7 +650,7 @@ if payload["is_v4"] and not is_drax():
     time.sleep(0.5)
     if port_listening(int(payload["ric_port"])):
         fail("near_rt_ric_health", f"port {{payload['ric_port']}} is already listening")
-    ric_cmd = "flexric-ric >/stage/logs/ric.log 2>&1"
+    ric_cmd = "export FLEXRIC_KPM_V05_JSONL=/stage/e2_kpm_raw.jsonl; flexric-ric >/stage/logs/ric.log 2>&1"
     ric = run([
         "docker", "run", "-d", "--name", payload["ric_container"], "--network", "host",
         "-v", str(episode_dir) + ":/stage",
@@ -687,7 +679,7 @@ gnb_cmd = (
 )
 gnb = run([
     "docker", "run", "-d", "--name", payload["gnb_container"], "--network", "host",
-    "-v", str(pathlib.Path(payload["ocudu_root"]) / "install" / "srsran-project") + ":/install:ro",
+    "-v", str(pathlib.Path(payload["ocudu_root"]) / "install" / "ocudu") + ":/install:ro",
     "-v", str(pathlib.Path(paths["configs_dir"])) + ":/config:ro",
     "-v", str(episode_dir) + ":/stage",
     payload["gnb_image"], "bash", "-lc", gnb_cmd,
@@ -713,10 +705,10 @@ if payload["is_v4"]:
         if e2_setup_seen():
             break
         state = run(["docker", "inspect", "-f", "{{{{.State.Status}}}}", payload["gnb_container"]])
-        ric_state = run(["docker", "inspect", "-f", "{{{{.State.Status}}}}", payload["ric_container"]]) if not is_drax() else None
+        ric_state = run(["docker", "inspect", "-f", "{{{{.State.Status}}}}", payload["ric_container"]])
         if state.returncode == 0 and state.stdout.strip() == "exited":
             fail("e2_setup_path", "gNB exited before E2 setup", {{"gnb_tail": read_tail(paths["gnb_log"]), "ric_tail": read_tail(paths["ric_log"])}})
-        if ric_state is not None and ric_state.returncode == 0 and ric_state.stdout.strip() == "exited":
+        if ric_state.returncode == 0 and ric_state.stdout.strip() == "exited":
             fail("e2_setup_path", "RIC exited before E2 setup", {{"gnb_tail": read_tail(paths["gnb_log"]), "ric_tail": read_tail(paths["ric_log"])}})
         time.sleep(1)
     else:
@@ -761,7 +753,7 @@ ping = run([
 if ping.returncode != 0:
     fail("ping_traffic_path", "ping command failed to start", {{"stderr": ping.stderr, "stdout": ping.stdout}})
 
-if payload["is_v4"] and not is_drax():
+if payload["is_v4"]:
     xapp_cmd = (
         "XAPP=$({{ find /opt/flexric/build/examples /usr/local/bin -type f -path '*/monitor/xapp_oran_moni' -print 2>/dev/null; "
         "find /opt/flexric/build/examples /usr/local/bin -type f -executable -iname '*oran*moni*' -print 2>/dev/null; }} | head -1); "
@@ -787,29 +779,21 @@ if payload["is_v4"] and not is_drax():
             fail("e2_kpm_subscription", "KPM xApp exited before indications", {{"tail": read_tail(paths["kpm_xapp_log"])}})
         time.sleep(1)
     oracle = write_e2_oracle()
-    if oracle["kpm_indications"] < 3:
-        fail("e2_kpm_subscription", "KPM xApp did not produce at least 3 indication records", {{"oracle": oracle, "tail": read_tail(paths["kpm_xapp_log"])}})
-elif payload["is_v4"] and is_drax():
-    deadline = time.monotonic() + max(float(payload["probe_timeout"]) * 3, 10.0)
-    while time.monotonic() < deadline:
-        oracle = write_e2_oracle()
-        if oracle["kpm_indications"] >= 3:
-            break
-        time.sleep(1)
-    if oracle["kpm_indications"] < 3:
-        fail("e2_kpm_subscription", "dRAX KPM xApp API did not produce at least 3 records", {{"oracle": oracle}})
+    if oracle["kpm_indications"] < 3 or not oracle.get("has_prb_measurement"):
+        if oracle.get("decode_error"):
+            fail("e2_kpm_subscription", oracle["decode_error"], {{"oracle": oracle, "ric_tail": read_tail(paths["ric_log"]), "xapp_tail": read_tail(paths["kpm_xapp_log"])}})
+        fail("e2_kpm_subscription", "FlexRIC KPM path did not produce at least 3 decoded PRB indication records", {{"oracle": oracle, "tail": read_tail(paths["kpm_xapp_log"])}})
 
 containers = {{
     "open5gs_container": "skillful_ran_5gc",
     "gnb_container": payload["gnb_container"],
     "ue_container": payload["ue_container"],
     "ric_provider": payload.get("ric_provider"),
-    "ric_container": payload["ric_container"] if payload["is_v4"] and not is_drax() else None,
-    "kpm_xapp_container": payload["kpm_xapp_container"] if payload["is_v4"] and not is_drax() else None,
-    "e2_pcap_container": payload["e2_pcap_container"] if payload["is_v4"] and not is_drax() else None,
+    "ric_container": payload["ric_container"] if payload["is_v4"] else None,
+    "kpm_xapp_container": payload["kpm_xapp_container"] if payload["is_v4"] else None,
+    "e2_pcap_container": payload["e2_pcap_container"] if payload["is_v4"] else None,
     "ws_port": payload["ws_port"],
-    "ric_port": payload["ric_port"] if payload["is_v4"] and not is_drax() else None,
-    "drax_kpm_api_url": payload.get("drax_kpm_api_url") if is_drax() else None,
+    "ric_port": payload["ric_port"] if payload["is_v4"] else None,
     "started_at": time.time(),
 }}
 pathlib.Path(paths["containers"]).write_text(json.dumps(containers, indent=2, sort_keys=True), encoding="utf-8")
@@ -832,7 +816,6 @@ print(json.dumps({{
             "run_id": options.run_id,
             "task": options.task,
             "ric_provider": self.remote.config.ric_provider,
-            "drax_kpm_api_url": self.remote.config.drax.kpm_api_url.rstrip("/"),
             "paths": self.paths,
             "ws_port": options.ws_port,
             "timeout": options.probe_timeout,
@@ -842,8 +825,6 @@ print(json.dumps({{
 import json
 import pathlib
 import time
-import urllib.parse
-import urllib.request
 payload = json.loads({json.dumps(json.dumps(payload))})
 
 def expand_remote_path(value):
@@ -874,9 +855,6 @@ def parse_ping(text):
         "success_ratio": (received / transmitted) if transmitted else (1.0 if replies else 0.0),
     }}
 
-def is_drax():
-    return payload.get("ric_provider") == "drax-existing"
-
 def read_tail(path, limit=4000):
     p = pathlib.Path(path)
     return p.read_text(encoding="utf-8", errors="replace")[-limit:] if p.exists() else ""
@@ -888,20 +866,6 @@ def file_size(path):
 def e2_setup_seen():
     text = (read_tail(paths["ric_log"], 12000) + "\\n" + read_tail(paths["gnb_log"], 12000)).lower()
     return "e2" in text and ("setup" in text or "connected" in text or "ric" in text)
-
-def fetch_drax_records():
-    base = payload.get("drax_kpm_api_url") or ""
-    if not base:
-        return {{"records": [], "count": 0, "error": "drax.kpm-api-url is not configured"}}
-    query = urllib.parse.urlencode({{"run_id": payload["run_id"]}})
-    try:
-        with urllib.request.urlopen(base + "/records?" + query, timeout=float(payload["timeout"])) as response:
-            body = response.read().decode("utf-8", errors="replace")
-        decoded = json.loads(body)
-        records = decoded.get("records", []) if isinstance(decoded, dict) else []
-        return {{"records": records, "count": int(decoded.get("count", len(records))) if isinstance(decoded, dict) else len(records), "raw": decoded}}
-    except Exception as exc:
-        return {{"records": [], "count": 0, "error": str(exc)}}
 
 ping_text = pathlib.Path(paths["ping_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["ping_log"]).exists() else ""
 metric = None
@@ -947,35 +911,6 @@ metrics = {{
 e2_oracle = {{}}
 e2_records = []
 if payload["task"] == "e2_kpm_prb_ping_v1":
-    if is_drax():
-        fetched = fetch_drax_records()
-        records = fetched.get("records", [])
-        with open(paths["e2_kpm_raw"], "w", encoding="utf-8") as handle:
-            for record in records:
-                handle.write(json.dumps(record, sort_keys=True) + "\\n")
-        existing = {{}}
-        oracle_path = pathlib.Path(paths["e2_oracle"])
-        if oracle_path.exists():
-            try:
-                existing = json.loads(oracle_path.read_text(encoding="utf-8", errors="replace"))
-            except json.JSONDecodeError:
-                existing = {{}}
-        e2_setup = bool(existing.get("e2_setup_seen", False)) or e2_setup_seen()
-        pcap_available = bool(existing.get("pcap_available", False))
-        raw_kpm_available = file_size(paths["e2_kpm_raw"]) > 0
-        log_available = bool(existing.get("log_available", False)) or (file_size(paths["gnb_log"]) > 0 and raw_kpm_available)
-        e2_oracle = {{
-            "provider": payload.get("ric_provider"),
-            "e2_setup_seen": e2_setup,
-            "kpm_indications": len(records),
-            "last_kpm": records[-1] if records else None,
-            "drax_api": fetched,
-            "pcap_available": pcap_available,
-            "log_available": log_available,
-            "raw_kpm_available": raw_kpm_available,
-            "oracle_available": e2_setup and len(records) >= 3 and not fetched.get("error") and (pcap_available or log_available),
-        }}
-        oracle_path.write_text(json.dumps(e2_oracle, indent=2, sort_keys=True), encoding="utf-8")
     oracle_path = pathlib.Path(paths["e2_oracle"])
     if oracle_path.exists():
         try:
@@ -1000,6 +935,7 @@ observation = {{
         "enabled": payload["task"] == "e2_kpm_prb_ping_v1",
         "kpm_indications": int(e2_oracle.get("kpm_indications", len(e2_records)) or 0),
         "last_kpm": e2_oracle.get("last_kpm") or (e2_records[-1] if e2_records else None),
+        "has_prb_measurement": bool(e2_oracle.get("has_prb_measurement")),
         "oracle_available": bool(e2_oracle.get("oracle_available")),
         "pcap_available": bool(e2_oracle.get("pcap_available")),
         "log_available": bool(e2_oracle.get("log_available")),
@@ -1182,7 +1118,6 @@ print(json.dumps(result))
             "run_id": options.run_id,
             "task": options.task,
             "ric_provider": self.remote.config.ric_provider,
-            "drax_kpm_api_url": self.remote.config.drax.kpm_api_url.rstrip("/"),
             "paths": self.paths,
             "unscored_reason": unscored_reason,
             "cleanup_success": cleanup_success,
@@ -1192,8 +1127,6 @@ print(json.dumps(result))
 import json
 import pathlib
 import re
-import urllib.parse
-import urllib.request
 payload = json.loads({json.dumps(json.dumps(payload))})
 def expand_remote_path(value):
     if value == "~":
@@ -1232,8 +1165,18 @@ def parse_ping(text):
         "loss_percent": loss,
         "success_ratio": (received / transmitted) if transmitted else (1.0 if replies else 0.0),
     }}
-def parse_kpm_records(text):
+def parse_kpm_records(text, raw_path=None):
     records = []
+    if raw_path is not None:
+        path = pathlib.Path(raw_path)
+        if path.exists():
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(record, dict):
+                    records.append(record)
     current = None
     for index, line in enumerate(text.splitlines(), start=1):
         if re.search(r"\\bKPM v\\d+\\s+ind_msg\\b", line, flags=re.IGNORECASE):
@@ -1245,34 +1188,28 @@ def parse_kpm_records(text):
     if current is not None:
         records.append(current)
     return records
+def record_has_prb_measurement(record):
+    measurements = record.get("measurements")
+    if not isinstance(measurements, list):
+        return False
+    for measurement in measurements:
+        if isinstance(measurement, dict):
+            haystack = " ".join(str(measurement.get(key, "")) for key in ("name", "text")).lower()
+        else:
+            haystack = str(measurement).lower()
+        if "prb" in haystack:
+            return True
+    return False
 def file_size(path):
     item = pathlib.Path(path)
     return item.stat().st_size if item.exists() else 0
-def fetch_drax_records():
-    base = payload.get("drax_kpm_api_url") or ""
-    if not base:
-        return {{"records": [], "count": 0, "error": "drax.kpm-api-url is not configured"}}
-    query = urllib.parse.urlencode({{"run_id": payload["run_id"]}})
-    try:
-        with urllib.request.urlopen(base + "/records?" + query, timeout=5.0) as response:
-            body = response.read().decode("utf-8", errors="replace")
-        decoded = json.loads(body)
-        records = decoded.get("records", []) if isinstance(decoded, dict) else []
-        return {{"records": records, "count": int(decoded.get("count", len(records))) if isinstance(decoded, dict) else len(records), "raw": decoded}}
-    except Exception as exc:
-        return {{"records": [], "count": 0, "error": str(exc)}}
 def build_e2_oracle(paths, task):
     if task != "e2_kpm_prb_ping_v1":
         return {{}}
     ric_text = pathlib.Path(paths["ric_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["ric_log"]).exists() else ""
     gnb_text = pathlib.Path(paths["gnb_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["gnb_log"]).exists() else ""
     xapp_text = pathlib.Path(paths["kpm_xapp_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["kpm_xapp_log"]).exists() else ""
-    if payload.get("ric_provider") == "drax-existing":
-        fetched = fetch_drax_records()
-        records = fetched.get("records", [])
-    else:
-        fetched = {{}}
-        records = parse_kpm_records(xapp_text)
+    records = parse_kpm_records(xapp_text, paths["e2_kpm_raw"])
     with open(paths["e2_kpm_raw"], "w", encoding="utf-8") as handle:
         for record in records:
             handle.write(json.dumps(record, sort_keys=True) + "\\n")
@@ -1285,20 +1222,20 @@ def build_e2_oracle(paths, task):
     e2_setup_seen = "e2" in lower and ("setup" in lower or "connected" in lower or "ric" in lower)
     pcap_available = any(size > 0 for size in pcap_sizes.values())
     raw_kpm_available = file_size(paths["e2_kpm_raw"]) > 0
-    log_available = file_size(paths["gnb_log"]) > 0 and (
-        raw_kpm_available if payload.get("ric_provider") == "drax-existing" else file_size(paths["kpm_xapp_log"]) > 0
-    )
+    log_available = file_size(paths["gnb_log"]) > 0 and file_size(paths["kpm_xapp_log"]) > 0
+    has_prb_measurement = any(record_has_prb_measurement(record) for record in records)
     oracle_available = (
         e2_setup_seen
         and len(records) >= 3
-        and (pcap_available or (payload.get("ric_provider") == "drax-existing" and log_available))
+        and has_prb_measurement
+        and pcap_available
     )
     oracle = {{
         "provider": payload.get("ric_provider"),
         "e2_setup_seen": e2_setup_seen,
         "kpm_indications": len(records),
         "last_kpm": records[-1] if records else None,
-        "drax_api": fetched,
+        "has_prb_measurement": has_prb_measurement,
         "pcap_sizes": pcap_sizes,
         "pcap_available": pcap_available,
         "log_available": log_available,

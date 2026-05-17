@@ -22,12 +22,9 @@ from benchmark.benchmark_api.episode import (
     generate_v4_e2_gnb_overlay,
 )
 from benchmark.benchmark_api.ric import (
-    DRAX_KPM_RELEASE,
-    RIC_PROVIDER_DRAX_EXISTING,
     RIC_PROVIDER_FLEXRIC,
     FLEXRIC_IMAGE,
     RIC_PORT,
-    drax_manifest,
     flexric_workspace_paths,
     provider_setup_checks,
 )
@@ -36,7 +33,7 @@ from benchmark.benchmark_api.websocket_client import WebSocketClient, WebSocketF
 
 
 BASE_ZMQ_CONFIG = "$E2E_CONFIG_DIR/gnb_zmq.yaml"
-GNB_BINARY = "$OCUDU_ROOT/install/srsran-project/bin/gnb"
+GNB_BINARY = "$OCUDU_ROOT/install/ocudu/bin/gnb"
 DEFAULT_WS_PORT = 8001
 DEFAULT_LAUNCH_TIMEOUT = 20
 DEFAULT_PROBE_TIMEOUT = 10
@@ -46,6 +43,43 @@ RESULT_FAIL = "fail"
 RESULT_BLOCKED = "blocked"
 RESULT_SKIP = "skip"
 RESULT_ERROR = "error"
+
+
+def classify_flexric_kpm_compatibility(evidence: dict[str, Any]) -> dict[str, Any]:
+    """Classify OCUDU/FlexRIC KPM compatibility from source and manifest evidence."""
+
+    result = dict(evidence)
+    ocudu_asn_version = result.get("ocudu_e2sm_kpm_asn_version")
+    flexric_version = result.get("flexric_kpm_version")
+    metric_versions = result.get("ocudu_kpm_metric_definition_versions") or []
+
+    compatible = True
+    summary = "OCUDU/FlexRIC KPM compatibility could not be fully determined"
+    if ocudu_asn_version and flexric_version:
+        compatible = str(ocudu_asn_version) == str(flexric_version)
+        if compatible:
+            summary = f"OCUDU E2SM-KPM ASN v{ocudu_asn_version} matches FlexRIC KPM v{flexric_version}"
+        else:
+            summary = (
+                f"OCUDU E2SM-KPM ASN v{ocudu_asn_version} is incompatible with FlexRIC KPM v{flexric_version}; "
+                "build the benchmark-owned FlexRIC KPM v05 image or pin both sides to a compatible KPM release"
+            )
+    elif metric_versions and flexric_version:
+        summary = (
+            f"OCUDU metric-definition comments mention E2SM-KPM versions {', '.join(map(str, metric_versions))}, "
+            f"but no KPM ASN release header was found; FlexRIC KPM v{flexric_version} compatibility requires runtime "
+            "KPM conformance"
+        )
+    elif result.get("ocudu_e2sm_common_version") and flexric_version:
+        summary = (
+            f"OCUDU generated ASN.1 reports E2SM common v{result['ocudu_e2sm_common_version']}; no KPM-specific ASN "
+            f"release was found, so FlexRIC KPM v{flexric_version} compatibility requires runtime KPM conformance"
+        )
+
+    result["compatible"] = compatible
+    result["summary"] = summary
+    result["ocudu_e2sm_kpm_version"] = ocudu_asn_version
+    return result
 
 SETUP_CHECKS = {
     "remote_tools_ocudu_root",
@@ -66,9 +100,6 @@ CHECK_DEPENDENCIES = {
     "websocket_prb_policy_action": {"srsue_zmq_attach"},
     "flexric_docker_assets": {"remote_tools_ocudu_root", "remote_workspace_artifacts"},
     "near_rt_ric_health": {"flexric_docker_assets"},
-    "drax_cluster_access": {"remote_tools_ocudu_root", "remote_workspace_artifacts"},
-    "drax_e2_endpoint_config": {"remote_tools_ocudu_root", "remote_workspace_artifacts"},
-    "drax_kpm_xapp_api": {"drax_cluster_access"},
     "ocudu_e2_config": {"docker_e2e_assets"},
     "e2_setup_path": {"ocudu_e2_config"},
     "e2_kpm_subscription": {"e2_setup_path"},
@@ -84,9 +115,6 @@ V3_DOCKER_CHECKS = {
 V4_E2_CHECKS = {
     "flexric_docker_assets",
     "near_rt_ric_health",
-    "drax_cluster_access",
-    "drax_e2_endpoint_config",
-    "drax_kpm_xapp_api",
     "ocudu_e2_config",
     "e2_setup_path",
     "e2_kpm_subscription",
@@ -184,6 +212,10 @@ def generate_overlay_config(ws_port: int, gnb_log_path: str) -> str:
         "metrics:\n"
         "  enable_json: true\n"
         "  autostart_stdout_metrics: false\n"
+        "  layers:\n"
+        "    enable_app_usage: true\n"
+        "  periodicity:\n"
+        "    app_usage_report_period: 1000\n"
         "remote_control:\n"
         "  enabled: true\n"
         "  bind_addr: 127.0.0.1\n"
@@ -284,6 +316,10 @@ class ConformanceRunner:
                     if "json_metrics_stream" in run_ids:
                         results.append(self._blocked_result("json_metrics_stream", "OCUDU launch did not pass"))
 
+            if launch_started:
+                self._terminate_gnb(options)
+                launch_started = False
+
             if run_ids & V3_DOCKER_CHECKS:
                 results.extend(self._run_v3_docker_checks(options, run_ids, results))
             if run_ids & V4_E2_CHECKS:
@@ -323,10 +359,6 @@ class ConformanceRunner:
     def _expand_requested_checks(self, checks: set[str] | None) -> set[str]:
         if checks is None:
             expanded = {spec.id for spec in self.specs if spec.executable}
-            if self.remote.config.ric_provider == RIC_PROVIDER_DRAX_EXISTING:
-                expanded -= {"flexric_docker_assets", "near_rt_ric_health"}
-            else:
-                expanded -= {"drax_cluster_access", "drax_e2_endpoint_config", "drax_kpm_xapp_api"}
             return expanded
         expanded = set(checks)
         changed = True
@@ -366,7 +398,7 @@ class ConformanceRunner:
             failures.append("runtime paths outside workspace: " + ", ".join(sorted(outside_workspace)))
         if not remote_state.get("ocudu_exists"):
             failures.append("OCUDU root does not exist")
-        if not remote_state.get("ocudu_is_git") and not remote_state.get("srsran_project_is_git"):
+        if not remote_state.get("ocudu_is_git") and not remote_state.get("ocudu_source_is_git"):
             failures.append("OCUDU source git tree does not exist")
         status = RESULT_FAIL if failures else RESULT_PASS
         summary = "; ".join(failures) if failures else "Remote tools and OCUDU source/build root are available"
@@ -377,9 +409,9 @@ class ConformanceRunner:
             {
                 "tools": all_tools,
                 "ocudu_root": self.remote_check.get("ocudu_root"),
-                "ocudu_commit": remote_state.get("ocudu_commit", "") or remote_state.get("srsran_project_commit", ""),
+                "ocudu_commit": remote_state.get("ocudu_commit", "") or remote_state.get("ocudu_source_commit", ""),
                 "ocudu_branch": remote_state.get("ocudu_branch", ""),
-                "ocudu_origin": remote_state.get("ocudu_origin", "") or remote_state.get("srsran_project_origin", ""),
+                "ocudu_origin": remote_state.get("ocudu_origin", "") or remote_state.get("ocudu_source_origin", ""),
                 "srsran_4g_commit": remote_state.get("srsran_4g_commit", ""),
                 "workspace_owned_runtime": self.remote_check.get("workspace_owned_runtime", {}),
             },
@@ -872,61 +904,24 @@ print(json.dumps({{
     ) -> list[ConformanceCheckResult]:
         results: list[ConformanceCheckResult] = []
         runtime = EpisodeRuntime(self.remote, repo_root=self.repo_root)
-        provider = self.remote.config.ric_provider
 
         if "flexric_docker_assets" in run_ids:
             if self._all_results_passed(existing, {"remote_tools_ocudu_root", "remote_workspace_artifacts"}):
-                if provider == RIC_PROVIDER_FLEXRIC:
-                    assets = self._check_flexric_assets()
-                    status = RESULT_PASS if assets.get("status") == RESULT_PASS else RESULT_FAIL
-                    results.append(
-                        self._result("flexric_docker_assets", status, assets.get("summary", "FlexRIC image check failed"), assets)
-                    )
-                else:
-                    results.append(self._result("flexric_docker_assets", RESULT_FAIL, "FlexRIC check selected while provider is dRAX", {}))
+                assets = self._check_flexric_assets()
+                status = RESULT_PASS if assets.get("status") == RESULT_PASS else RESULT_FAIL
+                results.append(
+                    self._result("flexric_docker_assets", status, assets.get("summary", "FlexRIC image check failed"), assets)
+                )
             else:
                 results.append(self._blocked_result("flexric_docker_assets", "Remote tools/workspace checks did not pass"))
 
         if "near_rt_ric_health" in run_ids:
-            if provider != RIC_PROVIDER_FLEXRIC:
-                results.append(self._result("near_rt_ric_health", RESULT_FAIL, "FlexRIC RIC health selected while provider is dRAX", {}))
-            elif self._result_passed(existing + results, "flexric_docker_assets"):
+            if self._result_passed(existing + results, "flexric_docker_assets"):
                 health = self._check_ric_health(options)
                 status = RESULT_PASS if health.get("status") == RESULT_PASS else RESULT_FAIL
                 results.append(self._result("near_rt_ric_health", status, health.get("summary", "RIC health failed"), health))
             else:
                 results.append(self._blocked_result("near_rt_ric_health", "FlexRIC image check did not pass"))
-
-        if "drax_cluster_access" in run_ids:
-            if self._all_results_passed(existing, {"remote_tools_ocudu_root", "remote_workspace_artifacts"}):
-                if provider == RIC_PROVIDER_DRAX_EXISTING:
-                    access = self._check_drax_cluster_access()
-                    status = RESULT_PASS if access.get("status") == RESULT_PASS else RESULT_FAIL
-                    results.append(self._result("drax_cluster_access", status, access.get("summary", "dRAX cluster access failed"), access))
-                else:
-                    results.append(self._result("drax_cluster_access", RESULT_FAIL, "dRAX cluster check selected while provider is FlexRIC", {}))
-            else:
-                results.append(self._blocked_result("drax_cluster_access", "Remote tools/workspace checks did not pass"))
-
-        if "drax_e2_endpoint_config" in run_ids:
-            if provider == RIC_PROVIDER_DRAX_EXISTING:
-                endpoint = self._check_drax_e2_endpoint_config(options)
-                status = RESULT_PASS if endpoint.get("status") == RESULT_PASS else RESULT_FAIL
-                results.append(
-                    self._result("drax_e2_endpoint_config", status, endpoint.get("summary", "dRAX E2 endpoint config failed"), endpoint)
-                )
-            else:
-                results.append(self._result("drax_e2_endpoint_config", RESULT_FAIL, "dRAX E2 endpoint check selected while provider is FlexRIC", {}))
-
-        if "drax_kpm_xapp_api" in run_ids:
-            if provider != RIC_PROVIDER_DRAX_EXISTING:
-                results.append(self._result("drax_kpm_xapp_api", RESULT_FAIL, "dRAX xApp API check selected while provider is FlexRIC", {}))
-            elif self._result_passed(existing + results, "drax_cluster_access"):
-                api = self._check_drax_kpm_xapp_api(options)
-                status = RESULT_PASS if api.get("status") == RESULT_PASS else RESULT_FAIL
-                results.append(self._result("drax_kpm_xapp_api", status, api.get("summary", "dRAX KPM xApp API failed"), api))
-            else:
-                results.append(self._blocked_result("drax_kpm_xapp_api", "dRAX cluster access did not pass"))
 
         if "ocudu_e2_config" in run_ids:
             if self._result_passed(existing + results, "docker_e2e_assets"):
@@ -963,14 +958,7 @@ print(json.dumps({{
             return results
 
         combined = existing + results
-        if provider == RIC_PROVIDER_DRAX_EXISTING:
-            provider_ready = (
-                self._result_passed(combined, "drax_cluster_access")
-                and self._result_passed(combined, "drax_e2_endpoint_config")
-                and self._result_passed(combined, "drax_kpm_xapp_api")
-            )
-        else:
-            provider_ready = self._result_passed(combined, "near_rt_ric_health")
+        provider_ready = self._result_passed(combined, "near_rt_ric_health")
         if not provider_ready or not self._result_passed(combined, "ocudu_e2_config"):
             for check_id in ["e2_setup_path", "e2_kpm_subscription", "e2_pcap_log_oracle"]:
                 if check_id in run_ids:
@@ -997,12 +985,15 @@ print(json.dumps({{
                 observation = runtime.observe()
                 e2 = observation.get("observation", {}).get("e2", {})
                 if "e2_kpm_subscription" in run_ids:
-                    ok = int(e2.get("kpm_indications", 0) or 0) >= 3
+                    has_prb_measurement = bool(e2.get("has_prb_measurement"))
+                    ok = int(e2.get("kpm_indications", 0) or 0) >= 3 and has_prb_measurement
                     results.append(
                         self._result(
                             "e2_kpm_subscription",
                             RESULT_PASS if ok else RESULT_FAIL,
-                            "KPM xApp produced at least 3 records" if ok else "KPM xApp did not produce enough records",
+                            "FlexRIC KPM path produced decoded v05 PRB records"
+                            if ok
+                            else "FlexRIC KPM path did not produce enough decoded PRB records",
                             {"observation": observation},
                         )
                     )
@@ -1037,14 +1028,6 @@ print(json.dumps({{
         return results
 
     def _detect_ocudu_kpm_compatibility(self) -> dict[str, Any]:
-        if self.remote.config.ric_provider == RIC_PROVIDER_DRAX_EXISTING:
-            return {
-                "compatible": True,
-                "summary": f"dRAX existing-cluster provider is configured for {DRAX_KPM_RELEASE}; runtime KPM API checks enforce capability",
-                "provider": RIC_PROVIDER_DRAX_EXISTING,
-                "provider_kpm_release": DRAX_KPM_RELEASE,
-                "drax_manifest": drax_manifest(self.remote.config),
-            }
         paths = flexric_workspace_paths(self.remote.config.workspace)
         payload = {"ocudu_root": self.remote.config.ocudu_root, "manifest": paths["manifest"]}
         data = self._remote_json(
@@ -1062,28 +1045,52 @@ def expand_remote_path(value):
 payload["ocudu_root"] = expand_remote_path(payload["ocudu_root"])
 payload["manifest"] = expand_remote_path(payload["manifest"])
 ocudu_root = pathlib.Path(payload["ocudu_root"])
-candidate_paths = [
-    ocudu_root / "src" / "srsran-project" / "include" / "srsran" / "asn1" / "e2sm" / "e2sm_kpm_ies.h",
-    ocudu_root / "src" / "srsran-project" / "lib" / "asn1" / "e2sm" / "e2sm_kpm_ies.cpp",
-    ocudu_root / "build" / "srsran-project" / "include" / "srsran" / "asn1" / "e2sm" / "e2sm_kpm_ies.h",
+kpm_asn_paths = [
+    ocudu_root / "src" / "ocudu" / "include" / "ocudu" / "asn1" / "e2sm" / "e2sm_kpm_ies.h",
+    ocudu_root / "build" / "ocudu" / "include" / "ocudu" / "asn1" / "e2sm" / "e2sm_kpm_ies.h",
+]
+common_asn_paths = [
+    ocudu_root / "src" / "ocudu" / "include" / "ocudu" / "asn1" / "e2sm" / "e2sm_common_ies.h",
+    ocudu_root / "build" / "ocudu" / "include" / "ocudu" / "asn1" / "e2sm" / "e2sm_common_ies.h",
+]
+metric_evidence_paths = [
+    ocudu_root / "src" / "ocudu" / "lib" / "e2" / "e2sm" / "e2sm_kpm" / "e2sm_kpm_metric_defs.h",
+    ocudu_root / "src" / "ocudu" / "lib" / "e2" / "e2sm" / "e2sm_kpm" / "e2sm_kpm_asn1_packer.cpp",
 ]
 ocudu_version = None
 ocudu_version_source = None
-ocudu_kpm_version = None
-ocudu_kpm_version_source = None
-for path in candidate_paths:
+ocudu_kpm_asn_version = None
+ocudu_kpm_asn_version_source = None
+ocudu_kpm_metric_versions = set()
+ocudu_kpm_metric_sources = []
+for path in kpm_asn_paths:
     if not path.is_file():
         continue
     text = path.read_text(encoding="utf-8", errors="replace")
-    kpm_match = re.search(r"E2SM[- ]KPM[^\\n]*v(\\d+\\.\\d+)", text)
+    kpm_match = re.search(r"E2SM\\s+v(\\d+\\.\\d+)", text)
     if kpm_match:
-        ocudu_kpm_version = kpm_match.group(1)
-        ocudu_kpm_version_source = str(path)
+        ocudu_kpm_asn_version = kpm_match.group(1)
+        ocudu_kpm_asn_version_source = str(path)
         break
+for path in common_asn_paths:
+    if not path.is_file():
+        continue
+    text = path.read_text(encoding="utf-8", errors="replace")
     match = re.search(r"E2SM\\s+v(\\d+\\.\\d+)", text)
     if match and ocudu_version is None:
         ocudu_version = match.group(1)
         ocudu_version_source = str(path)
+        break
+for path in metric_evidence_paths:
+    if not path.is_file():
+        continue
+    text = path.read_text(encoding="utf-8", errors="replace")
+    for match in re.finditer(r"E2SM-KPM-R003-v0?(\\d+\\.\\d+)|E2SM-KPM[^\\n]*v0?(\\d+\\.\\d+)", text):
+        version = match.group(1) or match.group(2)
+        if version:
+            normalized = version if version.startswith("0") else "0" + version
+            ocudu_kpm_metric_versions.add(normalized)
+            ocudu_kpm_metric_sources.append({{"path": str(path), "text": match.group(0)[:160]}})
 manifest = {{}}
 manifest_path = pathlib.Path(payload["manifest"])
 if manifest_path.is_file():
@@ -1095,40 +1102,26 @@ release = manifest.get("kpm_release") or manifest.get("kpm_version")
 flexric_version = None
 if release:
     text = str(release)
-    if "V3" in text:
+    if "V5" in text or "v05" in text or "05.00" in text:
+        flexric_version = "05.00"
+    elif "V3" in text:
         flexric_version = "03.00"
     elif "V2" in text:
         flexric_version = "02.03"
-compatible = True
-summary = "OCUDU/FlexRIC KPM compatibility could not be fully determined"
-if ocudu_kpm_version and flexric_version:
-    compatible = ocudu_kpm_version == flexric_version
-    if compatible:
-        summary = f"OCUDU E2SM-KPM v{{ocudu_kpm_version}} matches FlexRIC KPM v{{flexric_version}}"
-    else:
-        summary = (
-            f"OCUDU E2SM-KPM v{{ocudu_kpm_version}} is incompatible with FlexRIC KPM v{{flexric_version}}; "
-            "use a RIC/KPM implementation matching OCUDU or pin OCUDU to E2SM-KPM v03.00"
-        )
-elif ocudu_version and flexric_version:
-    summary = (
-        f"OCUDU generated ASN.1 reports E2SM common v{{ocudu_version}}; no explicit OCUDU E2SM-KPM release was found, "
-        f"so FlexRIC KPM v{{flexric_version}} compatibility requires runtime KPM conformance"
-    )
 print(json.dumps({{
-    "compatible": compatible,
-    "summary": summary,
     "ocudu_e2sm_common_version": ocudu_version,
     "ocudu_e2sm_common_version_source": ocudu_version_source,
-    "ocudu_e2sm_kpm_version": ocudu_kpm_version,
-    "ocudu_kpm_version_source": ocudu_kpm_version_source,
+    "ocudu_e2sm_kpm_asn_version": ocudu_kpm_asn_version,
+    "ocudu_e2sm_kpm_asn_version_source": ocudu_kpm_asn_version_source,
+    "ocudu_kpm_metric_definition_versions": sorted(ocudu_kpm_metric_versions),
+    "ocudu_kpm_metric_definition_sources": ocudu_kpm_metric_sources[:20],
     "flexric_kpm_version": flexric_version,
     "flexric_manifest": manifest,
     "manifest_path": payload["manifest"],
 }}))
 """
         )
-        return data
+        return classify_flexric_kpm_compatibility(data)
 
     def _check_flexric_assets(self) -> dict[str, Any]:
         paths = flexric_workspace_paths(self.remote.config.workspace)
@@ -1164,12 +1157,20 @@ print(json.dumps({{
 """
         )
         candidates = data.get("manifest", {}).get("kpm_xapp_candidates", [])
-        ok = data.get("image_exists") and data.get("manifest_exists") and bool(candidates)
+        manifest = data.get("manifest", {})
+        supports_v05 = (
+            bool(manifest.get("supports_e2sm_kpm_v05"))
+            and manifest.get("kpm_asn_release") == "E2SM-KPM-R003-v05.00"
+            and manifest.get("decoder_source") == "ocudu-generated-asn1-cpp"
+            and manifest.get("kpm_indication_decode_per_syntax") == "ATS_UNALIGNED_BASIC_PER"
+            and manifest.get("kpm_subscription_encode_per_syntax") == "ATS_ALIGNED_BASIC_PER"
+        )
+        ok = data.get("image_exists") and data.get("manifest_exists") and bool(candidates) and supports_v05
         return {
             "status": RESULT_PASS if ok else RESULT_FAIL,
-            "summary": "FlexRIC Docker image and KPM xApp candidates are available"
+            "summary": "FlexRIC Docker image, KPM v05 manifest, and KPM xApp candidates are available"
             if ok
-            else "FlexRIC Docker image or KPM xApp manifest is missing",
+            else "FlexRIC Docker image, KPM v05 manifest, or KPM xApp candidates are missing",
             "details": data,
         }
 
@@ -1264,209 +1265,7 @@ print(json.dumps({{
             results.append(self._blocked_result("e2_pcap_log_oracle", "KPM subscription did not pass"))
 
     def _generate_provider_e2_overlay(self, ws_port: int) -> str:
-        if self.remote.config.ric_provider == RIC_PROVIDER_DRAX_EXISTING:
-            return generate_v4_e2_gnb_overlay(
-                ws_port,
-                e2_endpoint=self.remote.config.drax.e2_endpoint,
-                e2_bind_addr=self.remote.config.drax.e2_bind_addr,
-            )
         return generate_v4_e2_gnb_overlay(ws_port)
-
-    def _check_drax_cluster_access(self) -> dict[str, Any]:
-        drax = self.remote.config.drax
-        payload = {
-            "kubeconfig": drax.kubeconfig,
-            "namespace": drax.namespace,
-            "kubectl_image": drax.kubectl_image,
-            "manifest": drax_manifest(self.remote.config),
-        }
-        data = self._remote_json(
-            f"""
-import json
-import pathlib
-import subprocess
-payload = json.loads({json.dumps(json.dumps(payload))})
-def expand_remote_path(value):
-    if value == "~":
-        return str(pathlib.Path.home())
-    if isinstance(value, str) and value.startswith("~/"):
-        return str(pathlib.Path.home() / value[2:])
-    return value
-payload["kubeconfig"] = expand_remote_path(payload["kubeconfig"]) if payload["kubeconfig"] else ""
-result = {{
-    "provider": "drax-existing",
-    "kubeconfig": payload["kubeconfig"],
-    "namespace": payload["namespace"],
-    "kubectl_image": payload["kubectl_image"],
-    "kubeconfig_exists": bool(payload["kubeconfig"]) and pathlib.Path(payload["kubeconfig"]).is_file(),
-    "docker_available": False,
-    "kubectl_returncode": None,
-    "kubectl_stdout": "",
-    "kubectl_stderr": "",
-}}
-docker_proc = subprocess.run(["docker", "version", "--format", "{{{{.Client.Version}}}}"], check=False, text=True, capture_output=True)
-result["docker_available"] = docker_proc.returncode == 0
-if result["kubeconfig_exists"] and result["docker_available"]:
-    proc = subprocess.run([
-        "docker", "run", "--rm", "--network", "host",
-        "-v", payload["kubeconfig"] + ":/kubeconfig:ro",
-        payload["kubectl_image"],
-        "--kubeconfig=/kubeconfig",
-        "-n", payload["namespace"],
-        "get", "namespace", payload["namespace"], "-o", "name",
-    ], check=False, text=True, capture_output=True)
-    result["kubectl_returncode"] = proc.returncode
-    result["kubectl_stdout"] = proc.stdout.strip()
-    result["kubectl_stderr"] = proc.stderr.strip()
-print(json.dumps(result))
-"""
-        )
-        failures = []
-        if not data.get("kubeconfig"):
-            failures.append("drax.kubeconfig is not configured")
-        elif not data.get("kubeconfig_exists"):
-            failures.append("drax.kubeconfig does not exist on the remote PC")
-        if not data.get("docker_available"):
-            failures.append("docker is not available for containerized kubectl")
-        if data.get("kubectl_returncode") not in {0, None}:
-            failures.append("containerized kubectl could not access the dRAX namespace")
-        ok = not failures and data.get("kubectl_returncode") == 0
-        return {
-            "status": RESULT_PASS if ok else RESULT_FAIL,
-            "summary": "Containerized kubectl can access the dRAX namespace" if ok else "; ".join(failures),
-            "details": data,
-        }
-
-    def _check_drax_e2_endpoint_config(self, options: ConformanceOptions) -> dict[str, Any]:
-        _ = options
-        drax = self.remote.config.drax
-        details: dict[str, Any] = {
-            "provider": RIC_PROVIDER_DRAX_EXISTING,
-            "e2_endpoint": drax.e2_endpoint,
-            "e2_bind_addr": drax.e2_bind_addr,
-            "overlay": "",
-        }
-        failures = []
-        try:
-            overlay = self._generate_provider_e2_overlay(options.ws_port)
-            details["overlay"] = overlay
-        except ValueError as exc:
-            overlay = ""
-            failures.append(str(exc))
-        if drax.e2_endpoint and overlay:
-            host, port = drax.e2_endpoint.rsplit(":", 1)
-            for item in [f"  addr: {host}", f"  port: {port}", "e2sm_kpm_enabled: true", "e2ap_enable: true"]:
-                if item not in overlay:
-                    failures.append(f"generated overlay missing {item.strip()}")
-        if not drax.kpm_api_url:
-            failures.append("drax.kpm-api-url is not configured")
-        if not failures and not drax.e2_endpoint:
-            failures.append("drax.e2-endpoint is not configured")
-        return {
-            "status": RESULT_PASS if not failures else RESULT_FAIL,
-            "summary": "dRAX E2 endpoint is configured in the generated gNB overlay" if not failures else "; ".join(failures),
-            "details": details,
-        }
-
-    def _check_drax_kpm_xapp_api(self, options: ConformanceOptions) -> dict[str, Any]:
-        payload = {
-            "run_id": f"{options.run_id}-drax-api-probe",
-            "url": self.remote.config.drax.kpm_api_url.rstrip("/"),
-            "timeout": options.probe_timeout,
-            "required_release": DRAX_KPM_RELEASE,
-        }
-        data = self._remote_json(
-            f"""
-import json
-import urllib.parse
-import urllib.error
-import urllib.request
-payload = json.loads({json.dumps(json.dumps(payload))})
-result = {{
-    "url": payload["url"],
-    "probe_run_id": payload["run_id"],
-    "required_release": payload["required_release"],
-    "health_status": None,
-    "health": None,
-    "reset_status": None,
-    "reset_body": "",
-    "records_status": None,
-    "records": None,
-    "errors": [],
-}}
-
-def request_json(path, method="GET", body=None):
-    data = None
-    headers = {{}}
-    if body is not None:
-        data = json.dumps(body).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(payload["url"] + path, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=float(payload["timeout"])) as response:
-        text = response.read().decode("utf-8", errors="replace")
-        parsed = json.loads(text) if text else {{}}
-        return response.status, parsed, text
-
-if not payload["url"]:
-    result["errors"].append("drax.kpm-api-url is not configured")
-else:
-    try:
-        status, parsed, _ = request_json("/health", method="GET")
-        result["health_status"] = status
-        result["health"] = parsed
-    except Exception as exc:
-        result["errors"].append("/health: " + str(exc))
-    try:
-        req = urllib.request.Request(
-            payload["url"] + "/reset",
-            data=json.dumps({{"run_id": payload["run_id"]}}).encode("utf-8"),
-            headers={{"Content-Type": "application/json"}},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=float(payload["timeout"])) as response:
-            result["reset_status"] = response.status
-            result["reset_body"] = response.read().decode("utf-8", errors="replace")
-    except Exception as exc:
-        result["errors"].append("/reset: " + str(exc))
-    try:
-        query = urllib.parse.urlencode({{"run_id": payload["run_id"]}})
-        status, parsed, _ = request_json("/records?" + query, method="GET")
-        result["records_status"] = status
-        result["records"] = parsed
-    except Exception as exc:
-        result["errors"].append("/records: " + str(exc))
-print(json.dumps(result))
-"""
-        )
-        health = data.get("health")
-        health_text = json.dumps(health, sort_keys=True) if isinstance(health, (dict, list)) else str(health)
-        status_ok = isinstance(health, dict) and str(health.get("status", "")).lower() in {"ok", "ready", "pass", "healthy"}
-        release_ok = DRAX_KPM_RELEASE in health_text or "E2SM-KPM-R003-v05.00" in health_text
-        reset_ok = isinstance(data.get("reset_status"), int) and 200 <= int(data["reset_status"]) < 300
-        records = data.get("records")
-        records_ok = (
-            isinstance(data.get("records_status"), int)
-            and 200 <= int(data["records_status"]) < 300
-            and isinstance(records, dict)
-            and isinstance(records.get("records"), list)
-        )
-        errors = [str(item) for item in data.get("errors", []) if item]
-        ok = not errors and status_ok and release_ok and reset_ok and records_ok
-        failures = []
-        failures.extend(errors)
-        if not status_ok:
-            failures.append("xApp health did not report an ok/ready/pass/healthy status")
-        if not release_ok:
-            failures.append(f"xApp health did not declare {DRAX_KPM_RELEASE}")
-        if not reset_ok:
-            failures.append("xApp /reset did not accept the conformance probe run")
-        if not records_ok:
-            failures.append("xApp /records did not return a JSON object with a records list")
-        return {
-            "status": RESULT_PASS if ok else RESULT_FAIL,
-            "summary": "dRAX KPM xApp API supports health/reset/records and declares E2SM-KPM v05.00" if ok else "; ".join(failures),
-            "details": data,
-        }
 
     def _terminate_gnb(self, options: ConformanceOptions) -> None:
         payload = {

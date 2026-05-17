@@ -80,6 +80,32 @@ class BenchctlTests(unittest.TestCase):
         self.assertTrue(output["dry_run"])
         self.assertTrue(output["force"])
 
+    def test_remote_reset_workspace_json_wraps_remote_manager(self) -> None:
+        original_remote_manager = benchctl.remote_manager
+
+        class FakeManager:
+            def reset_workspace(self, force=False, dry_run=False):
+                return {"status": "ok", "force": force, "dry_run": dry_run, "workspace": "/remote/workspace"}
+
+        def fake_remote_manager(args):
+            return FakeManager()
+
+        benchctl.remote_manager = fake_remote_manager
+        stdout = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout):
+                code = benchctl.main(
+                    ["remote", "reset-workspace", "--config", "unit.config", "--dry-run", "--force", "--json"]
+                )
+        finally:
+            benchctl.remote_manager = original_remote_manager
+
+        self.assertEqual(code, 0)
+        output = json.loads(stdout.getvalue())
+        self.assertEqual(output["status"], "ok")
+        self.assertTrue(output["force"])
+        self.assertTrue(output["dry_run"])
+
     def test_conformance_run_json_exit_code_uses_result_status(self) -> None:
         original_remote_manager = benchctl.remote_manager
         original_run_conformance = benchctl.run_conformance

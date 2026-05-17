@@ -21,6 +21,66 @@ class RepoGenericityTests(unittest.TestCase):
 
         offenders = []
         for path in tracked:
+            if not path.exists():
+                continue
+            if not any(path == root or root in path.parents for root in searched_roots):
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for token in bad_tokens:
+                if token in text:
+                    offenders.append(f"{path}: {token}")
+
+        self.assertEqual(offenders, [])
+
+    def test_tracked_benchmark_files_do_not_keep_stale_srsran_project_sut_paths(self) -> None:
+        proc = subprocess.run(["git", "ls-files", "-z"], check=True, capture_output=True)
+        tracked = [Path(item.decode("utf-8")) for item in proc.stdout.split(b"\0") if item]
+        searched_roots = {
+            Path("benchmark"),
+            Path("skillful-ran-research/benchmark"),
+            Path(".config.example"),
+        }
+        allowed = {
+            Path("benchmark/tests/test_config.py"),
+            Path("benchmark/tests/test_repo_generic.py"),
+            Path("benchmark/tests/test_remote.py"),
+        }
+        bad_tokens = [
+            "srsRAN_Project",
+            "srsran-project-build",
+            "sources/srsran-project",
+            "install/srsran-project",
+        ]
+
+        offenders = []
+        for path in tracked:
+            if not path.exists():
+                continue
+            if path in allowed:
+                continue
+            if not any(path == root or root in path.parents for root in searched_roots):
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for token in bad_tokens:
+                if token in text:
+                    offenders.append(f"{path}: {token}")
+
+        self.assertEqual(offenders, [])
+
+    def test_active_benchmark_files_do_not_reference_removed_external_provider(self) -> None:
+        proc = subprocess.run(["git", "ls-files", "-z"], check=True, capture_output=True)
+        tracked = [Path(item.decode("utf-8")) for item in proc.stdout.split(b"\0") if item]
+        searched_roots = {
+            Path("benchmark"),
+            Path("skillful-ran-research/benchmark"),
+            Path(".config.example"),
+        }
+        bad_tokens = ["d" + "rax", "d" + "RAX", "D" + "rax", "DR" + "AX"]
+
+        offenders = []
+        for path in tracked:
+            if not path.exists():
+                continue
             if not any(path == root or root in path.parents for root in searched_roots):
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")

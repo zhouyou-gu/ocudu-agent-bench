@@ -118,6 +118,13 @@ def cmd_remote_provision(args: argparse.Namespace) -> int:
     return 0 if result.get("status") == "ok" else 1
 
 
+def cmd_remote_reset_workspace(args: argparse.Namespace) -> int:
+    manager = remote_manager(args)
+    result = manager.reset_workspace(force=args.force, dry_run=args.dry_run)
+    emit(result, args.json)
+    return 0 if result.get("status") == "ok" else 1
+
+
 def cmd_remote_exec(args: argparse.Namespace) -> int:
     command = args.command
     if command and command[0] == "--":
@@ -287,6 +294,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Provisioning stage to run",
     )
     provision.set_defaults(func=cmd_remote_provision)
+
+    reset_workspace = remote_sub.add_parser("reset-workspace", help="Delete and recreate the remote benchmark workspace")
+    reset_workspace.add_argument("--config", default=".config", help="Path to local remote config")
+    reset_workspace.add_argument("--json", action="store_true", help="Emit JSON output")
+    reset_workspace.add_argument("--dry-run", action="store_true", help="Show planned destructive reset without executing it")
+    reset_workspace.add_argument("--force", action="store_true", help="Required: delete and recreate the configured workspace")
+    reset_workspace.set_defaults(func=cmd_remote_reset_workspace)
 
     exec_parser = remote_sub.add_parser("exec", help="Run a command in the remote benchmark workspace")
     exec_parser.add_argument("--config", default=".config", help="Path to local remote config")

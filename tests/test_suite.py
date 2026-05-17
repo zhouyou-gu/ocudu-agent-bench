@@ -19,7 +19,7 @@ def sample_runtime() -> RuntimeConfig:
         open5gs_compose="/tmp/workspace/assets/open5gs-core/compose/docker-compose.open5gs.yml",
         e2e_config_dir="/tmp/workspace/assets/ocudu-zmq-open5gs-e2e/config",
         open5gs_image="example/open5gs:test",
-        gnb_image="example/srsran-project-build:test",
+        gnb_image="example/ocudu-build:test",
         ue_image="example/srsran-4g-ue-build:test",
     )
 

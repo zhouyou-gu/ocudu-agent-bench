@@ -3,11 +3,12 @@ import unittest
 from pathlib import Path
 
 import benchmark.benchmark_api.conformance as conformance_module
-from benchmark.benchmark_api.config import DraxConfig, RemoteConfig, RuntimeConfig
+from benchmark.benchmark_api.config import RemoteConfig, RuntimeConfig
 from benchmark.benchmark_api.conformance import (
     ConformanceCheckResult,
     ConformanceOptions,
     ConformanceRunner,
+    classify_flexric_kpm_compatibility,
     compute_backend_enablement,
     compute_overall_status,
     conformance_exit_code,
@@ -15,7 +16,6 @@ from benchmark.benchmark_api.conformance import (
     load_conformance_specs,
 )
 from benchmark.benchmark_api.episode import TASK_E2_KPM_PRB_PING_V1
-from benchmark.benchmark_api.ric import RIC_PROVIDER_DRAX_EXISTING
 
 
 def sample_runtime() -> RuntimeConfig:
@@ -23,7 +23,7 @@ def sample_runtime() -> RuntimeConfig:
         open5gs_compose="/remote/workspace/assets/open5gs-core/compose/docker-compose.open5gs.yml",
         e2e_config_dir="/remote/workspace/assets/ocudu-zmq-open5gs-e2e/config",
         open5gs_image="example/open5gs:test",
-        gnb_image="example/srsran-project-build:test",
+        gnb_image="example/ocudu-build:test",
         ue_image="example/srsran-4g-ue-build:test",
     )
 
@@ -60,7 +60,8 @@ class FakeRemoteManager:
                 },
                 "ocudu_exists": True,
                 "ocudu_is_git": True,
-                "ocudu_commit": "abc123",
+                "ocudu_source_commit": "abc123",
+                "ocudu_source_is_git": True,
                 "ocudu_branch": "main",
                 "workspace_exists": True,
                 "workspace_is_dir": True,
@@ -142,9 +143,6 @@ class ConformanceTests(unittest.TestCase):
             "websocket_prb_policy_action",
             "flexric_docker_assets",
             "near_rt_ric_health",
-            "drax_cluster_access",
-            "drax_e2_endpoint_config",
-            "drax_kpm_xapp_api",
             "ocudu_e2_config",
             "e2_setup_path",
             "e2_kpm_subscription",
@@ -159,6 +157,8 @@ class ConformanceTests(unittest.TestCase):
         overlay = generate_overlay_config(9001, "/tmp/gnb.log")
         self.assertIn("no_core: true", overlay)
         self.assertIn("enable_json: true", overlay)
+        self.assertIn("enable_app_usage: true", overlay)
+        self.assertIn("app_usage_report_period: 1000", overlay)
         self.assertIn("remote_control:", overlay)
         self.assertIn("bind_addr: 127.0.0.1", overlay)
         self.assertIn("port: 9001", overlay)
@@ -281,6 +281,68 @@ class ConformanceTests(unittest.TestCase):
         self.assertEqual(by_id["websocket_command_path"]["status"], "pass")
         self.assertEqual(by_id["json_metrics_stream"]["status"], "skip")
 
+    def test_native_gnb_is_terminated_before_docker_checks(self) -> None:
+        original_runtime = conformance_module.EpisodeRuntime
+        events = []
+
+        class FakeEpisodeRuntime:
+            def __init__(self, remote, repo_root=None) -> None:
+                self.options = None
+
+            def check_docker_assets(self):
+                return {"status": "pass", "summary": "assets ok", "details": {}}
+
+            def start(self, options):
+                events.append("docker-start")
+                self.options = options
+                return {"status": "ok", "stage": "v3_episode", "run_id": options.run_id}
+
+            def observe(self):
+                return {"status": "ok", "observation": {"ping": {"packets_received": 1}}}
+
+            def act(self, action):
+                if action.get("min_prb_policy_ratio", 0) > action.get("max_prb_policy_ratio", 100):
+                    return {"status": "rejected", "accepted": False}
+                return {"status": "ok", "accepted": True}
+
+            def cleanup(self, run_id):
+                return {"status": "ok", "run_id": run_id}
+
+            def finalize(self, unscored_reason=None, cleanup_success=True):
+                return {"status": "ok", "scored": cleanup_success}
+
+        conformance_module.EpisodeRuntime = FakeEpisodeRuntime
+        try:
+            runner = ConformanceRunner(
+                remote=FakeRemoteManager(),
+                repo_root=Path(".").resolve(),
+                specs_path=Path("benchmark/conformance/tests.json"),
+            )
+            runner._launch_gnb = lambda options: runner._result("ocudu_launch", "pass", "launched", {"pid": 123})  # type: ignore[method-assign]
+            runner._probe_websocket_and_metrics = lambda options: {  # type: ignore[method-assign]
+                "websocket": {"status": "pass", "summary": "ws ok", "details": {}},
+                "metrics": {"status": "pass", "summary": "metrics ok", "details": {}},
+            }
+            runner._terminate_gnb = lambda options: events.append("native-terminate")  # type: ignore[method-assign]
+
+            result = runner.run(
+                options=ConformanceOptions(
+                    run_id="unit-native-before-docker",
+                    checks={"websocket_command_path", "ping_traffic_path"},
+                    ws_port=8001,
+                    launch_timeout=1,
+                    probe_timeout=1,
+                )
+            )
+        finally:
+            conformance_module.EpisodeRuntime = original_runtime
+
+        by_id = {check["id"]: check for check in result["checks"]}
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(by_id["websocket_command_path"]["status"], "pass")
+        self.assertEqual(by_id["ping_traffic_path"]["status"], "pass")
+        self.assertLess(events.index("native-terminate"), events.index("docker-start"))
+
     def test_artifact_paths_checks_setup_artifacts_when_launch_blocked(self) -> None:
         runner = ConformanceRunner(
             remote=FakeRemoteManager(missing_libraries=["libzmq.so.5"]),
@@ -393,7 +455,12 @@ class ConformanceTests(unittest.TestCase):
                 return {
                     "status": "ok",
                     "observation": {
-                        "e2": {"kpm_indications": 3, "oracle_available": True},
+                        "e2": {
+                            "kpm_indications": 3,
+                            "oracle_available": True,
+                            "has_prb_measurement": True,
+                            "last_kpm": {"measurements": [{"name": "RRU.PrbUsedDl"}]},
+                        },
                         "metrics": {"present": True},
                     },
                 }
@@ -422,8 +489,8 @@ class ConformanceTests(unittest.TestCase):
         conformance_module.ConformanceRunner._detect_ocudu_kpm_compatibility = lambda self: {  # type: ignore[method-assign]
             "compatible": True,
             "summary": "compatible",
-            "ocudu_e2sm_kpm_version": "03.00",
-            "flexric_kpm_version": "03.00",
+            "ocudu_e2sm_kpm_version": "05.00",
+            "flexric_kpm_version": "05.00",
         }
         try:
             runner = ConformanceRunner(
@@ -458,6 +525,82 @@ class ConformanceTests(unittest.TestCase):
         self.assertEqual(by_id["e2_pcap_log_oracle"]["status"], "pass")
         self.assertTrue(result["backend_enablement"]["e2_kpm"])
         self.assertTrue(result["backend_enablement"]["pcap_log"])
+
+    def test_v4_kpm_subscription_requires_prb_measurement(self) -> None:
+        original_runtime = conformance_module.EpisodeRuntime
+        original_flexric_assets = conformance_module.ConformanceRunner._check_flexric_assets
+        original_ric_health = conformance_module.ConformanceRunner._check_ric_health
+        original_kpm_compat = conformance_module.ConformanceRunner._detect_ocudu_kpm_compatibility
+
+        class FakeEpisodeRuntime:
+            def __init__(self, remote, repo_root=None) -> None:
+                pass
+
+            def check_docker_assets(self):
+                return {"status": "pass", "summary": "docker assets ok", "details": {}}
+
+            def start(self, options):
+                return {"status": "ok", "stage": "v4_episode", "run_id": options.run_id}
+
+            def observe(self):
+                return {
+                    "status": "ok",
+                    "observation": {
+                        "e2": {
+                            "kpm_indications": 3,
+                            "oracle_available": True,
+                            "has_prb_measurement": False,
+                            "last_kpm": {"measurements": [{"name": "DRB.UEThpDl"}]},
+                        },
+                        "metrics": {"present": True},
+                    },
+                }
+
+            def cleanup(self, run_id):
+                return {"status": "ok", "run_id": run_id, "ric_port_open": False}
+
+            def finalize(self, unscored_reason=None, cleanup_success=True):
+                return {"status": "ok", "scored": cleanup_success}
+
+        conformance_module.EpisodeRuntime = FakeEpisodeRuntime
+        conformance_module.ConformanceRunner._check_flexric_assets = lambda self: {  # type: ignore[method-assign]
+            "status": "pass",
+            "summary": "flexric ok",
+            "details": {},
+        }
+        conformance_module.ConformanceRunner._check_ric_health = lambda self, options: {  # type: ignore[method-assign]
+            "status": "pass",
+            "summary": "ric ok",
+            "details": {},
+        }
+        conformance_module.ConformanceRunner._detect_ocudu_kpm_compatibility = lambda self: {  # type: ignore[method-assign]
+            "compatible": True,
+            "summary": "compatible",
+        }
+        try:
+            runner = ConformanceRunner(
+                remote=FakeRemoteManager(),
+                repo_root=Path(".").resolve(),
+                specs_path=Path("benchmark/conformance/tests.json"),
+            )
+            result = runner.run(
+                options=ConformanceOptions(
+                    run_id="unit-v4-e2-no-prb",
+                    checks={"e2_kpm_subscription"},
+                    ws_port=8001,
+                    launch_timeout=1,
+                    probe_timeout=1,
+                )
+            )
+        finally:
+            conformance_module.EpisodeRuntime = original_runtime
+            conformance_module.ConformanceRunner._check_flexric_assets = original_flexric_assets
+            conformance_module.ConformanceRunner._check_ric_health = original_ric_health
+            conformance_module.ConformanceRunner._detect_ocudu_kpm_compatibility = original_kpm_compat
+
+        by_id = {check["id"]: check for check in result["checks"]}
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(by_id["e2_kpm_subscription"]["status"], "fail")
 
     def test_v4_kpm_version_mismatch_blocks_episode_checks(self) -> None:
         original_runtime = conformance_module.EpisodeRuntime
@@ -519,150 +662,20 @@ class ConformanceTests(unittest.TestCase):
         self.assertEqual(by_id["e2_setup_path"]["status"], "blocked")
         self.assertEqual(by_id["e2_kpm_subscription"]["status"], "blocked")
 
-    def test_drax_kpm_xapp_api_probes_runtime_methods(self) -> None:
-        cfg = sample_remote_config(
-            ric_provider=RIC_PROVIDER_DRAX_EXISTING,
-            drax=DraxConfig(kpm_api_url="http://10.0.0.20:8080"),
-        )
-        runner = ConformanceRunner(
-            remote=FakeRemoteManager(config=cfg),
-            repo_root=Path(".").resolve(),
-            specs_path=Path("benchmark/conformance/tests.json"),
-        )
-        scripts = []
-
-        def fake_remote_json(script):
-            scripts.append(script)
-            return {
-                "url": cfg.drax.kpm_api_url,
-                "probe_run_id": "unit-drax-api-drax-api-probe",
-                "required_release": "E2SM-KPM-R003-v05.00",
-                "health_status": 200,
-                "health": {"status": "healthy", "release": "E2SM-KPM-R003-v05.00"},
-                "reset_status": 204,
-                "reset_body": "",
-                "records_status": 200,
-                "records": {"records": [], "count": 0},
-                "errors": [],
+    def test_flexric_compatibility_uses_kpm_asn_header_over_metric_comments(self) -> None:
+        result = classify_flexric_kpm_compatibility(
+            {
+                "ocudu_e2sm_common_version": "05.00",
+                "ocudu_e2sm_kpm_asn_version": "05.00",
+                "ocudu_kpm_metric_definition_versions": ["03.00"],
+                "flexric_kpm_version": "03.00",
             }
-
-        runner._remote_json = fake_remote_json  # type: ignore[method-assign]
-        result = runner._check_drax_kpm_xapp_api(ConformanceOptions(run_id="unit-drax-api"))
-
-        self.assertEqual(result["status"], "pass")
-        self.assertIn("/health", scripts[0])
-        self.assertIn("/reset", scripts[0])
-        self.assertIn("/records?", scripts[0])
-        self.assertEqual(result["details"]["probe_run_id"], "unit-drax-api-drax-api-probe")
-
-    def test_drax_kpm_xapp_api_fails_when_reset_or_records_missing(self) -> None:
-        cfg = sample_remote_config(
-            ric_provider=RIC_PROVIDER_DRAX_EXISTING,
-            drax=DraxConfig(kpm_api_url="http://10.0.0.20:8080"),
         )
-        runner = ConformanceRunner(
-            remote=FakeRemoteManager(config=cfg),
-            repo_root=Path(".").resolve(),
-            specs_path=Path("benchmark/conformance/tests.json"),
-        )
-        runner._remote_json = lambda script: {  # type: ignore[method-assign]
-            "health_status": 200,
-            "health": {"status": "ok", "release": "E2SM-KPM-R003-v05.00"},
-            "reset_status": 404,
-            "records_status": 200,
-            "records": {"items": []},
-            "errors": [],
-        }
 
-        result = runner._check_drax_kpm_xapp_api(ConformanceOptions(run_id="unit-drax-api-fail"))
-
-        self.assertEqual(result["status"], "fail")
-        self.assertIn("/reset", result["summary"])
-        self.assertIn("/records", result["summary"])
-
-    def test_v4b_drax_checks_use_drax_provider_gate(self) -> None:
-        original_runtime = conformance_module.EpisodeRuntime
-        original_cluster = conformance_module.ConformanceRunner._check_drax_cluster_access
-        original_endpoint = conformance_module.ConformanceRunner._check_drax_e2_endpoint_config
-        original_api = conformance_module.ConformanceRunner._check_drax_kpm_xapp_api
-
-        class FakeEpisodeRuntime:
-            started_tasks = []
-
-            def __init__(self, remote, repo_root=None) -> None:
-                self.options = None
-
-            def check_docker_assets(self):
-                return {"status": "pass", "summary": "docker assets ok", "details": {}}
-
-            def start(self, options):
-                self.options = options
-                type(self).started_tasks.append(options.task)
-                return {"status": "ok", "stage": "v4_episode", "run_id": options.run_id}
-
-            def observe(self):
-                return {"status": "ok", "observation": {"e2": {"kpm_indications": 3, "oracle_available": True}}}
-
-            def cleanup(self, run_id):
-                return {"status": "ok", "run_id": run_id, "ric_port_open": False}
-
-            def finalize(self, unscored_reason=None, cleanup_success=True):
-                return {"status": "ok", "scored": cleanup_success, "e2_oracle": {"kpm_indications": 3, "oracle_available": True}}
-
-        cfg = sample_remote_config(
-            ric_provider=RIC_PROVIDER_DRAX_EXISTING,
-            drax=DraxConfig(
-                kubeconfig="/remote/kubeconfig",
-                namespace="ricplt",
-                e2_endpoint="10.0.0.10:36421",
-                kpm_api_url="http://10.0.0.20:8080",
-            ),
-        )
-        conformance_module.EpisodeRuntime = FakeEpisodeRuntime
-        conformance_module.ConformanceRunner._check_drax_cluster_access = lambda self: {  # type: ignore[method-assign]
-            "status": "pass",
-            "summary": "cluster ok",
-            "details": {},
-        }
-        conformance_module.ConformanceRunner._check_drax_e2_endpoint_config = lambda self, options: {  # type: ignore[method-assign]
-            "status": "pass",
-            "summary": "endpoint ok",
-            "details": {},
-        }
-        conformance_module.ConformanceRunner._check_drax_kpm_xapp_api = lambda self, options: {  # type: ignore[method-assign]
-            "status": "pass",
-            "summary": "api ok",
-            "details": {},
-        }
-        try:
-            runner = ConformanceRunner(
-                remote=FakeRemoteManager(config=cfg),
-                repo_root=Path(".").resolve(),
-                specs_path=Path("benchmark/conformance/tests.json"),
-            )
-            result = runner.run(
-                options=ConformanceOptions(
-                    run_id="unit-v4b-drax",
-                    checks={"e2_pcap_log_oracle"},
-                    ws_port=8001,
-                    launch_timeout=1,
-                    probe_timeout=1,
-                )
-            )
-        finally:
-            conformance_module.EpisodeRuntime = original_runtime
-            conformance_module.ConformanceRunner._check_drax_cluster_access = original_cluster
-            conformance_module.ConformanceRunner._check_drax_e2_endpoint_config = original_endpoint
-            conformance_module.ConformanceRunner._check_drax_kpm_xapp_api = original_api
-
-        by_id = {check["id"]: check for check in result["checks"]}
-        self.assertEqual(result["status"], "pass")
-        self.assertEqual(result["stage"], "v4b_conformance")
-        self.assertEqual(by_id["drax_cluster_access"]["status"], "pass")
-        self.assertEqual(by_id["drax_e2_endpoint_config"]["status"], "pass")
-        self.assertEqual(by_id["drax_kpm_xapp_api"]["status"], "pass")
-        self.assertEqual(by_id["flexric_docker_assets"]["status"], "skip")
-        self.assertEqual(FakeEpisodeRuntime.started_tasks, [TASK_E2_KPM_PRB_PING_V1])
+        self.assertFalse(result["compatible"])
+        self.assertIn("ASN v05.00", result["summary"])
+        self.assertIn("FlexRIC KPM v03.00", result["summary"])
+        self.assertEqual(result["ocudu_e2sm_kpm_version"], "05.00")
 
 
 if __name__ == "__main__":

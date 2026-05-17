@@ -2,30 +2,30 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from benchmark.benchmark_api.config import DraxConfig, RemoteConfig, RuntimeConfig, SourcesConfig
+from benchmark.benchmark_api.config import RemoteConfig, RuntimeConfig, SourcesConfig
 from benchmark.benchmark_api.remote import RUNTIME_DEP_PACKAGES, RemoteCommandError, RemoteManager
-from benchmark.benchmark_api.ric import FLEXRIC_IMAGE, RIC_PROVIDER_DRAX_EXISTING
+from benchmark.benchmark_api.ric import FLEXRIC_IMAGE
 
 
 SAMPLE_SSH = "user@host"
-SAMPLE_WORKSPACE = "/remote/skillful-ran-benchmark-workspace"
-SAMPLE_OCUDU_ROOT = "/remote/skillful-ran-benchmark-workspace/ocudu"
+SAMPLE_WORKSPACE = "/home/user/skillful-ran-benchmark-workspace"
+SAMPLE_OCUDU_ROOT = "/home/user/skillful-ran-benchmark-workspace/ocudu"
 
 
 def sample_runtime() -> RuntimeConfig:
     return RuntimeConfig(
-        open5gs_compose="/remote/skillful-ran-benchmark-workspace/assets/open5gs-core/compose/docker-compose.open5gs.yml",
-        e2e_config_dir="/remote/skillful-ran-benchmark-workspace/assets/ocudu-zmq-open5gs-e2e/config",
+        open5gs_compose="/home/user/skillful-ran-benchmark-workspace/assets/open5gs-core/compose/docker-compose.open5gs.yml",
+        e2e_config_dir="/home/user/skillful-ran-benchmark-workspace/assets/ocudu-zmq-open5gs-e2e/config",
         open5gs_image="skillful-ran/open5gs:v2.7.0",
-        gnb_image="skillful-ran/srsran-project-build:release_25_10",
+        gnb_image="skillful-ran/ocudu-build:release_26_04",
         ue_image="skillful-ran/srsran-4g-ue-build:release_23_11",
     )
 
 
 def sample_sources() -> SourcesConfig:
     return SourcesConfig(
-        srsran_project_repo="https://github.com/srsran/srsRAN_Project.git",
-        srsran_project_ref="release_25_10",
+        ocudu_repo="https://gitlab.com/ocudu/ocudu.git",
+        ocudu_ref="release_26_04",
         srsran_4g_repo="https://github.com/srsran/srsRAN_4G.git",
         srsran_4g_ref="release_23_11",
         open5gs_ref="v2.7.0",
@@ -102,6 +102,49 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertIn("apt-get download", result["planned_remote_command"])
         self.assertIn("libzmq5", result["planned_remote_command"])
 
+    def test_remote_check_exposes_ocudu_source_git_state(self) -> None:
+        def fake_run(argv):
+            class Result:
+                returncode = 0
+                stdout = (
+                    "host=remote\n"
+                    "home=/home/user\n"
+                    "tool_python3=/usr/bin/python3\n"
+                    "tool_git=/usr/bin/git\n"
+                    "tool_rsync=/usr/bin/rsync\n"
+                    "tool_ss=/usr/bin/ss\n"
+                    "tool_ldd=/usr/bin/ldd\n"
+                    "tool_docker=/usr/bin/docker\n"
+                    "tool_docker_compose=1\n"
+                    "ocudu_inside_workspace=1\n"
+                    "open5gs_compose_inside_workspace=1\n"
+                    "e2e_config_dir_inside_workspace=1\n"
+                    "open5gs_compose_exists=1\n"
+                    "e2e_config_dir_exists=1\n"
+                    "ocudu_exists=1\n"
+                    "ocudu_is_git=0\n"
+                    "ocudu_source_is_git=1\n"
+                    "ocudu_source_commit=050a2bb72e1d\n"
+                    "ocudu_source_origin=https://gitlab.com/ocudu/ocudu.git\n"
+                    "srsran_4g_is_git=1\n"
+                    "srsran_4g_commit=eea87b1d893a\n"
+                    "srsran_4g_origin=https://github.com/srsran/srsRAN_4G.git\n"
+                    "workspace_exists=1\n"
+                    "workspace_is_dir=1\n"
+                    "workspace_entries=4\n"
+                )
+                stderr = ""
+
+            return Result()
+
+        self.manager._run = fake_run  # type: ignore[method-assign]
+        result = self.manager.check()
+
+        remote = result["remote"]
+        self.assertTrue(remote["ocudu_source_is_git"])
+        self.assertEqual(remote["ocudu_source_commit"], "050a2bb72e1d")
+        self.assertEqual(remote["ocudu_source_origin"], "https://gitlab.com/ocudu/ocudu.git")
+
     def test_prepare_runtime_deps_initializes_workspace_before_download(self) -> None:
         commands = []
 
@@ -134,9 +177,24 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertIn("docker build -t", result["planned_remote_command"])
         self.assertIn("ubuntu:22.04", result["dockerfile"])
         self.assertIn("-DE2AP_VERSION=E2AP_V3", result["dockerfile"])
-        self.assertIn("-DKPM_VERSION=KPM_V3", result["dockerfile"])
+        self.assertIn("-DSM_ENCODING_KPM=ASN", result["dockerfile"])
+        self.assertIn("-DKPM_VERSION=KPM_V5_00", result["dockerfile"])
+        self.assertIn("-DUNIT_TEST=OFF", result["dockerfile"])
+        self.assertIn("ocudu_kpm_v05_decode.cpp", result["planned_remote_command"])
+        self.assertIn("ocudu-kpm-v05-decode", result["dockerfile"])
+        self.assertIn("byte_buffer.cpp", result["dockerfile"])
+        self.assertIn("ocudulog.cpp", result["dockerfile"])
+        self.assertIn("apply_kpm_v05_patch.py", result["planned_remote_command"])
+        self.assertIn("ocudu-asn1", result["planned_remote_command"])
+        self.assertIn("e2sm_kpm_ies.h", result["planned_remote_command"])
         self.assertEqual(result["manifest"]["e2ap_version"], "E2AP_V3")
-        self.assertEqual(result["manifest"]["kpm_release"], "KPM_V3_00")
+        self.assertEqual(result["manifest"]["kpm_release"], "KPM_V5_00")
+        self.assertEqual(result["manifest"]["kpm_asn_release"], "E2SM-KPM-R003-v05.00")
+        self.assertTrue(result["manifest"]["supports_e2sm_kpm_v05"])
+        self.assertEqual(result["manifest"]["decoder_source"], "ocudu-generated-asn1-cpp")
+        self.assertEqual(result["manifest"]["kpm_indication_decode_per_syntax"], "ATS_UNALIGNED_BASIC_PER")
+        self.assertEqual(result["manifest"]["kpm_subscription_encode_per_syntax"], "ATS_ALIGNED_BASIC_PER")
+        self.assertEqual(result["manifest"]["ocudu_kpm_decoder_binary"], "/usr/local/bin/ocudu-kpm-v05-decode")
         self.assertIn("-DXAPP_DB=NONE_XAPP", result["dockerfile"])
         self.assertIn("tcpdump", result["dockerfile"])
         self.assertIn("flexric-ric", result["dockerfile"])
@@ -166,32 +224,6 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertIn("docker build -t", commands[1])
         self.assertIn(FLEXRIC_IMAGE, commands[1])
 
-    def test_prepare_ric_drax_existing_writes_manifest_without_build(self) -> None:
-        cfg = RemoteConfig(
-            ssh_target=SAMPLE_SSH,
-            ssh_key="/Users/example/.ssh/key",
-            ocudu_root=SAMPLE_OCUDU_ROOT,
-            workspace=SAMPLE_WORKSPACE,
-            runtime=sample_runtime(),
-            sources=sample_sources(),
-            ric_provider=RIC_PROVIDER_DRAX_EXISTING,
-            drax=DraxConfig(
-                kubeconfig="/remote/drax/kubeconfig",
-                namespace="ricplt",
-                e2_endpoint="10.0.0.10:36421",
-                kpm_api_url="http://10.0.0.20:8080",
-            ),
-        )
-        manager = RemoteManager(cfg)
-        result = manager.prepare_ric(dry_run=True)
-
-        self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["provider"], RIC_PROVIDER_DRAX_EXISTING)
-        self.assertEqual(result["paths"]["root"], f"{SAMPLE_WORKSPACE}/drax")
-        self.assertEqual(result["manifest"]["kpm_release"], "E2SM-KPM-R003-v05.00")
-        self.assertIn("manifest.json", result["planned_remote_command"])
-        self.assertNotIn("docker build", result["planned_remote_command"])
-
     def test_provision_assets_dry_run_is_workspace_owned(self) -> None:
         result = self.manager.provision(stage="assets", dry_run=True)
 
@@ -203,6 +235,7 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertIn("rewrite_open5gs_compose", result["planned_remote_command"])
         self.assertIn("skillful-ran/open5gs:v2.7.0", result["planned_remote_command"])
         self.assertNotIn("/remote/skills", result["planned_remote_command"])
+        self.assertNotIn("srsran-project", result["planned_remote_command"])
 
     def test_provision_dry_run_contains_stage_prerequisite_errors(self) -> None:
         images = self.manager.provision(stage="images", dry_run=True)
@@ -210,6 +243,10 @@ class RemoteCommandBuilderTests(unittest.TestCase):
 
         self.assertIn("run remote provision --stage assets first", images["planned_remote_command"])
         self.assertIn("run remote provision --stage images first", ocudu["planned_remote_command"])
+        self.assertIn('ocudu_src = sources_dir / "ocudu"', ocudu["planned_remote_command"])
+        self.assertIn('ocudu_install = ocudu_root / "install" / "ocudu"', ocudu["planned_remote_command"])
+        self.assertNotIn("sources/srsran-project", ocudu["planned_remote_command"])
+        self.assertNotIn("install/srsran-project", ocudu["planned_remote_command"])
 
     def test_provision_runtime_deps_updates_top_level_manifest(self) -> None:
         calls = []
@@ -256,7 +293,7 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         )
         manager = RemoteManager(cfg)
 
-        with self.assertRaisesRegex(ValueError, "sources.srsran-project-repo"):
+        with self.assertRaisesRegex(ValueError, "sources.ocudu-repo"):
             manager.provision(stage="assets", dry_run=True)
 
     def test_provision_rejects_runtime_outside_workspace(self) -> None:
@@ -272,6 +309,36 @@ class RemoteCommandBuilderTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "remote.ocudu-root"):
             manager.provision(stage="assets", dry_run=True)
+
+    def test_reset_workspace_requires_force(self) -> None:
+        result = self.manager.reset_workspace()
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("--force", result["error"])
+
+    def test_reset_workspace_dry_run_refuses_unsafe_paths_in_script(self) -> None:
+        result = self.manager.reset_workspace(force=True, dry_run=True)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["dry_run"])
+        self.assertIn("shutil.rmtree(workspace)", result["planned_remote_command"])
+        self.assertIn("workspace path must be inside the remote home directory", result["planned_remote_command"])
+        self.assertIn("workspace path must not be the remote home directory", result["planned_remote_command"])
+
+    def test_reset_workspace_rejects_obviously_unsafe_local_config(self) -> None:
+        cfg = RemoteConfig(
+            ssh_target=SAMPLE_SSH,
+            ssh_key="/Users/example/.ssh/key",
+            ocudu_root=SAMPLE_OCUDU_ROOT,
+            workspace="/",
+            runtime=sample_runtime(),
+            sources=sample_sources(),
+        )
+        manager = RemoteManager(cfg)
+        result = manager.reset_workspace(force=True, dry_run=True)
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("unsafe", result["error"])
 
     def test_init_dry_run_reports_workspace(self) -> None:
         result = self.manager.init_workspace(dry_run=True)

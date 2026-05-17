@@ -1,6 +1,6 @@
 import unittest
 
-from benchmark.benchmark_api.config import DraxConfig, RemoteConfig, RuntimeConfig
+from benchmark.benchmark_api.config import RemoteConfig, RuntimeConfig
 from benchmark.benchmark_api.episode import (
     EpisodeOptions,
     EpisodeRuntime,
@@ -11,12 +11,13 @@ from benchmark.benchmark_api.episode import (
     generate_kpm_xapp_config,
     generate_v3_gnb_overlay,
     generate_v4_e2_gnb_overlay,
+    kpm_record_has_prb_measurement,
     parse_kpm_indication_records,
     parse_ping_log,
     score_episode,
     validate_prb_action,
 )
-from benchmark.benchmark_api.ric import RIC_PORT, RIC_PROVIDER_DRAX_EXISTING
+from benchmark.benchmark_api.ric import RIC_PORT
 
 
 SAMPLE_SSH = "user@host"
@@ -25,7 +26,7 @@ SAMPLE_OCUDU_ROOT = "/tmp/workspace/ocudu"
 SAMPLE_OPEN5GS_COMPOSE = "/tmp/workspace/assets/open5gs-core/compose/docker-compose.open5gs.yml"
 SAMPLE_E2E_CONFIG_DIR = "/tmp/workspace/assets/ocudu-zmq-open5gs-e2e/config"
 SAMPLE_OPEN5GS_IMAGE = "example/open5gs:test"
-SAMPLE_GNB_IMAGE = "example/srsran-project-build:test"
+SAMPLE_GNB_IMAGE = "example/ocudu-build:test"
 SAMPLE_UE_IMAGE = "example/srsran-4g-ue-build:test"
 
 
@@ -148,6 +149,8 @@ class EpisodeTests(unittest.TestCase):
     def test_v3_overlay_enables_metrics_and_remote_control(self) -> None:
         overlay = generate_v3_gnb_overlay(9001)
         self.assertIn("enable_json: true", overlay)
+        self.assertIn("enable_app_usage: true", overlay)
+        self.assertIn("app_usage_report_period: 1000", overlay)
         self.assertIn("remote_control:", overlay)
         self.assertIn("bind_addr: 127.0.0.1", overlay)
         self.assertIn("port: 9001", overlay)
@@ -166,20 +169,15 @@ class EpisodeTests(unittest.TestCase):
         self.assertIn("e2ap_enable: true", overlay)
         self.assertIn("/stage/logs/e2ap_du.pcap", overlay)
 
-    def test_v4_overlay_uses_drax_e2_endpoint(self) -> None:
-        overlay = generate_v4_e2_gnb_overlay(9001, e2_endpoint="10.0.0.10:36421", e2_bind_addr="0.0.0.0")
-        self.assertIn("addr: 10.0.0.10", overlay)
-        self.assertIn("port: 36421", overlay)
-        self.assertIn("bind_addr: 0.0.0.0", overlay)
-        self.assertIn("e2sm_kpm_enabled: true", overlay)
-
     def test_v4_kpm_xapp_config_matches_supported_du_style(self) -> None:
         config = generate_kpm_xapp_config()
         self.assertIn('Name = "xApp"', config)
         self.assertIn("format = 1", config)
         self.assertIn('ran_type = "ngran_gNB_DU"', config)
-        self.assertIn('name = "DRB.UEThpDl"', config)
-        self.assertIn('name = "DRB.UEThpUl"', config)
+        self.assertIn('name = "RRU.PrbUsedDl"', config)
+        self.assertIn('name = "RRU.PrbUsedUl"', config)
+        self.assertIn('name = "RRU.PrbTotDl"', config)
+        self.assertIn('name = "RRU.PrbTotUl"', config)
         self.assertIn('enable = "OFF"', config)
         self.assertNotIn("format = 4", config)
 
@@ -196,6 +194,16 @@ class EpisodeTests(unittest.TestCase):
         self.assertEqual(len(records), 2)
         self.assertEqual(len(records[0]["measurements"]), 2)
         self.assertIn("KPM v2 ind_msg", records[0]["text"])
+
+    def test_kpm_prb_measurement_detection_requires_prb_name_or_text(self) -> None:
+        self.assertTrue(
+            kpm_record_has_prb_measurement(
+                {"measurements": [{"name": "RRU.PrbUsedDl", "type": "integer", "value": 1}]}
+            )
+        )
+        self.assertTrue(kpm_record_has_prb_measurement({"measurements": [{"text": "meas record RRU.PrbTotUl"}]}))
+        self.assertFalse(kpm_record_has_prb_measurement({"measurements": [{"name": "DRB.UEThpDl"}]}))
+        self.assertFalse(kpm_record_has_prb_measurement({"measurements": []}))
 
     def test_score_episode_requires_e2_when_requested(self) -> None:
         base = {
@@ -267,55 +275,6 @@ class EpisodeTests(unittest.TestCase):
         self.assertIn("e2_pcap_container", scripts[0])
         self.assertIn("e2ap_sctp.pcap", scripts[0])
         self.assertNotIn("/home/", scripts[0])
-
-    def test_start_uses_drax_provider_without_flexric_ric_lifecycle(self) -> None:
-        class FakeRemote:
-            config = sample_remote_config(
-                ric_provider=RIC_PROVIDER_DRAX_EXISTING,
-                drax=DraxConfig(e2_endpoint="10.0.0.10:36421", kpm_api_url="http://10.0.0.20:8080"),
-            )
-
-        runtime = EpisodeRuntime(FakeRemote())  # type: ignore[arg-type]
-        scripts = []
-
-        def fake_remote_json(body):
-            scripts.append(body)
-            return {"status": "error", "summary": "stop before launch"}
-
-        runtime._remote_json = fake_remote_json  # type: ignore[method-assign]
-        runtime.start(EpisodeOptions(run_id="unit-drax", task=TASK_E2_KPM_PRB_PING_V1))
-
-        self.assertIn("drax-existing", scripts[0])
-        self.assertIn("addr: 10.0.0.10", scripts[0])
-        self.assertIn("/reset", scripts[0])
-        self.assertIn("/records?", scripts[0])
-        self.assertIn("using external dRAX RIC provider", scripts[0])
-        self.assertIn('"log_available": log_available', scripts[0])
-        self.assertIn("pcap_available or (is_drax() and log_available)", scripts[0])
-
-    def test_observe_drax_oracle_does_not_default_setup_true(self) -> None:
-        class FakeRemote:
-            config = sample_remote_config(
-                ric_provider=RIC_PROVIDER_DRAX_EXISTING,
-                drax=DraxConfig(e2_endpoint="10.0.0.10:36421", kpm_api_url="http://10.0.0.20:8080"),
-            )
-
-        runtime = EpisodeRuntime(FakeRemote())  # type: ignore[arg-type]
-        runtime.options = EpisodeOptions(run_id="unit-drax", task=TASK_E2_KPM_PRB_PING_V1)
-        runtime.paths = episode_paths("/tmp/workspace", "unit-drax")
-        scripts = []
-
-        def fake_remote_json(body):
-            scripts.append(body)
-            return {"status": "ok", "observation": {}}
-
-        runtime._remote_json = fake_remote_json  # type: ignore[method-assign]
-        runtime.observe()
-
-        self.assertIn('existing.get("e2_setup_seen", False)', scripts[0])
-        self.assertNotIn('existing.get("e2_setup_seen", True)', scripts[0])
-        self.assertIn('"log_available": log_available', scripts[0])
-        self.assertIn('"oracle_available": e2_setup and len(records) >= 3', scripts[0])
 
     def test_cleanup_script_reports_postcondition_status(self) -> None:
         class FakeRemote:

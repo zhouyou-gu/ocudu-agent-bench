@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import itertools
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +44,7 @@ V4_SUITE_CONFORMANCE_CHECKS = {
     "e2_pcap_log_oracle",
 }
 SUPPORTED_SUITE_TASKS = {TASK_WS_PRB_PING_V1, TASK_E2_KPM_PRB_PING_V1}
+_SUITE_COUNTER = itertools.count()
 
 
 @dataclass(frozen=True)
@@ -63,7 +65,7 @@ class SuiteOptions:
 def default_suite_id() -> str:
     epoch_ns = time.time_ns()
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime(epoch_ns // 1_000_000_000))
-    return f"suite-{stamp}-{epoch_ns % 1_000_000_000:09d}"
+    return f"suite-{stamp}-{epoch_ns % 1_000_000_000:09d}-{next(_SUITE_COUNTER):04d}"
 
 
 def suite_run_id(suite_id: str, index: int) -> str:
@@ -208,7 +210,7 @@ def aggregate_suite(
             "ssh": remote.config.ssh_target,
             "workspace": remote.config.workspace,
             "ocudu_root": remote.config.ocudu_root,
-            "ocudu_commit": remote_state.get("ocudu_commit", ""),
+            "ocudu_commit": remote_state.get("ocudu_commit", "") or remote_state.get("ocudu_source_commit", ""),
             "ocudu_branch": remote_state.get("ocudu_branch", ""),
         },
         "artifacts": paths,

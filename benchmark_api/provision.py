@@ -71,8 +71,8 @@ def validate_provision_config(config: RemoteConfig) -> None:
         raise ProvisionConfigError(f"provision.mode must be {WORKSPACE_PROVISION_MODE!r}")
     missing = []
     source_fields = {
-        "sources.srsran-project-repo": config.sources.srsran_project_repo,
-        "sources.srsran-project-ref": config.sources.srsran_project_ref,
+        "sources.ocudu-repo": config.sources.ocudu_repo,
+        "sources.ocudu-ref": config.sources.ocudu_ref,
         "sources.srsran-4g-repo": config.sources.srsran_4g_repo,
         "sources.srsran-4g-ref": config.sources.srsran_4g_ref,
         "sources.open5gs-ref": config.sources.open5gs_ref,
@@ -99,8 +99,8 @@ def provision_payload(config: RemoteConfig, stage_names: list[str], force: bool)
         "gnb_image": config.runtime.gnb_image,
         "ue_image": config.runtime.ue_image,
         "sources": {
-            "srsran_project_repo": config.sources.srsran_project_repo,
-            "srsran_project_ref": config.sources.srsran_project_ref,
+            "ocudu_repo": config.sources.ocudu_repo,
+            "ocudu_ref": config.sources.ocudu_ref,
             "srsran_4g_repo": config.sources.srsran_4g_repo,
             "srsran_4g_ref": config.sources.srsran_4g_ref,
             "open5gs_ref": config.sources.open5gs_ref,
@@ -266,7 +266,7 @@ if "assets" in stages:
 if "images" in stages:
     docker_asset_dir = workspace / "assets" / "docker"
     require_file(
-        docker_asset_dir / "srsran-project-build.Dockerfile",
+        docker_asset_dir / "ocudu-build.Dockerfile",
         "provision assets missing for image stage; run remote provision --stage assets first",
     )
     require_file(
@@ -281,7 +281,7 @@ if "images" in stages:
         open5gs_compose.parent / "open5gs" / "Dockerfile",
         "Open5GS Docker context missing for image stage; run remote provision --stage assets first",
     )
-    run(["docker", "build", "-t", payload["gnb_image"], "-f", str(docker_asset_dir / "srsran-project-build.Dockerfile"), str(docker_asset_dir)], "image-srsran-project-build.log")
+    run(["docker", "build", "-t", payload["gnb_image"], "-f", str(docker_asset_dir / "ocudu-build.Dockerfile"), str(docker_asset_dir)], "image-ocudu-build.log")
     run(["docker", "build", "-t", payload["ue_image"], "-f", str(docker_asset_dir / "srsran-4g-ue-build.Dockerfile"), str(docker_asset_dir)], "image-srsran-4g-ue-build.log")
     run(["docker", "compose", "-f", str(open5gs_compose), "build"], "image-open5gs-build.log")
 
@@ -299,14 +299,14 @@ if "ocudu" in stages:
         "benchmark workspace missing for OCUDU stage; run remote provision --stage assets first",
     )
     sources_dir = workspace / "sources"
-    project_src = sources_dir / "srsran-project"
+    ocudu_src = sources_dir / "ocudu"
     ue_src = sources_dir / "srsran-4g"
-    project_commit = clone_or_update(payload["sources"]["srsran_project_repo"], payload["sources"]["srsran_project_ref"], project_src, "source-srsran-project")
+    ocudu_commit = clone_or_update(payload["sources"]["ocudu_repo"], payload["sources"]["ocudu_ref"], ocudu_src, "source-ocudu")
     ue_commit = clone_or_update(payload["sources"]["srsran_4g_repo"], payload["sources"]["srsran_4g_ref"], ue_src, "source-srsran-4g")
-    manifest["resolved"]["srsran_project_commit"] = project_commit
+    manifest["resolved"]["ocudu_commit"] = ocudu_commit
     manifest["resolved"]["srsran_4g_commit"] = ue_commit
     (ocudu_root / "src").mkdir(parents=True, exist_ok=True)
-    for name, src in {{"srsran-project": project_src, "srsran-4g": ue_src}}.items():
+    for name, src in {{"ocudu": ocudu_src, "srsran-4g": ue_src}}.items():
         link = ocudu_root / "src" / name
         if link.is_symlink() or (force and link.exists()):
             if link.is_dir() and not link.is_symlink():
@@ -315,23 +315,23 @@ if "ocudu" in stages:
                 link.unlink()
         if not link.exists():
             link.symlink_to(src, target_is_directory=True)
-    project_build = ocudu_root / "build" / "srsran-project"
-    project_install = ocudu_root / "install" / "srsran-project"
+    ocudu_build = ocudu_root / "build" / "ocudu"
+    ocudu_install = ocudu_root / "install" / "ocudu"
     ue_build = ocudu_root / "build" / "srsran-4g"
     ue_install = ocudu_root / "install" / "srsran-4g"
-    for path in [project_build, project_install, ue_build, ue_install]:
+    for path in [ocudu_build, ocudu_install, ue_build, ue_install]:
         path.mkdir(parents=True, exist_ok=True)
     run([
         "docker", "run", "--rm",
-        "-v", f"{{project_src}}:/src:ro",
-        "-v", f"{{project_build}}:/build",
-        "-v", f"{{project_install}}:/install",
+        "-v", f"{{ocudu_src}}:/src:ro",
+        "-v", f"{{ocudu_build}}:/build",
+        "-v", f"{{ocudu_install}}:/install",
         payload["gnb_image"], "bash", "-lc",
         "git config --global --add safe.directory /src && "
         "cmake -S /src -B /build -GNinja -DCMAKE_INSTALL_PREFIX=/install -DENABLE_EXPORT=ON -DENABLE_ZEROMQ=ON -DAUTO_DETECT_ISA=OFF && "
         "cmake --build /build --target gnb -j$(nproc) && "
         "cmake --install /build/apps/gnb",
-    ], "build-srsran-project.log")
+    ], "build-ocudu.log")
     run([
         "docker", "run", "--rm",
         "-v", f"{{ue_src}}:/src:ro",
@@ -345,7 +345,7 @@ if "ocudu" in stages:
         "cmake --install /build/srsue/src && "
         "mkdir -p /install/lib && find /build -name 'libsrs*.so*' -exec cp -a {{}} /install/lib/ \\\\;",
     ], "build-srsran-4g.log")
-    manifest["artifacts"]["gnb_binary"] = str(project_install / "bin" / "gnb")
+    manifest["artifacts"]["gnb_binary"] = str(ocudu_install / "bin" / "gnb")
     manifest["artifacts"]["srsue_binary"] = str(ue_install / "bin" / "srsue")
 
 manifest_path = write_manifest("ok")

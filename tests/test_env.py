@@ -48,11 +48,11 @@ runtime:
     open5gs-compose ~/skillful-ran-benchmark-workspace/assets/open5gs-core/compose/docker-compose.open5gs.yml
     e2e-config-dir ~/skillful-ran-benchmark-workspace/assets/ocudu-zmq-open5gs-e2e/config
     open5gs-image skillful-ran/open5gs:v2.7.0
-    gnb-image skillful-ran/srsran-project-build:release_25_10
+    gnb-image skillful-ran/ocudu-build:release_26_04
     ue-image skillful-ran/srsran-4g-ue-build:release_23_11
 sources:
-    srsran-project-repo https://github.com/srsran/srsRAN_Project.git
-    srsran-project-ref release_25_10
+    ocudu-repo https://gitlab.com/ocudu/ocudu.git
+    ocudu-ref release_26_04
     srsran-4g-repo https://github.com/srsran/srsRAN_4G.git
     srsran-4g-ref release_23_11
     open5gs-ref v2.7.0

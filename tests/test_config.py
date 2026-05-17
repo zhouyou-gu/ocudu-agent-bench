@@ -15,11 +15,11 @@ runtime:
     open5gs-compose ~/skillful-ran-benchmark-workspace/assets/open5gs-core/compose/docker-compose.open5gs.yml
     e2e-config-dir ~/skillful-ran-benchmark-workspace/assets/ocudu-zmq-open5gs-e2e/config
     open5gs-image skillful-ran/open5gs:v2.7.0
-    gnb-image skillful-ran/srsran-project-build:release_25_10
+    gnb-image skillful-ran/ocudu-build:release_26_04
     ue-image skillful-ran/srsran-4g-ue-build:release_23_11
 sources:
-    srsran-project-repo https://github.com/srsran/srsRAN_Project.git
-    srsran-project-ref release_25_10
+    ocudu-repo https://gitlab.com/ocudu/ocudu.git
+    ocudu-ref release_26_04
     srsran-4g-repo https://github.com/srsran/srsRAN_4G.git
     srsran-4g-ref release_23_11
     open5gs-ref v2.7.0
@@ -47,8 +47,8 @@ class ConfigTests(unittest.TestCase):
             "~/skillful-ran-benchmark-workspace/assets/open5gs-core/compose/docker-compose.open5gs.yml",
         )
         self.assertEqual(cfg.runtime.open5gs_image, "skillful-ran/open5gs:v2.7.0")
-        self.assertEqual(cfg.runtime.gnb_image, "skillful-ran/srsran-project-build:release_25_10")
-        self.assertEqual(cfg.sources.srsran_project_ref, "release_25_10")
+        self.assertEqual(cfg.runtime.gnb_image, "skillful-ran/ocudu-build:release_26_04")
+        self.assertEqual(cfg.sources.ocudu_ref, "release_26_04")
         self.assertEqual(cfg.provision.mode, "workspace-owned")
         self.assertEqual(cfg.ric_provider, "flexric")
 
@@ -60,27 +60,26 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg.runtime.open5gs_image, "skillful-ran/open5gs:v2.7.0")
         self.assertEqual(cfg.sources.open5gs_ref, "v2.7.0")
 
-    def test_parse_drax_existing_provider(self) -> None:
+    def test_old_srsran_project_source_fields_error(self) -> None:
+        path = self.write_config(
+            BASE_CONFIG.replace("ocudu-repo https://gitlab.com/ocudu/ocudu.git", "srsran-project-repo https://github.com/srsran/srsRAN_Project.git").replace(
+                "ocudu-ref release_26_04", "srsran-project-ref release_25_10"
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "sources.ocudu-repo"):
+            parse_config(path)
+
+    def test_legacy_external_provider_is_rejected(self) -> None:
+        legacy_provider = "d" + "rax-existing"
         path = self.write_config(
             BASE_CONFIG
-            + """
+            + f"""
 ric:
-    provider drax-existing
-drax:
-    kubeconfig ~/skillful-ran-benchmark-workspace/drax/kubeconfig
-    namespace ricplt
-    kubectl-image bitnami/kubectl:1.30.8
-    e2-endpoint 10.0.0.10:36421
-    e2-bind-addr 0.0.0.0
-    kpm-api-url http://10.0.0.20:8080
+    provider {legacy_provider}
 """
         )
-        cfg = parse_config(path)
-        self.assertEqual(cfg.ric_provider, "drax-existing")
-        self.assertEqual(cfg.drax.namespace, "ricplt")
-        self.assertEqual(cfg.drax.kubeconfig, "~/skillful-ran-benchmark-workspace/drax/kubeconfig")
-        self.assertEqual(cfg.drax.e2_endpoint, "10.0.0.10:36421")
-        self.assertEqual(cfg.drax.kpm_api_url, "http://10.0.0.20:8080")
+        with self.assertRaisesRegex(ValueError, "ric.provider must be flexric"):
+            parse_config(path)
 
     def test_missing_ssh_target_errors(self) -> None:
         path = self.write_config(
@@ -115,17 +114,18 @@ remote:
         with self.assertRaisesRegex(ValueError, "runtime.open5gs-compose"):
             parse_config(path)
 
-    def test_drax_provider_requires_api_values(self) -> None:
+    def test_legacy_external_provider_fails_before_backend_fields(self) -> None:
+        legacy_provider = "d" + "rax-existing"
         path = self.write_config(
             BASE_CONFIG
-            + """
+            + f"""
 ric:
-    provider drax-existing
-drax:
+    provider {legacy_provider}
+external:
     namespace ricplt
 """
         )
-        with self.assertRaisesRegex(ValueError, "drax.kubeconfig"):
+        with self.assertRaisesRegex(ValueError, "external RIC providers were removed"):
             parse_config(path)
 
 

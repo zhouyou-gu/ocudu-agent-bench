@@ -19,9 +19,12 @@ from benchmark.benchmark_api.provision import (
 )
 from benchmark.benchmark_api.ric import (
     FLEXRIC_IMAGE,
-    RIC_PROVIDER_DRAX_EXISTING,
-    drax_manifest,
-    drax_workspace_paths,
+    FLEXRIC_OCUDU_ASN_BUNDLE_SOURCES,
+    FLEXRIC_OCUDU_DECODER_SUPPORT_SOURCES,
+    FLEXRIC_OCUDU_ASN_HEADER,
+    FLEXRIC_OCUDU_ASN_SOURCE,
+    generate_flexric_kpm_v05_patch_script,
+    generate_ocudu_kpm_v05_decoder_source,
     flexric_manifest,
     flexric_workspace_paths,
     generate_flexric_dockerfile,
@@ -151,6 +154,7 @@ export OCUDU_ROOT BENCHMARK_WORKSPACE OPEN5GS_COMPOSE E2E_CONFIG_DIR RIC_PROVIDE
             stderr = proc.stderr.decode("utf-8", errors="replace").strip()
             raise RemoteCommandError(f"Unable to list tracked benchmark files: {stderr}")
         files = [Path(item.decode("utf-8")) for item in proc.stdout.split(b"\0") if item]
+        files = [path for path in files if (repo_root / path).is_file()]
         return sorted(files, key=lambda path: path.as_posix())
 
     def _bootstrap_manifest_files(self, repo_root: Path, source: Path) -> list[Path]:
@@ -236,14 +240,14 @@ if [ -d "$OCUDU_ROOT" ]; then
 else
   echo ocudu_exists=0
 fi
-SRSRAN_PROJECT_SRC="$BENCHMARK_WORKSPACE/sources/srsran-project"
+OCUDU_SRC="$BENCHMARK_WORKSPACE/sources/ocudu"
 SRSRAN_4G_SRC="$BENCHMARK_WORKSPACE/sources/srsran-4g"
-if git -C "$SRSRAN_PROJECT_SRC" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  echo srsran_project_is_git=1
-  echo srsran_project_commit=$(git -C "$SRSRAN_PROJECT_SRC" rev-parse --short=12 HEAD 2>/dev/null || true)
-  echo srsran_project_origin=$(git -C "$SRSRAN_PROJECT_SRC" remote get-url origin 2>/dev/null || true)
+if git -C "$OCUDU_SRC" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo ocudu_source_is_git=1
+  echo ocudu_source_commit=$(git -C "$OCUDU_SRC" rev-parse --short=12 HEAD 2>/dev/null || true)
+  echo ocudu_source_origin=$(git -C "$OCUDU_SRC" remote get-url origin 2>/dev/null || true)
 else
-  echo srsran_project_is_git=0
+  echo ocudu_source_is_git=0
 fi
 if git -C "$SRSRAN_4G_SRC" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo srsran_4g_is_git=1
@@ -305,9 +309,9 @@ fi
                 "ocudu_commit": data.get("ocudu_commit", ""),
                 "ocudu_branch": data.get("ocudu_branch", ""),
                 "ocudu_origin": data.get("ocudu_origin", ""),
-                "srsran_project_is_git": data.get("srsran_project_is_git") == "1",
-                "srsran_project_commit": data.get("srsran_project_commit", ""),
-                "srsran_project_origin": data.get("srsran_project_origin", ""),
+                "ocudu_source_is_git": data.get("ocudu_source_is_git") == "1",
+                "ocudu_source_commit": data.get("ocudu_source_commit", ""),
+                "ocudu_source_origin": data.get("ocudu_source_origin", ""),
                 "srsran_4g_is_git": data.get("srsran_4g_is_git") == "1",
                 "srsran_4g_commit": data.get("srsran_4g_commit", ""),
                 "srsran_4g_origin": data.get("srsran_4g_origin", ""),
@@ -335,7 +339,7 @@ fi
             "provision": {
                 "mode": self.config.provision.mode,
                 "source_pins": {
-                    "srsran_project_ref": self.config.sources.srsran_project_ref,
+                    "ocudu_ref": self.config.sources.ocudu_ref,
                     "srsran_4g_ref": self.config.sources.srsran_4g_ref,
                     "open5gs_ref": self.config.sources.open5gs_ref,
                 },
@@ -375,6 +379,127 @@ echo metadata=$BENCHMARK_WORKSPACE/metadata.json
             "stdout": proc.stdout.strip(),
             "stderr": proc.stderr.strip(),
         }
+
+    def reset_workspace(self, force: bool = False, dry_run: bool = False) -> dict[str, Any]:
+        local_errors = self._local_reset_workspace_errors()
+        script = r"""
+set -eu
+python3 - <<'PY'
+import json
+import pathlib
+import shutil
+import shlex
+import subprocess
+
+workspace = pathlib.Path(__import__("os").environ["BENCHMARK_WORKSPACE"]).resolve()
+home = pathlib.Path.home().resolve()
+failures = []
+if str(workspace) in {"", "/", "."}:
+    failures.append("workspace path is empty or root")
+if workspace == home:
+    failures.append("workspace path must not be the remote home directory")
+try:
+    workspace.relative_to(home)
+except ValueError:
+    failures.append("workspace path must be inside the remote home directory")
+if len(workspace.parts) < len(home.parts) + 1:
+    failures.append("workspace path must name a child directory under remote home")
+if failures:
+    print(json.dumps({"status": "error", "errors": failures, "workspace": str(workspace), "home": str(home)}))
+    raise SystemExit(2)
+existed = workspace.exists()
+if existed:
+    try:
+        shutil.rmtree(workspace)
+    except PermissionError:
+        proc = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--user",
+                "0:0",
+                "-v",
+                f"{workspace.parent}:/host",
+                "ubuntu:24.04",
+                "bash",
+                "-lc",
+                "rm -rf -- /host/" + shlex.quote(workspace.name),
+            ],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        if proc.returncode != 0:
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "errors": ["workspace deletion failed", proc.stderr.strip()],
+                        "workspace": str(workspace),
+                        "home": str(home),
+                    }
+                )
+            )
+            raise SystemExit(proc.returncode)
+workspace.mkdir(parents=True, exist_ok=True)
+print(json.dumps({"status": "ok", "workspace": str(workspace), "home": str(home), "deleted": existed, "recreated": True}))
+PY
+"""
+        remote_command = self._remote_shell(script)
+        if not force:
+            return {
+                "status": "error",
+                "error": "remote reset-workspace requires --force",
+                "workspace": self.config.workspace,
+                "dry_run": dry_run,
+            }
+        if local_errors:
+            return {
+                "status": "error",
+                "error": "unsafe remote workspace path",
+                "errors": local_errors,
+                "workspace": self.config.workspace,
+                "dry_run": dry_run,
+            }
+        if dry_run:
+            return {
+                "status": "ok",
+                "dry_run": True,
+                "force": True,
+                "workspace": self.config.workspace,
+                "planned_remote_command": remote_command,
+            }
+        proc = self._run(self.ssh_argv(remote_command))
+        payload: dict[str, Any] = {}
+        try:
+            payload = json.loads(proc.stdout.strip().splitlines()[-1])
+        except (IndexError, json.JSONDecodeError):
+            payload = {}
+        return {
+            "status": "ok" if proc.returncode == 0 and payload.get("status") == "ok" else "error",
+            "returncode": proc.returncode,
+            "force": True,
+            "workspace": payload.get("workspace", self.config.workspace),
+            "deleted": payload.get("deleted", False),
+            "recreated": payload.get("recreated", False),
+            "stdout": proc.stdout.strip(),
+            "stderr": proc.stderr.strip(),
+            "errors": payload.get("errors", []),
+        }
+
+    def _local_reset_workspace_errors(self) -> list[str]:
+        workspace = self.config.workspace.strip()
+        errors = []
+        if workspace in {"", "/", ".", "~"}:
+            errors.append("workspace path is empty, root, current directory, or remote home")
+        if "/../" in workspace or workspace.endswith("/..") or workspace == "..":
+            errors.append("workspace path must not contain parent-directory traversal")
+        if workspace.startswith("/"):
+            user = self.config.ssh_target.rsplit("@", 1)[0] if "@" in self.config.ssh_target else ""
+            if user and not workspace.startswith(f"/home/{user}/"):
+                errors.append("absolute workspace path must be under the configured SSH user's home")
+        return errors
 
     def sync(self, source: Path, repo_root: Path | None = None, dry_run: bool = False) -> dict[str, Any]:
         if not source.exists():
@@ -470,24 +595,82 @@ echo library_count=$(find "$LIB_ROOT/root" \\( -type f -o -type l \\) | grep -E 
         }
 
     def prepare_ric(self, dry_run: bool = False, force: bool = False) -> dict[str, Any]:
-        if self.config.ric_provider == RIC_PROVIDER_DRAX_EXISTING:
-            return self._prepare_drax_existing_ric(dry_run=dry_run)
         paths = flexric_workspace_paths(self.config.workspace)
         dockerfile = generate_flexric_dockerfile()
+        patch_script = generate_flexric_kpm_v05_patch_script()
+        decoder_source = generate_ocudu_kpm_v05_decoder_source()
         manifest = flexric_manifest()
         payload = {
             "paths": paths,
             "image": FLEXRIC_IMAGE,
             "dockerfile": dockerfile,
+            "patch_script": patch_script,
+            "decoder_source": decoder_source,
             "manifest": manifest,
             "force": force,
+            "ocudu_root": self.config.ocudu_root,
+            "ocudu_asn_sources": sorted(
+                set(
+                    [
+                        FLEXRIC_OCUDU_ASN_HEADER,
+                        FLEXRIC_OCUDU_ASN_SOURCE,
+                        *FLEXRIC_OCUDU_ASN_BUNDLE_SOURCES,
+                        *FLEXRIC_OCUDU_DECODER_SUPPORT_SOURCES,
+                        "lib/ocudulog/",
+                    ]
+                )
+            ),
         }
+        missing_checks = "\n".join(
+            f'test -f "$OCUDU_ROOT/src/ocudu/{source}" || missing="$missing $OCUDU_ROOT/src/ocudu/{source}"'
+            for source in [*FLEXRIC_OCUDU_ASN_BUNDLE_SOURCES, *FLEXRIC_OCUDU_DECODER_SUPPORT_SOURCES]
+        )
+        source_dir_copies = "\n".join(
+            f'mkdir -p "$RIC_ROOT/ocudu-asn1/$(dirname {shlex.quote(source)})"\n'
+            f'cp "$OCUDU_ROOT/src/ocudu/{source}" "$RIC_ROOT/ocudu-asn1/{source}"'
+            for source in [*FLEXRIC_OCUDU_ASN_BUNDLE_SOURCES, *FLEXRIC_OCUDU_DECODER_SUPPORT_SOURCES]
+        )
         script = f"""
 set -eu
 RIC_ROOT_RAW={shlex.quote(paths["root"])}
 RIC_ROOT="$(expand_remote_path "$RIC_ROOT_RAW")"
+OCUDU_ROOT_RAW={shlex.quote(self.config.ocudu_root)}
+OCUDU_ROOT="$(expand_remote_path "$OCUDU_ROOT_RAW")"
 IMAGE={shlex.quote(FLEXRIC_IMAGE)}
+if [ ! -d "$OCUDU_ROOT/src/ocudu" ]; then
+  echo status=error
+  echo error='OCUDU source is missing; run remote provision --stage ocudu first'
+  exit 2
+fi
+missing=""
+test -d "$OCUDU_ROOT/src/ocudu/include" || missing="$missing $OCUDU_ROOT/src/ocudu/include"
+test -d "$OCUDU_ROOT/src/ocudu/external" || missing="$missing $OCUDU_ROOT/src/ocudu/external"
+test -d "$OCUDU_ROOT/src/ocudu/lib/ocudulog" || missing="$missing $OCUDU_ROOT/src/ocudu/lib/ocudulog"
+{missing_checks}
+if [ -n "$missing" ]; then
+  echo status=error
+  echo error='OCUDU KPM v05 decoder inputs are missing; run remote provision --stage ocudu first'
+  echo missing="$missing"
+  exit 2
+fi
 mkdir -p "$RIC_ROOT"
+if [ "{'1' if force else '0'}" = "1" ]; then
+  rm -rf "$RIC_ROOT/ocudu-asn1" "$RIC_ROOT/patches" "$RIC_ROOT/Dockerfile" "$RIC_ROOT/expected_manifest.json"
+fi
+rm -rf "$RIC_ROOT/ocudu-asn1"
+mkdir -p "$RIC_ROOT/ocudu-asn1"
+cp -a "$OCUDU_ROOT/src/ocudu/include" "$RIC_ROOT/ocudu-asn1/"
+cp -a "$OCUDU_ROOT/src/ocudu/external" "$RIC_ROOT/ocudu-asn1/"
+mkdir -p "$RIC_ROOT/ocudu-asn1/lib"
+cp -a "$OCUDU_ROOT/src/ocudu/lib/ocudulog" "$RIC_ROOT/ocudu-asn1/lib/"
+{source_dir_copies}
+mkdir -p "$RIC_ROOT/patches"
+cat > "$RIC_ROOT/patches/apply_kpm_v05_patch.py" <<'PY'
+{patch_script}
+PY
+cat > "$RIC_ROOT/patches/ocudu_kpm_v05_decode.cpp" <<'CPP'
+{decoder_source}
+CPP
 cat > "$RIC_ROOT/Dockerfile" <<'DOCKERFILE'
 {dockerfile}
 DOCKERFILE
@@ -521,6 +704,9 @@ echo reused=0
                 "manifest": manifest,
                 "planned_remote_command": remote_command,
                 "dockerfile": dockerfile,
+                "patch_script": patch_script,
+                "decoder_source": decoder_source,
+                "ocudu_asn_sources": payload["ocudu_asn_sources"],
             }
         init_result = self.init_workspace()
         if init_result.get("status") != "ok":
@@ -544,56 +730,6 @@ echo reused=0
             "manifest": data.get("manifest", paths["manifest"]),
             "build_log": data.get("build_log", paths["build_log"]),
             "reused": data.get("reused") == "1",
-            "init": init_result,
-            "stdout": proc.stdout.strip(),
-            "stderr": proc.stderr.strip(),
-        }
-
-    def _prepare_drax_existing_ric(self, dry_run: bool = False) -> dict[str, Any]:
-        paths = drax_workspace_paths(self.config.workspace)
-        manifest = drax_manifest(self.config)
-        script = f"""
-set -eu
-RIC_ROOT_RAW={shlex.quote(paths["root"])}
-RIC_ROOT="$(expand_remote_path "$RIC_ROOT_RAW")"
-mkdir -p "$RIC_ROOT"
-cat > "$RIC_ROOT/manifest.json" <<'JSON'
-{json.dumps(manifest, indent=2, sort_keys=True)}
-JSON
-echo status=ok
-echo provider={RIC_PROVIDER_DRAX_EXISTING}
-echo manifest=$RIC_ROOT/manifest.json
-"""
-        remote_command = self._remote_shell(script)
-        if dry_run:
-            return {
-                "status": "ok",
-                "dry_run": True,
-                "provider": RIC_PROVIDER_DRAX_EXISTING,
-                "paths": paths,
-                "manifest": manifest,
-                "planned_remote_command": remote_command,
-            }
-        init_result = self.init_workspace()
-        if init_result.get("status") != "ok":
-            return {
-                "status": "error",
-                "returncode": init_result.get("returncode", 1),
-                "provider": RIC_PROVIDER_DRAX_EXISTING,
-                "paths": paths,
-                "init": init_result,
-                "stdout": "",
-                "stderr": "remote workspace init failed",
-            }
-        proc = self._run(self.ssh_argv(remote_command))
-        data = self._parse_key_values(proc.stdout)
-        status = "ok" if proc.returncode == 0 and data.get("status") == "ok" else "error"
-        return {
-            "status": status,
-            "returncode": proc.returncode,
-            "provider": RIC_PROVIDER_DRAX_EXISTING,
-            "paths": paths,
-            "manifest": data.get("manifest", paths["manifest"]),
             "init": init_result,
             "stdout": proc.stdout.strip(),
             "stderr": proc.stderr.strip(),
@@ -656,8 +792,8 @@ echo manifest=$RIC_ROOT/manifest.json
                 "ue_image": self.config.runtime.ue_image,
             },
             "sources": {
-                "srsran_project_repo": self.config.sources.srsran_project_repo,
-                "srsran_project_ref": self.config.sources.srsran_project_ref,
+                "ocudu_repo": self.config.sources.ocudu_repo,
+                "ocudu_ref": self.config.sources.ocudu_ref,
                 "srsran_4g_repo": self.config.sources.srsran_4g_repo,
                 "srsran_4g_ref": self.config.sources.srsran_4g_ref,
                 "open5gs_ref": self.config.sources.open5gs_ref,
