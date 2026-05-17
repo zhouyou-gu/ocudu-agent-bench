@@ -34,7 +34,7 @@ from benchmark.benchmark_api.episode import (
 )
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
 from benchmark.benchmark_api.provision import PROVISION_STAGE_CHOICES
-from benchmark.benchmark_api.suite import BUILTIN_AGENTS, run_suite, suite_exit_code
+from benchmark.benchmark_api.suite import BUILTIN_CONTROLLERS, run_suite, suite_exit_code
 from benchmark.benchmark_api.tasks import (
     TASK_WS_PRB_PING_V1,
     V3_EPISODE_GATE_CHECKS,
@@ -218,7 +218,7 @@ def cmd_episode_suite(args: argparse.Namespace) -> int:
         specs_path=ROOT / "benchmark" / "conformance" / "tests.json",
         suite_id=args.suite_id,
         task=args.task,
-        agent=args.agent,
+        controller=args.controller,
         runs=args.runs,
         duration=args.duration,
         seed=args.seed,
@@ -363,7 +363,12 @@ def build_parser() -> argparse.ArgumentParser:
     episode_suite.add_argument("--config", default=".config", help="Path to local remote config")
     episode_suite.add_argument("--task", choices=task_choices, default=TASK_WS_PRB_PING_V1, help="Benchmark task id")
     episode_suite.add_argument(
-        "--agent", choices=sorted(BUILTIN_AGENTS), default="fixed_prb", help="Built-in baseline agent"
+        "--controller",
+        "--agent",
+        dest="controller",
+        choices=sorted(BUILTIN_CONTROLLERS),
+        default="fixed_prb",
+        help="Built-in deterministic baseline controller; --agent is a compatibility alias",
     )
     episode_suite.add_argument("--runs", type=int, default=3, help="Number of suite episodes")
     episode_suite.add_argument("--duration", type=int, default=DEFAULT_EPISODE_DURATION, help="Episode duration in seconds")

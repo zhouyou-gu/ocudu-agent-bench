@@ -61,7 +61,7 @@ Run a WebSocket PRB-control suite:
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task ws_prb_ping_v1 \
-  --agent fixed_prb \
+  --controller fixed_prb \
   --runs 2 \
   --duration 5 \
   --seed 1 \
@@ -69,13 +69,16 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
+`--controller` selects a built-in deterministic baseline controller, not an LLM agent. For example, `fixed_prb` always sends one fixed valid PRB action and then stops. These controllers are smoke tests and reference baselines for the benchmark itself. Real LLM agents normally use the Python API, inspect observations, choose actions, and are scored against the same task contracts. The old `--agent` spelling is accepted only as a compatibility alias for `--controller`.
+Suite summaries use `controller` as the canonical field and may keep a deprecated `agent` alias for older consumers.
+
 Run the E2SM-KPM v05 task after FlexRIC preparation:
 
 ```bash
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task e2_kpm_prb_ping_v1 \
-  --agent fixed_prb \
+  --controller fixed_prb \
   --runs 2 \
   --duration 10 \
   --seed 1 \

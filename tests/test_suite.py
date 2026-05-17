@@ -5,7 +5,9 @@ import benchmark.benchmark_api.suite as suite_module
 from benchmark.benchmark_api.config import RemoteConfig, RuntimeConfig
 from benchmark.benchmark_api.suite import (
     BaselineAgent,
+    BaselineController,
     BUILTIN_AGENTS,
+    BUILTIN_CONTROLLERS,
     SuiteOptions,
     SuiteRunner,
     V4_SUITE_CONFORMANCE_CHECKS,
@@ -64,11 +66,11 @@ class SuiteTests(unittest.TestCase):
             suite_run_id("bad/id", 1)
 
     def test_builtin_agents_are_deterministic(self) -> None:
-        fixed = BaselineAgent("fixed_prb", seed=1)
+        fixed = BaselineController("fixed_prb", seed=1)
         self.assertIsNotNone(fixed.next_action({"observation": {}}))
         self.assertIsNone(fixed.next_action({"observation": {}}))
 
-        invalid = BaselineAgent("invalid_then_fixed", seed=1)
+        invalid = BaselineController("invalid_then_fixed", seed=1)
         first = invalid.next_action({})
         second = invalid.next_action({})
         third = invalid.next_action({})
@@ -76,13 +78,13 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(second["min_prb_policy_ratio"], 10)
         self.assertIsNone(third)
 
-        sweep_a = BaselineAgent("sweep_prb", seed=2)
-        sweep_b = BaselineAgent("sweep_prb", seed=2)
+        sweep_a = BaselineController("sweep_prb", seed=2)
+        sweep_b = BaselineController("sweep_prb", seed=2)
         self.assertEqual([sweep_a.next_action({}) for _ in range(4)], [sweep_b.next_action({}) for _ in range(4)])
 
-        self.assertIsNone(BaselineAgent("noop", seed=1).next_action({"observation": {"metrics": {"present": True}}}))
+        self.assertIsNone(BaselineController("noop", seed=1).next_action({"observation": {"metrics": {"present": True}}}))
 
-        evidence = BaselineAgent("evidence_gated_prb", seed=1)
+        evidence = BaselineController("evidence_gated_prb", seed=1)
         self.assertIsNone(evidence.next_action({"observation": {"metrics": {"present": True}, "e2": {"enabled": True}}}))
         self.assertIsNotNone(
             evidence.next_action(
@@ -95,7 +97,7 @@ class SuiteTests(unittest.TestCase):
             )
         )
 
-        stale_guard = BaselineAgent("stale_guard_prb", seed=1)
+        stale_guard = BaselineController("stale_guard_prb", seed=1)
         self.assertIsNone(
             stale_guard.next_action({"observation": {"metrics": {"present": False, "stale": True}}})
         )
@@ -109,21 +111,21 @@ class SuiteTests(unittest.TestCase):
                 "e2": {"has_prb_measurement": True, "du_ue_id": 11},
             }
         }
-        self.assertEqual(BaselineAgent("ccc_prb", seed=1).next_action(e2_frame)["type"], "SET_PRB_POLICY_RATIO_CCC")
-        rc_action = BaselineAgent("rc_du_prb", seed=1).next_action(e2_frame)
+        self.assertEqual(BaselineController("ccc_prb", seed=1).next_action(e2_frame)["type"], "SET_PRB_POLICY_RATIO_CCC")
+        rc_action = BaselineController("rc_du_prb", seed=1).next_action(e2_frame)
         self.assertEqual(rc_action["type"], "SET_PRB_POLICY_RATIO_RC_DU")
         self.assertEqual(rc_action["du_ue_id"], 11)
         self.assertEqual(
-            BaselineAgent("e2_control_consistency", seed=1).next_action(e2_frame)["type"],
+            BaselineController("e2_control_consistency", seed=1).next_action(e2_frame)["type"],
             "SET_PRB_POLICY_RATIO_CCC",
         )
         ssb_frame = {"observation": {"cell": {"plmn": "00101", "nci": 6733824}}}
-        self.assertEqual(BaselineAgent("ssb_power", seed=1).next_action(ssb_frame)["type"], "SET_SSB_BLOCK_POWER_WS")
-        invalid_ssb = BaselineAgent("invalid_then_ssb", seed=1)
+        self.assertEqual(BaselineController("ssb_power", seed=1).next_action(ssb_frame)["type"], "SET_SSB_BLOCK_POWER_WS")
+        invalid_ssb = BaselineController("invalid_then_ssb", seed=1)
         self.assertEqual(invalid_ssb.next_action(ssb_frame)["ssb_block_power_dbm"], 99)
         self.assertEqual(invalid_ssb.next_action(ssb_frame)["ssb_block_power_dbm"], -16)
 
-    def test_builtin_agent_catalog_contains_task_specific_agents(self) -> None:
+    def test_builtin_controller_catalog_contains_task_specific_controllers(self) -> None:
         self.assertTrue(
             {
                 "noop",
@@ -135,9 +137,56 @@ class SuiteTests(unittest.TestCase):
                 "ssb_power",
                 "invalid_then_ssb",
             }.issubset(
-                BUILTIN_AGENTS
+                BUILTIN_CONTROLLERS
             )
         )
+        self.assertIs(BUILTIN_AGENTS, BUILTIN_CONTROLLERS)
+        self.assertIs(BaselineAgent, BaselineController)
+
+    def test_suite_options_prefers_controller_and_keeps_agent_alias(self) -> None:
+        options = SuiteOptions(suite_id="unit-suite", controller="noop")
+        self.assertEqual(options.controller, "noop")
+        self.assertEqual(options.agent, "noop")
+
+        legacy = SuiteOptions("unit-suite", "ws_prb_ping_v1", "fixed_prb", 4, 7)
+        self.assertEqual(legacy.controller, "fixed_prb")
+        self.assertEqual(legacy.agent, "fixed_prb")
+        self.assertEqual(legacy.runs, 4)
+        self.assertEqual(legacy.duration, 7)
+
+        with self.assertRaisesRegex(ValueError, "controller and legacy agent"):
+            SuiteOptions(suite_id="unit-suite", agent="noop", controller="fixed_prb")
+
+    def test_run_suite_preserves_legacy_positional_agent_order(self) -> None:
+        original = suite_module.SuiteRunner.run
+
+        def fake_run(self, options):
+            return {
+                "controller": options.controller,
+                "agent": options.agent,
+                "runs": options.runs,
+                "duration": options.duration,
+            }
+
+        suite_module.SuiteRunner.run = fake_run
+        try:
+            result = suite_module.run_suite(
+                FakeRemote(),
+                Path(".").resolve(),
+                Path("benchmark/conformance/tests.json"),
+                "unit-suite",
+                "ws_prb_ping_v1",
+                "noop",
+                4,
+                7,
+            )
+        finally:
+            suite_module.SuiteRunner.run = original
+
+        self.assertEqual(result["controller"], "noop")
+        self.assertEqual(result["agent"], "noop")
+        self.assertEqual(result["runs"], 4)
+        self.assertEqual(result["duration"], 7)
 
     def test_aggregate_suite_scores(self) -> None:
         options = SuiteOptions(suite_id="unit-suite", runs=2)
@@ -174,6 +223,9 @@ class SuiteTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["scored_runs"], 1)
+        self.assertEqual(result["controller"], "fixed_prb")
+        self.assertEqual(result["agent"], "fixed_prb")
+        self.assertIn("agent", result["deprecated_fields"])
         self.assertEqual(result["unscored_runs"], 1)
         self.assertEqual(result["aggregate_scores"]["ping_success_ratio"]["mean"], 1.0)
         self.assertEqual(result["aggregate_scores"]["metrics_continuity"]["max"], 5.0)

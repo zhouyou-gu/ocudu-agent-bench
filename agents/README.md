@@ -1,6 +1,13 @@
-# Agent Guide
+# LLM Agent And Controller Guide
 
-This page is for agents and harness authors that need to run benchmark episodes. Use the Python API for live observe/act loops and the CLI for setup, conformance, smoke tests, cleanup, and deterministic baselines.
+This page separates two roles that are easy to confuse:
+
+- **LLM agent**: the external system being evaluated. It reads observations, decides whether to return an action or `None`, and is scored by the task.
+- **Built-in baseline controller**: a deterministic scripted policy selected by CLI `--controller`, such as `fixed_prb` or `noop`. It is used for smoke tests and reference baselines; it is not an LLM agent.
+
+Use the Python API for real LLM-agent observe/act loops. Use the CLI for setup, conformance, smoke tests, cleanup, and deterministic baseline controllers. The old CLI spelling `--agent` is still accepted as a compatibility alias for `--controller`.
+
+Suite JSON summaries use `controller` as the canonical field. They may also include a legacy `agent` field for older consumers; treat that field as deprecated and equivalent to `controller`.
 
 ## Setup Workflow Concepts
 
@@ -55,13 +62,13 @@ Use `conformance: "required"` for scored episodes. `conformance: "observe"` can 
 
 ## CLI Suite Lifecycle
 
-Run repeated scored episodes with a built-in baseline:
+Run repeated scored episodes with a built-in baseline controller:
 
 ```bash
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task ws_prb_ping_v1 \
-  --agent fixed_prb \
+  --controller fixed_prb \
   --runs 3 \
   --duration 10 \
   --seed 1 \
@@ -78,7 +85,7 @@ python3 benchmark/benchctl.py episode cleanup \
   --json
 ```
 
-## Built-In Baselines
+## Built-In Baseline Controllers
 
 - `fixed_prb`: sends one valid `{min=10,max=90}` PRB policy action after the first observation.
 - `sweep_prb`: cycles deterministic valid min/max PRB ranges.
@@ -92,9 +99,9 @@ python3 benchmark/benchctl.py episode cleanup \
 - `ssb_power`: sends one valid WebSocket SSB block-power action using the observed cell identity.
 - `invalid_then_ssb`: sends one locally invalid SSB block-power action, then a valid SSB action using the observed cell identity.
 
-Recommended baseline by task:
+Recommended built-in controller by task:
 
-| Task | Baseline |
+| Task | Built-In Controller |
 | --- | --- |
 | `ws_prb_ping_v1` | `fixed_prb` |
 | `e2_kpm_prb_ping_v1` | `fixed_prb` |
@@ -109,7 +116,7 @@ Recommended baseline by task:
 | `ws_ssb_power_guard_v1` | `noop` |
 | `ws_ssb_power_repair_v1` | `invalid_then_ssb` |
 
-Agents may return `None` when they do not want to act on an observation. Suite loops skip `None` decisions, and `BenchmarkEnv.act(None)` returns a non-logged no-op result for episode tasks.
+LLM agents may return `None` when they do not want to act on an observation. Suite loops skip `None` decisions, and `BenchmarkEnv.act(None)` returns a non-logged no-op result for episode tasks.
 
 ## Action Contract
 

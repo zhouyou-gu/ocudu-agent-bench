@@ -19,7 +19,7 @@ Evaluate whether an LLM agent can issue a valid OCUDU WebSocket PRB policy actio
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task ws_prb_ping_v1 \
-  --agent fixed_prb \
+  --controller fixed_prb \
   --runs 2 \
   --duration 5 \
   --seed 1 \

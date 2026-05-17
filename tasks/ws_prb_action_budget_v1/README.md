@@ -19,7 +19,7 @@ Evaluate whether an LLM agent can complete a PRB control objective with at most 
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task ws_prb_action_budget_v1 \
-  --agent fixed_prb \
+  --controller fixed_prb \
   --runs 2 \
   --duration 5 \
   --seed 1 \

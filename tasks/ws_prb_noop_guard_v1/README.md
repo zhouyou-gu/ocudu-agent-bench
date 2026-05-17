@@ -19,7 +19,7 @@ Evaluate whether an LLM agent can avoid unnecessary RAN control when ping and JS
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task ws_prb_noop_guard_v1 \
-  --agent noop \
+  --controller noop \
   --runs 2 \
   --duration 5 \
   --seed 1 \

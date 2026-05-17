@@ -19,7 +19,7 @@ Evaluate whether an LLM agent can select the correct E2 control API for a cell/s
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task e2_control_api_consistency_v1 \
-  --agent e2_control_consistency \
+  --controller e2_control_consistency \
   --runs 2 \
   --duration 10 \
   --seed 1 \

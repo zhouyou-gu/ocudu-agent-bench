@@ -19,7 +19,7 @@ Evaluate whether an LLM agent can avoid RAN control while telemetry is stale, th
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task metrics_staleness_noop_v1 \
-  --agent stale_guard_prb \
+  --controller stale_guard_prb \
   --runs 2 \
   --duration 5 \
   --seed 1 \

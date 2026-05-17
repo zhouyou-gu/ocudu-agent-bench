@@ -1,4 +1,8 @@
-"""Repeatable v3 suite runner and built-in baseline agents."""
+"""Repeatable suite runner and built-in baseline controllers.
+
+The built-ins are deterministic smoke-test policies. They are not LLM agents;
+external LLM agents normally drive episodes through ``BenchmarkEnv``.
+"""
 
 from __future__ import annotations
 
@@ -39,7 +43,7 @@ from benchmark.benchmark_api.tasks import (
 )
 
 
-BUILTIN_AGENTS = {
+BUILTIN_CONTROLLERS = {
     "fixed_prb",
     "sweep_prb",
     "invalid_then_fixed",
@@ -52,16 +56,19 @@ BUILTIN_AGENTS = {
     "invalid_then_ssb",
     "ssb_power",
 }
+# Compatibility alias for older callers and tests that used "agent" to mean
+# the built-in suite controller.
+BUILTIN_AGENTS = BUILTIN_CONTROLLERS
 V3_SUITE_CONFORMANCE_CHECKS = set(V3_EPISODE_GATE_CHECKS)
 V4_SUITE_CONFORMANCE_CHECKS = set(V4_EPISODE_GATE_CHECKS)
 _SUITE_COUNTER = itertools.count()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class SuiteOptions:
     suite_id: str
     task: str = TASK_WS_PRB_PING_V1
-    agent: str = "fixed_prb"
+    controller: str = "fixed_prb"
     runs: int = 3
     duration: int = DEFAULT_EPISODE_DURATION
     seed: int = 1
@@ -70,6 +77,47 @@ class SuiteOptions:
     attach_timeout: int = DEFAULT_ATTACH_TIMEOUT
     probe_timeout: int = DEFAULT_PROBE_TIMEOUT
     skip_conformance: bool = False
+
+    def __init__(
+        self,
+        suite_id: str,
+        task: str = TASK_WS_PRB_PING_V1,
+        agent: str | None = None,
+        runs: int = 3,
+        duration: int = DEFAULT_EPISODE_DURATION,
+        seed: int = 1,
+        ws_port: int = DEFAULT_WS_PORT,
+        launch_timeout: int = DEFAULT_LAUNCH_TIMEOUT,
+        attach_timeout: int = DEFAULT_ATTACH_TIMEOUT,
+        probe_timeout: int = DEFAULT_PROBE_TIMEOUT,
+        skip_conformance: bool = False,
+        *,
+        controller: str | None = None,
+    ) -> None:
+        selected_controller = _select_controller(controller=controller, legacy_agent=agent)
+        object.__setattr__(self, "suite_id", suite_id)
+        object.__setattr__(self, "task", task)
+        object.__setattr__(self, "controller", selected_controller)
+        object.__setattr__(self, "runs", runs)
+        object.__setattr__(self, "duration", duration)
+        object.__setattr__(self, "seed", seed)
+        object.__setattr__(self, "ws_port", ws_port)
+        object.__setattr__(self, "launch_timeout", launch_timeout)
+        object.__setattr__(self, "attach_timeout", attach_timeout)
+        object.__setattr__(self, "probe_timeout", probe_timeout)
+        object.__setattr__(self, "skip_conformance", skip_conformance)
+
+    @property
+    def agent(self) -> str:
+        """Deprecated compatibility alias for ``controller``."""
+
+        return self.controller
+
+
+def _select_controller(controller: str | None = None, legacy_agent: str | None = None) -> str:
+    if controller is not None and legacy_agent is not None and controller != legacy_agent:
+        raise ValueError("controller and legacy agent arguments must match when both are provided")
+    return controller if controller is not None else (legacy_agent or "fixed_prb")
 
 
 def default_suite_id() -> str:
@@ -100,10 +148,16 @@ def episode_stage(task: str) -> str:
     return episode_stage_for_task(task)
 
 
-class BaselineAgent:
+class BaselineController:
+    """Deterministic baseline controller used by CLI suites.
+
+    This is not an LLM agent. It is a small scripted policy used for smoke
+    tests and baseline comparisons.
+    """
+
     def __init__(self, name: str, seed: int) -> None:
-        if name not in BUILTIN_AGENTS:
-            raise ValueError(f"Unknown built-in agent: {name}")
+        if name not in BUILTIN_CONTROLLERS:
+            raise ValueError(f"Unknown built-in controller: {name}")
         self.name = name
         self.seed = seed
         self.step = 0
@@ -252,7 +306,12 @@ def aggregate_suite(
         "stage": suite_stage(options.task),
         "suite_id": options.suite_id,
         "task": options.task,
-        "agent": options.agent,
+        "controller": options.controller,
+        # Deprecated compatibility field kept for callers that already consume it.
+        "agent": options.controller,
+        "deprecated_fields": {
+            "agent": "use controller; this field is a compatibility alias for the built-in baseline controller"
+        },
         "seed": options.seed,
         "duration": options.duration,
         "requested_runs": options.runs,
@@ -320,8 +379,8 @@ class SuiteRunner:
         safe_run_id(options.suite_id)
         if options.task not in supported_task_ids():
             raise ValueError(f"Unsupported suite task: {options.task}")
-        if options.agent not in BUILTIN_AGENTS:
-            raise ValueError(f"Unknown built-in agent: {options.agent}")
+        if options.controller not in BUILTIN_CONTROLLERS:
+            raise ValueError(f"Unknown built-in controller: {options.controller}")
         if options.runs <= 0:
             raise ValueError("runs must be positive")
         if options.duration < 0:
@@ -362,7 +421,7 @@ class SuiteRunner:
             attach_timeout=options.attach_timeout,
             probe_timeout=options.probe_timeout,
         )
-        agent = BaselineAgent(options.agent, seed=options.seed + index - 1)
+        controller = BaselineController(options.controller, seed=options.seed + index - 1)
         observations: list[dict[str, Any]] = []
         actions: list[dict[str, Any]] = []
         cleanup: dict[str, Any] = {"status": "error", "run_id": run_id, "errors": ["cleanup did not run"]}
@@ -378,7 +437,7 @@ class SuiteRunner:
                 while True:
                     observation = runtime.observe()
                     observations.append(observation)
-                    action = agent.next_action(observation)
+                    action = controller.next_action(observation)
                     if action is not None:
                         actions.append(runtime.act(action))
                     remaining = deadline - time.monotonic()
@@ -491,13 +550,17 @@ def suite_exit_code(result: dict[str, Any]) -> int:
     return 0 if result.get("status") == "ok" and result.get("scored_runs", 0) > 0 else 1
 
 
+# Compatibility alias for older code/tests that imported BaselineAgent.
+BaselineAgent = BaselineController
+
+
 def run_suite(
     remote: RemoteManager,
     repo_root: Path,
     specs_path: Path,
     suite_id: str | None = None,
     task: str = TASK_WS_PRB_PING_V1,
-    agent: str = "fixed_prb",
+    agent: str | None = None,
     runs: int = 3,
     duration: int = DEFAULT_EPISODE_DURATION,
     seed: int = 1,
@@ -506,11 +569,14 @@ def run_suite(
     attach_timeout: int = DEFAULT_ATTACH_TIMEOUT,
     probe_timeout: int = DEFAULT_PROBE_TIMEOUT,
     skip_conformance: bool = False,
+    *,
+    controller: str | None = None,
 ) -> dict[str, Any]:
+    selected_controller = _select_controller(controller=controller, legacy_agent=agent)
     options = SuiteOptions(
         suite_id=safe_run_id(suite_id or default_suite_id()),
         task=task,
-        agent=agent,
+        controller=selected_controller,
         runs=runs,
         duration=duration,
         seed=seed,

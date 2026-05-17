@@ -19,7 +19,7 @@ Evaluate whether an LLM agent can repair an invalid OCUDU WebSocket SSB block-po
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task ws_ssb_power_repair_v1 \
-  --agent invalid_then_ssb \
+  --controller invalid_then_ssb \
   --runs 2 \
   --duration 5 \
   --seed 1 \

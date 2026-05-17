@@ -19,7 +19,7 @@ Evaluate whether an LLM agent can repair an invalid WebSocket PRB policy action 
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task ws_prb_error_repair_v1 \
-  --agent invalid_then_fixed \
+  --controller invalid_then_fixed \
   --runs 2 \
   --duration 5 \
   --seed 1 \

@@ -1,6 +1,6 @@
 # Implemented API Reference
 
-This document describes the APIs implemented by the standalone `benchmark/` project. It is written for LLM agents, baseline agents, and operators using the benchmark harness. It does not document OCUDU internals or define new OCUDU features.
+This document describes the APIs implemented by the standalone `benchmark/` project. It is written for LLM agents, built-in baseline controllers, and operators using the benchmark harness. It does not document OCUDU internals or define new OCUDU features.
 
 The benchmark exposes two API layers:
 

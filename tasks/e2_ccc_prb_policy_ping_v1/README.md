@@ -19,7 +19,7 @@ Evaluate whether an LLM agent can control OCUDU slice PRB policy through the E2S
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task e2_ccc_prb_policy_ping_v1 \
-  --agent ccc_prb \
+  --controller ccc_prb \
   --runs 2 \
   --duration 10 \
   --seed 1 \

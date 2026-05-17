@@ -19,7 +19,7 @@ Evaluate whether an LLM agent can wait for DU UE identity evidence and then cont
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task e2_rc_du_prb_policy_ping_v1 \
-  --agent rc_du_prb \
+  --controller rc_du_prb \
   --runs 2 \
   --duration 10 \
   --seed 1 \

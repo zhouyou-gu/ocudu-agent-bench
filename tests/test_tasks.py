@@ -240,6 +240,8 @@ class TaskRegistryTests(unittest.TestCase):
         self.assertIn("Task manifests consume APIs", api_reference)
         self.assertIn("NO_ACTION", task_readme)
         self.assertIn("not a runtime API command", task_readme)
+        self.assertIn("built-in deterministic controller", task_readme)
+        self.assertIn("--controller", task_readme)
 
     def test_task_readmes_have_agent_facing_contract_sections(self) -> None:
         required_headers = [

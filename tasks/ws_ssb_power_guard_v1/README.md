@@ -19,7 +19,7 @@ Evaluate whether an LLM agent can avoid unnecessary SSB block-power changes when
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task ws_ssb_power_guard_v1 \
-  --agent noop \
+  --controller noop \
   --runs 2 \
   --duration 5 \
   --seed 1 \

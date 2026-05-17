@@ -19,7 +19,7 @@ Evaluate whether an LLM agent can use WebSocket PRB control while the episode al
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task e2_kpm_prb_ping_v1 \
-  --agent fixed_prb \
+  --controller fixed_prb \
   --runs 2 \
   --duration 10 \
   --seed 1 \

@@ -19,7 +19,7 @@ Evaluate whether an LLM agent can wait for both OCUDU JSON metrics and decoded E
 python3 benchmark/benchctl.py episode suite \
   --config .config \
   --task e2_kpm_json_consistency_v1 \
-  --agent evidence_gated_prb \
+  --controller evidence_gated_prb \
   --runs 2 \
   --duration 10 \
   --seed 1 \
