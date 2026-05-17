@@ -187,6 +187,10 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertIn("docker/ocudu-kpm-v05/Dockerfile", result["planned_remote_command"])
         self.assertIn("--build-arg FLEXRIC_COMMIT", result["planned_remote_command"])
         self.assertIn("--build-arg OCUDU_COMMIT", result["planned_remote_command"])
+        self.assertIn("expected_manifest.json", result["planned_remote_command"])
+        self.assertIn("reuse_mismatch.txt", result["planned_remote_command"])
+        self.assertIn("supports_e2sm_kpm_v05", result["planned_remote_command"])
+        self.assertIn("ocudu_commit", result["planned_remote_command"])
         self.assertIn("e2sm_kpm_ies.h", result["planned_remote_command"])
         self.assertEqual(result["manifest"]["e2ap_version"], "E2AP_V3")
         self.assertEqual(result["manifest"]["kpm_release"], "KPM_V5_00")
@@ -202,6 +206,17 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertNotIn("apply_" + "kpm_v05_patch.py", result["planned_remote_command"])
         self.assertNotIn("sudo", result["planned_remote_command"])
         self.assertNotIn("sudo apt-get", result["planned_remote_command"])
+
+    def test_prepare_ric_reuse_requires_manifest_source_pin_match(self) -> None:
+        result = self.manager.prepare_ric(dry_run=True)
+        command = result["planned_remote_command"]
+
+        self.assertIn('"repo": os.environ["FLEXRIC_REPO"]', command)
+        self.assertIn('"ref": os.environ["FLEXRIC_REF"]', command)
+        self.assertIn('"commit": os.environ["FLEXRIC_COMMIT"]', command)
+        self.assertIn('"ocudu_commit": os.environ["OCUDU_COMMIT"]', command)
+        self.assertIn("if [ \"$REUSE_OK\" = \"1\" ]; then", command)
+        self.assertIn("docker build -t", command)
 
     def test_prepare_ric_initializes_workspace_before_build(self) -> None:
         commands = []

@@ -27,21 +27,6 @@ FLEXRIC_KPM_ASN_RELEASE = "E2SM-KPM-R003-v05.00"
 FLEXRIC_PATCH_LEVEL = "ocudu-kpm-v05"
 FLEXRIC_OCUDU_ASN_HEADER = "include/ocudu/asn1/e2sm/e2sm_kpm_ies.h"
 FLEXRIC_OCUDU_ASN_SOURCE = "lib/asn1/e2sm/e2sm_kpm_ies.cpp"
-FLEXRIC_OCUDU_ASN_BUNDLE_SOURCES = [
-    "lib/asn1/e2sm/e2sm_kpm_ies.cpp",
-    "lib/asn1/e2sm/e2sm_common_ies.cpp",
-    "lib/asn1/asn1_utils.cpp",
-]
-FLEXRIC_OCUDU_DECODER_SUPPORT_SOURCES = [
-    "lib/support/byte_buffer.cpp",
-    "external/fmt/src/format.cc",
-    "lib/ocudulog/ocudulog.cpp",
-    "lib/ocudulog/ocudulog_c.cpp",
-    "lib/ocudulog/backend_worker.cpp",
-    "lib/ocudulog/event_trace.cpp",
-    "lib/ocudulog/formatters/json_formatter.cpp",
-    "lib/ocudulog/formatters/text_formatter.cpp",
-]
 
 FLEXRIC_V4_CHECKS = {
     "flexric_docker_assets",

@@ -623,6 +623,7 @@ OCUDU_ROOT="$(expand_remote_path "$OCUDU_ROOT_RAW")"
 IMAGE={shlex.quote(FLEXRIC_IMAGE)}
 FLEXRIC_REPO={shlex.quote(flexric_repo)}
 FLEXRIC_REF={shlex.quote(flexric_ref)}
+OCUDU_REF={shlex.quote(self.config.sources.ocudu_ref)}
 FLEXRIC_SRC="$BENCHMARK_WORKSPACE/sources/{FLEXRIC_SOURCE_DIRNAME}"
 BUILD_CONTEXT="$RIC_ROOT/build-context"
 if [ ! -d "$OCUDU_ROOT/src/ocudu" ]; then
@@ -663,18 +664,81 @@ fi
 FLEXRIC_COMMIT="$(git -C "$FLEXRIC_SRC" rev-parse --short=12 HEAD 2>/dev/null || true)"
 OCUDU_COMMIT="$(git -C "$OCUDU_ROOT/src/ocudu" rev-parse --short=12 HEAD 2>/dev/null || true)"
 OCUDU_REPO="$(git -C "$OCUDU_ROOT/src/ocudu" remote get-url origin 2>/dev/null || true)"
-cat > "$RIC_ROOT/expected_manifest.json" <<'JSON'
-{json.dumps(manifest, indent=2, sort_keys=True)}
-JSON
+export IMAGE FLEXRIC_REPO FLEXRIC_REF FLEXRIC_COMMIT OCUDU_REPO OCUDU_REF OCUDU_COMMIT
+python3 - "$RIC_ROOT/expected_manifest.json" <<'PY'
+import json
+import os
+import pathlib
+import sys
+
+manifest = json.loads({json.dumps(json.dumps(manifest, sort_keys=True))})
+manifest.update(
+    {{
+        "image": os.environ["IMAGE"],
+        "repo": os.environ["FLEXRIC_REPO"],
+        "ref": os.environ["FLEXRIC_REF"],
+        "commit": os.environ["FLEXRIC_COMMIT"],
+        "ocudu_repo": os.environ["OCUDU_REPO"],
+        "ocudu_ref": os.environ["OCUDU_REF"],
+        "ocudu_commit": os.environ["OCUDU_COMMIT"],
+    }}
+)
+pathlib.Path(sys.argv[1]).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+PY
 if [ "{'1' if force else '0'}" != "1" ] && docker image inspect "$IMAGE" >/dev/null 2>&1 && [ -f "$RIC_ROOT/manifest.json" ]; then
-  echo status=ok
-  echo image=$IMAGE
-  echo manifest=$RIC_ROOT/manifest.json
-  echo build_log=$RIC_ROOT/build.log
-  echo flexric_source=$FLEXRIC_SRC
-  echo flexric_commit=$FLEXRIC_COMMIT
-  echo reused=1
-  exit 0
+  REUSE_OK="$(python3 - "$RIC_ROOT/manifest.json" "$RIC_ROOT/reuse_mismatch.txt" <<'PY'
+import json
+import os
+import pathlib
+import sys
+
+manifest_path = pathlib.Path(sys.argv[1])
+mismatch_path = pathlib.Path(sys.argv[2])
+try:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError) as exc:
+    mismatch_path.write_text(f"manifest_unreadable: {{exc}}\\n", encoding="utf-8")
+    print("0")
+    raise SystemExit(0)
+
+expected = {{
+    "image": os.environ["IMAGE"],
+    "repo": os.environ["FLEXRIC_REPO"],
+    "ref": os.environ["FLEXRIC_REF"],
+    "commit": os.environ["FLEXRIC_COMMIT"],
+    "ocudu_repo": os.environ["OCUDU_REPO"],
+    "ocudu_ref": os.environ["OCUDU_REF"],
+    "ocudu_commit": os.environ["OCUDU_COMMIT"],
+    "supports_e2sm_kpm_v05": True,
+    "kpm_asn_release": "E2SM-KPM-R003-v05.00",
+    "decoder_source": "ocudu-generated-asn1-cpp",
+    "kpm_indication_decode_per_syntax": "ATS_UNALIGNED_BASIC_PER",
+    "kpm_subscription_encode_per_syntax": "ATS_ALIGNED_BASIC_PER",
+}}
+mismatches = []
+for key, expected_value in expected.items():
+    actual = manifest.get(key)
+    if actual != expected_value:
+        mismatches.append(f"{{key}} expected={{expected_value!r}} actual={{actual!r}}")
+if mismatches:
+    mismatch_path.write_text("\\n".join(mismatches) + "\\n", encoding="utf-8")
+    print("0")
+else:
+    mismatch_path.write_text("", encoding="utf-8")
+    print("1")
+PY
+)"
+  if [ "$REUSE_OK" = "1" ]; then
+    echo status=ok
+    echo image=$IMAGE
+    echo manifest=$RIC_ROOT/manifest.json
+    echo build_log=$RIC_ROOT/build.log
+    echo flexric_source=$FLEXRIC_SRC
+    echo flexric_commit=$FLEXRIC_COMMIT
+    echo reused=1
+    exit 0
+  fi
+  echo reuse_mismatch="$(tr '\\n' ';' < "$RIC_ROOT/reuse_mismatch.txt")"
 fi
 OCUDU_ASN1_ROOT="$OCUDU_ROOT/src/ocudu" FLEXRIC_SOURCE_ROOT="$FLEXRIC_SRC" BUILD_CONTEXT="$BUILD_CONTEXT" "$FLEXRIC_SRC/{FLEXRIC_CONTEXT_PREP_SCRIPT}" > "$RIC_ROOT/context.log" 2>&1
 docker build -t "$IMAGE" \\
@@ -682,7 +746,7 @@ docker build -t "$IMAGE" \\
   --build-arg FLEXRIC_REF="$FLEXRIC_REF" \\
   --build-arg FLEXRIC_COMMIT="$FLEXRIC_COMMIT" \\
   --build-arg OCUDU_REPO="$OCUDU_REPO" \\
-  --build-arg OCUDU_REF={shlex.quote(self.config.sources.ocudu_ref)} \\
+  --build-arg OCUDU_REF="$OCUDU_REF" \\
   --build-arg OCUDU_COMMIT="$OCUDU_COMMIT" \\
   --build-arg FLEXRIC_IMAGE="$IMAGE" \\
   -f "$BUILD_CONTEXT/flexric/{FLEXRIC_DOCKERFILE_REL}" \\
@@ -738,6 +802,7 @@ echo reused=0
             "context_log": data.get("context_log", f'{paths["root"]}/context.log'),
             "flexric_source": data.get("flexric_source", f"{self.config.workspace}/sources/{FLEXRIC_SOURCE_DIRNAME}"),
             "flexric_commit": data.get("flexric_commit", ""),
+            "reuse_mismatch": data.get("reuse_mismatch", ""),
             "reused": data.get("reused") == "1",
             "init": init_result,
             "stdout": proc.stdout.strip(),
