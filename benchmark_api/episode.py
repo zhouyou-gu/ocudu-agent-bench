@@ -1832,7 +1832,7 @@ def discover_du_ue_id():
     text = (
         read_tail(paths["gnb_log"], 50000)
         + "\\n"
-        + read_tail(internal_gnb_log, 50000)
+        + read_tail(internal_gnb_log, 2000000)
         + "\\n"
         + read_tail(paths["ric_log"], 50000)
         + "\\n"
@@ -2168,7 +2168,7 @@ def discover_du_ue_id():
     text = (
         read_tail(paths["gnb_log"])
         + "\\n"
-        + read_tail(internal_gnb_log)
+        + read_tail(internal_gnb_log, 2000000)
         + "\\n"
         + read_tail(paths["ric_log"])
         + "\\n"

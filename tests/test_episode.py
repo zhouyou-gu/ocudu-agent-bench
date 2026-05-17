@@ -839,6 +839,7 @@ class EpisodeTests(unittest.TestCase):
         self.assertIn('quoted_args = " ".join(shlex.quote(arg) for arg in args)', scripts[0])
         self.assertIn('f"$TOOL {quoted_args}"', scripts[0])
         self.assertIn("gnb_internal.log", scripts[0])
+        self.assertIn("read_tail(internal_gnb_log, 2000000)", scripts[0])
         self.assertIn('r"cu_ue=(\\d+)"', scripts[0])
 
     def test_docker_asset_check_uses_configured_images(self) -> None:
