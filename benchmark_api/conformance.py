@@ -15,6 +15,7 @@ from benchmark.benchmark_api.episode import (
     DEFAULT_PROBE_TIMEOUT as DEFAULT_EPISODE_PROBE_TIMEOUT,
     DEFAULT_WS_PORT as DEFAULT_EPISODE_WS_PORT,
     TASK_E2_KPM_PRB_PING_V1,
+    TASK_METRICS_STALENESS_NOOP_V1,
     TASK_WS_PRB_PING_V1,
     EpisodeOptions,
     EpisodeRuntime,
@@ -98,6 +99,7 @@ CHECK_DEPENDENCIES = {
     "srsue_zmq_attach": {"open5gs_core_health"},
     "ping_traffic_path": {"srsue_zmq_attach"},
     "websocket_prb_policy_action": {"srsue_zmq_attach"},
+    "scenario_metrics_staleness_mask": {"ping_traffic_path"},
     "flexric_docker_assets": {"remote_tools_ocudu_root", "remote_workspace_artifacts"},
     "near_rt_ric_health": {"flexric_docker_assets"},
     "ocudu_e2_config": {"docker_e2e_assets"},
@@ -111,6 +113,7 @@ V3_DOCKER_CHECKS = {
     "srsue_zmq_attach",
     "ping_traffic_path",
     "websocket_prb_policy_action",
+    "scenario_metrics_staleness_mask",
 }
 V4_E2_CHECKS = {
     "flexric_docker_assets",
@@ -250,6 +253,7 @@ def compute_backend_enablement(results: list[ConformanceCheckResult]) -> dict[st
         "docker_e2e": by_id.get("docker_e2e_assets") == RESULT_PASS,
         "ue_traffic": by_id.get("ping_traffic_path") == RESULT_PASS,
         "v3_websocket_prb": by_id.get("websocket_prb_policy_action") == RESULT_PASS,
+        "scenario_metrics_staleness": by_id.get("scenario_metrics_staleness_mask") == RESULT_PASS,
     }
 
 
@@ -787,20 +791,28 @@ print(json.dumps({{
             else:
                 results.append(self._blocked_result("docker_e2e_assets", "Remote tools/workspace checks did not pass"))
 
-        need_episode = bool(run_ids & {"open5gs_core_health", "srsue_zmq_attach", "ping_traffic_path", "websocket_prb_policy_action"})
+        v3_episode_checks = {
+            "open5gs_core_health",
+            "srsue_zmq_attach",
+            "ping_traffic_path",
+            "websocket_prb_policy_action",
+            "scenario_metrics_staleness_mask",
+        }
+        need_episode = bool(run_ids & v3_episode_checks)
         if not need_episode:
             return results
 
         combined = existing + results
         if not self._result_passed(combined, "docker_e2e_assets"):
-            for check_id in ["open5gs_core_health", "srsue_zmq_attach", "ping_traffic_path", "websocket_prb_policy_action"]:
+            for check_id in sorted(v3_episode_checks):
                 if check_id in run_ids:
                     results.append(self._blocked_result(check_id, "Docker e2e assets check did not pass"))
             return results
 
+        episode_task = TASK_METRICS_STALENESS_NOOP_V1 if "scenario_metrics_staleness_mask" in run_ids else TASK_WS_PRB_PING_V1
         episode_options = EpisodeOptions(
             run_id=f"{options.run_id}-v3",
-            task=TASK_WS_PRB_PING_V1,
+            task=episode_task,
             duration=0,
             ws_port=options.ws_port or DEFAULT_EPISODE_WS_PORT,
             launch_timeout=max(options.launch_timeout, DEFAULT_EPISODE_LAUNCH_TIMEOUT),
@@ -823,6 +835,26 @@ print(json.dumps({{
                     status = RESULT_PASS if ping.get("packets_received", 0) > 0 else RESULT_FAIL
                     summary = "UE ping traffic received replies" if status == RESULT_PASS else "UE ping traffic did not receive replies"
                     results.append(self._result("ping_traffic_path", status, summary, {"observation": observation}))
+                if "scenario_metrics_staleness_mask" in run_ids:
+                    frame = observation.get("observation", {})
+                    metrics = frame.get("metrics", {})
+                    scenario = frame.get("scenario", {})
+                    mask_ok = (
+                        metrics.get("stale") is True
+                        and metrics.get("present") is False
+                        and scenario.get("metrics_stale") is True
+                        and int(scenario.get("stale_metrics_window", 0) or 0) > 0
+                    )
+                    results.append(
+                        self._result(
+                            "scenario_metrics_staleness_mask",
+                            RESULT_PASS if mask_ok else RESULT_FAIL,
+                            "Scenario mask marks early JSON metrics observations as stale"
+                            if mask_ok
+                            else "Scenario mask did not produce the required stale metrics observation",
+                            {"observation": observation},
+                        )
+                    )
                 if "websocket_prb_policy_action" in run_ids:
                     invalid = runtime.act(
                         {"type": "SET_PRB_POLICY_RATIO_WS", "min_prb_policy_ratio": 90, "max_prb_policy_ratio": 10}
@@ -890,6 +922,7 @@ print(json.dumps({{
             results.append(self._result("ping_traffic_path", RESULT_FAIL, start.get("summary", "ping traffic failed"), start))
         for check_id, reason in [
             ("websocket_prb_policy_action", "srsUE/gNB startup did not pass"),
+            ("scenario_metrics_staleness_mask", "srsUE/gNB startup did not pass"),
         ]:
             if check_id in run_ids:
                 results.append(self._blocked_result(check_id, reason))

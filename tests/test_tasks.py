@@ -6,6 +6,11 @@ from pathlib import Path
 from benchmark.benchmark_api.conformance import load_conformance_specs
 from benchmark.benchmark_api.tasks import (
     TASK_E2_KPM_PRB_PING_V1,
+    TASK_E2_KPM_JSON_CONSISTENCY_V1,
+    TASK_METRICS_STALENESS_NOOP_V1,
+    TASK_WS_PRB_ACTION_BUDGET_V1,
+    TASK_WS_PRB_ERROR_REPAIR_V1,
+    TASK_WS_PRB_NOOP_GUARD_V1,
     TASK_WS_PRB_PING_V1,
     conformance_checks_for_task,
     episode_stage_for_task,
@@ -22,39 +27,50 @@ class TaskRegistryTests(unittest.TestCase):
     def test_registry_loads_current_task_manifests(self) -> None:
         specs = load_task_specs()
 
-        self.assertEqual(set(specs), {TASK_WS_PRB_PING_V1, TASK_E2_KPM_PRB_PING_V1})
-        self.assertEqual(implemented_episode_task_ids(), {TASK_WS_PRB_PING_V1, TASK_E2_KPM_PRB_PING_V1})
+        expected = {
+            TASK_WS_PRB_PING_V1,
+            TASK_E2_KPM_PRB_PING_V1,
+            TASK_WS_PRB_NOOP_GUARD_V1,
+            TASK_WS_PRB_ERROR_REPAIR_V1,
+            TASK_WS_PRB_ACTION_BUDGET_V1,
+            TASK_E2_KPM_JSON_CONSISTENCY_V1,
+            TASK_METRICS_STALENESS_NOOP_V1,
+        }
+        self.assertEqual(set(specs), expected)
+        self.assertEqual(implemented_episode_task_ids(), expected)
         self.assertTrue(is_implemented_episode_task(TASK_WS_PRB_PING_V1))
         self.assertEqual(episode_stage_for_task(TASK_WS_PRB_PING_V1), "v3_episode")
         self.assertEqual(suite_stage_for_task(TASK_WS_PRB_PING_V1), "v3_1_suite")
         self.assertEqual(episode_stage_for_task(TASK_E2_KPM_PRB_PING_V1), "v4_episode")
         self.assertEqual(suite_stage_for_task(TASK_E2_KPM_PRB_PING_V1), "v4_suite")
+        self.assertEqual(episode_stage_for_task(TASK_WS_PRB_NOOP_GUARD_V1), "v3_2_episode")
+        self.assertEqual(suite_stage_for_task(TASK_E2_KPM_JSON_CONSISTENCY_V1), "v4_1_suite")
 
     def test_task_conformance_checks_match_manifest_contract(self) -> None:
         v3 = conformance_checks_for_task(TASK_WS_PRB_PING_V1)
         v4 = conformance_checks_for_task(TASK_E2_KPM_PRB_PING_V1)
+        v3_2 = conformance_checks_for_task(TASK_METRICS_STALENESS_NOOP_V1)
+        v4_1 = conformance_checks_for_task(TASK_E2_KPM_JSON_CONSISTENCY_V1)
 
-        self.assertEqual(
-            v3,
-            {
-                "docker_e2e_assets",
-                "open5gs_core_health",
-                "srsue_zmq_attach",
-                "ping_traffic_path",
-                "websocket_prb_policy_action",
-            },
-        )
-        self.assertEqual(
-            v4,
-            {
-                "flexric_docker_assets",
-                "near_rt_ric_health",
-                "ocudu_e2_config",
-                "e2_setup_path",
-                "e2_kpm_subscription",
-                "e2_pcap_log_oracle",
-            },
-        )
+        expected_v3 = {
+            "docker_e2e_assets",
+            "open5gs_core_health",
+            "srsue_zmq_attach",
+            "ping_traffic_path",
+            "websocket_prb_policy_action",
+        }
+        expected_v4 = {
+            "flexric_docker_assets",
+            "near_rt_ric_health",
+            "ocudu_e2_config",
+            "e2_setup_path",
+            "e2_kpm_subscription",
+            "e2_pcap_log_oracle",
+        }
+        self.assertEqual(v3, expected_v3)
+        self.assertEqual(v3_2, expected_v3 | {"scenario_metrics_staleness_mask"})
+        self.assertEqual(v4, expected_v4)
+        self.assertEqual(v4_1, expected_v4)
 
     def test_every_task_conformance_check_exists(self) -> None:
         conformance_ids = {spec.id for spec in load_conformance_specs(Path("benchmark/conformance/tests.json"))}

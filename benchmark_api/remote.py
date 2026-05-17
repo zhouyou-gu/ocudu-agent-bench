@@ -188,10 +188,21 @@ export OCUDU_ROOT BENCHMARK_WORKSPACE OPEN5GS_COMPOSE E2E_CONFIG_DIR RIC_PROVIDE
             "schemas/observations.schema.json",
             "schemas/task.schema.json",
             "tasks/README.md",
+            "tasks/TASK_AUTHORING_GUIDE.md",
             "tasks/ws_prb_ping_v1/README.md",
             "tasks/ws_prb_ping_v1/task.json",
             "tasks/e2_kpm_prb_ping_v1/README.md",
             "tasks/e2_kpm_prb_ping_v1/task.json",
+            "tasks/ws_prb_noop_guard_v1/README.md",
+            "tasks/ws_prb_noop_guard_v1/task.json",
+            "tasks/ws_prb_error_repair_v1/README.md",
+            "tasks/ws_prb_error_repair_v1/task.json",
+            "tasks/ws_prb_action_budget_v1/README.md",
+            "tasks/ws_prb_action_budget_v1/task.json",
+            "tasks/e2_kpm_json_consistency_v1/README.md",
+            "tasks/e2_kpm_json_consistency_v1/task.json",
+            "tasks/metrics_staleness_noop_v1/README.md",
+            "tasks/metrics_staleness_noop_v1/task.json",
         ]
         files = [source_rel / item for item in expected if (repo_root / source_rel / item).is_file()]
         provision_root = repo_root / source_rel / "provision"

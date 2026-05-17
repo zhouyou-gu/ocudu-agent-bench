@@ -12,7 +12,12 @@
       "stage": "v3",
       "tasks": [
         "ws_prb_ping_v1",
-        "e2_kpm_prb_ping_v1"
+        "e2_kpm_prb_ping_v1",
+        "ws_prb_noop_guard_v1",
+        "ws_prb_error_repair_v1",
+        "ws_prb_action_budget_v1",
+        "e2_kpm_json_consistency_v1",
+        "metrics_staleness_noop_v1"
       ],
       "description": "WebSocket PRB policy action used by both current scored tasks. Min/max ratios are scored; dedicated ratio is validity-only.",
       "required_fields": [

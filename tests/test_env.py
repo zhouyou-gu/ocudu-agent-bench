@@ -238,6 +238,62 @@ sources:
         self.assertEqual(close["stage"], "v3_episode")
         self.assertTrue(close["summary"]["scored"])
 
+    def test_episode_act_none_is_noop_decision_without_runtime_action(self) -> None:
+        original_run_conformance = env_module.run_conformance
+        original_episode_runtime = env_module.EpisodeRuntime
+
+        class FakeEpisodeRuntime:
+            def __init__(self, remote, repo_root=None) -> None:
+                self.started = None
+
+            def start(self, options):
+                self.started = options
+                return {"status": "ok", "stage": "v3_2_episode", "run_id": options.run_id}
+
+            def observe(self):
+                return {
+                    "status": "ok",
+                    "stage": "v3_2_episode",
+                    "run_id": self.started.run_id,
+                    "state": "running",
+                    "observation": {"type": "ws_prb_noop_guard_v1", "metrics": {"present": True}},
+                }
+
+            def act(self, action):
+                raise AssertionError("None no-op decisions must not be dispatched to the runtime")
+
+            def cleanup(self, run_id):
+                return {"status": "ok", "run_id": run_id}
+
+            def finalize(self, unscored_reason=None, cleanup_success=True):
+                return {"status": "ok", "stage": "v3_2_episode", "scored": cleanup_success}
+
+        def fake_run_conformance(**kwargs):
+            return {"status": "pass", "backend_enablement": {"ssh": True, "docker_e2e": True}, "checks": []}
+
+        env_module.run_conformance = fake_run_conformance
+        env_module.EpisodeRuntime = FakeEpisodeRuntime
+        try:
+            env = BenchmarkEnv(self.config_path, remote_manager_factory=FakeRemoteManager)
+            reset = env.reset(
+                {
+                    "run_id": "noop-unit",
+                    "task": "ws_prb_noop_guard_v1",
+                    "conformance": "required",
+                    "duration": 0,
+                }
+            )
+            noop = env.act(None)
+        finally:
+            env_module.run_conformance = original_run_conformance
+            env_module.EpisodeRuntime = original_episode_runtime
+
+        self.assertEqual(reset["status"], "ok")
+        self.assertEqual(noop["status"], "ok")
+        self.assertEqual(noop["reason"], "no-op decision")
+        self.assertFalse(noop["action_logged"])
+        self.assertEqual(env.actions, [])
+
     def test_v4_episode_lifecycle_uses_v4_conformance_gate(self) -> None:
         original_run_conformance = env_module.run_conformance
         original_episode_runtime = env_module.EpisodeRuntime

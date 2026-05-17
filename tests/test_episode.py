@@ -5,6 +5,11 @@ from benchmark.benchmark_api.episode import (
     EpisodeOptions,
     EpisodeRuntime,
     TASK_E2_KPM_PRB_PING_V1,
+    TASK_E2_KPM_JSON_CONSISTENCY_V1,
+    TASK_METRICS_STALENESS_NOOP_V1,
+    TASK_WS_PRB_ACTION_BUDGET_V1,
+    TASK_WS_PRB_ERROR_REPAIR_V1,
+    TASK_WS_PRB_NOOP_GUARD_V1,
     build_prb_request,
     episode_paths,
     episode_exit_code,
@@ -14,7 +19,9 @@ from benchmark.benchmark_api.episode import (
     kpm_record_has_prb_measurement,
     parse_kpm_indication_records,
     parse_ping_log,
+    scenario_metadata,
     score_episode,
+    task_policy,
     validate_prb_action,
 )
 from benchmark.benchmark_api.ric import RIC_PORT
@@ -221,6 +228,139 @@ class EpisodeTests(unittest.TestCase):
         self.assertTrue(passed["scored"])
         self.assertEqual(passed["scores"]["e2_kpm_continuity"], 3)
 
+    def test_score_episode_supports_noop_guard_task(self) -> None:
+        summary = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[],
+            observations=[{"observation": {"metrics": {"present": True}}}],
+            cleanup_success=True,
+            task=TASK_WS_PRB_NOOP_GUARD_V1,
+        )
+        failed = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[{"validation": {"valid": True}, "dispatched": True, "accepted": True}],
+            observations=[{"observation": {"metrics": {"present": True}}}],
+            cleanup_success=True,
+            task=TASK_WS_PRB_NOOP_GUARD_V1,
+        )
+
+        self.assertTrue(summary["scored"])
+        self.assertEqual(summary["scores"]["noop_correctness"], 1.0)
+        self.assertFalse(failed["scored"])
+        self.assertEqual(failed["unscored_reason"], "agent acted during no-op task")
+
+    def test_score_episode_supports_error_repair_task(self) -> None:
+        summary = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[
+                {"validation": {"valid": False}, "dispatched": False, "accepted": False},
+                {"validation": {"valid": True}, "dispatched": True, "accepted": True},
+            ],
+            observations=[{"observation": {"metrics": {"present": True}}}],
+            cleanup_success=True,
+            task=TASK_WS_PRB_ERROR_REPAIR_V1,
+        )
+        failed = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[{"validation": {"valid": True}, "dispatched": True, "accepted": True}],
+            observations=[{"observation": {"metrics": {"present": True}}}],
+            cleanup_success=True,
+            task=TASK_WS_PRB_ERROR_REPAIR_V1,
+        )
+
+        self.assertTrue(summary["scored"])
+        self.assertFalse(failed["scored"])
+        self.assertIn("invalid action followed by valid repair", failed["unscored_reason"])
+
+    def test_score_episode_supports_action_budget_task(self) -> None:
+        action = {"validation": {"valid": True}, "dispatched": True, "accepted": True}
+        summary = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[action],
+            observations=[{"observation": {"metrics": {"present": True}}}],
+            cleanup_success=True,
+            task=TASK_WS_PRB_ACTION_BUDGET_V1,
+        )
+        failed = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[action, action],
+            observations=[{"observation": {"metrics": {"present": True}}}],
+            cleanup_success=True,
+            task=TASK_WS_PRB_ACTION_BUDGET_V1,
+        )
+
+        self.assertTrue(summary["scored"])
+        self.assertTrue(summary["scores"]["action_budget_ok"])
+        self.assertFalse(failed["scored"])
+        self.assertEqual(failed["unscored_reason"], "action budget exceeded")
+
+    def test_score_episode_supports_evidence_and_stale_guards(self) -> None:
+        evidence_action = {
+            "validation": {"valid": True},
+            "dispatched": True,
+            "accepted": True,
+            "decision_context": {
+                "metrics": {"present": True, "stale": False},
+                "e2": {"kpm_indications": 3, "has_prb_measurement": True},
+            },
+        }
+        e2_summary = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[evidence_action],
+            observations=[{"observation": {"metrics": {"present": True}}}],
+            cleanup_success=True,
+            task=TASK_E2_KPM_JSON_CONSISTENCY_V1,
+            e2_oracle={"kpm_indications": 3, "oracle_available": True},
+        )
+        stale_summary = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[{"validation": {"valid": True}, "dispatched": True, "accepted": True, "decision_context": {"metrics": {"present": True, "stale": False}}}],
+            observations=[
+                {"observation": {"metrics": {"present": False, "stale": True}, "scenario": {"metrics_stale": True}}},
+                {"observation": {"metrics": {"present": False, "stale": True}, "scenario": {"metrics_stale": True}}},
+                {"observation": {"metrics": {"present": True, "stale": False}, "scenario": {"metrics_stale": False}}},
+            ],
+            cleanup_success=True,
+            task=TASK_METRICS_STALENESS_NOOP_V1,
+        )
+
+        self.assertTrue(e2_summary["scored"])
+        self.assertTrue(e2_summary["scores"]["evidence_gated_action"])
+        self.assertTrue(stale_summary["scored"])
+        self.assertEqual(stale_summary["counts"]["stale_metric_observations"], 2)
+
+    def test_score_episode_marks_context_capture_failure_unscored_for_context_tasks(self) -> None:
+        summary = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[
+                {
+                    "validation": {"valid": True},
+                    "dispatched": True,
+                    "accepted": True,
+                    "decision_context": {},
+                    "decision_context_error": "observation read failed",
+                }
+            ],
+            observations=[
+                {"observation": {"metrics": {"present": False, "stale": True}, "scenario": {"metrics_stale": True}}},
+                {"observation": {"metrics": {"present": False, "stale": True}, "scenario": {"metrics_stale": True}}},
+                {"observation": {"metrics": {"present": True, "stale": False}, "scenario": {"metrics_stale": False}}},
+            ],
+            cleanup_success=True,
+            task=TASK_METRICS_STALENESS_NOOP_V1,
+        )
+
+        self.assertFalse(summary["scored"])
+        self.assertEqual(summary["unscored_reason"], "decision context capture failed")
+        self.assertEqual(summary["counts"]["decision_context_errors"], 1)
+
+    def test_task_policy_and_scenario_metadata_describe_new_tasks(self) -> None:
+        self.assertTrue(task_policy(TASK_E2_KPM_JSON_CONSISTENCY_V1).requires_e2)
+        self.assertEqual(task_policy(TASK_WS_PRB_NOOP_GUARD_V1).default_smoke_agent, "noop")
+        scenario = scenario_metadata(TASK_METRICS_STALENESS_NOOP_V1, duration=5)
+        self.assertEqual(scenario["labels"]["stale_metrics_observations"], 2)
+        self.assertEqual(scenario["traffic"]["target"], "10.45.1.1")
+
     def test_run_cleans_up_and_marks_unscored_on_observe_failure(self) -> None:
         class FailingRuntime(EpisodeRuntime):
             def __init__(self) -> None:
@@ -263,7 +403,7 @@ class EpisodeTests(unittest.TestCase):
             return {"status": "error", "summary": "stop before launch"}
 
         runtime._remote_json = fake_remote_json  # type: ignore[method-assign]
-        runtime.start(EpisodeOptions(run_id="unit-root", task=TASK_E2_KPM_PRB_PING_V1))
+        runtime.start(EpisodeOptions(run_id="unit-root", task=TASK_E2_KPM_JSON_CONSISTENCY_V1))
 
         self.assertIn(SAMPLE_OCUDU_ROOT, scripts[0])
         self.assertIn(SAMPLE_OPEN5GS_COMPOSE, scripts[0])
@@ -274,7 +414,44 @@ class EpisodeTests(unittest.TestCase):
         self.assertIn("kpm_xapp_container", scripts[0])
         self.assertIn("e2_pcap_container", scripts[0])
         self.assertIn("e2ap_sctp.pcap", scripts[0])
+        self.assertIn("scenario.json", scripts[0])
         self.assertNotIn("/home/", scripts[0])
+
+    def test_latest_decision_context_surfaces_snapshot_errors(self) -> None:
+        class FakeRemote:
+            config = sample_remote_config()
+
+        runtime = EpisodeRuntime(FakeRemote())  # type: ignore[arg-type]
+        runtime.paths = {"observations": "/tmp/workspace/runs/unit/episode/observations.jsonl"}
+
+        def fail_remote_json(body):
+            raise RuntimeError("remote read failed")
+
+        runtime._remote_json = fail_remote_json  # type: ignore[method-assign]
+        context = runtime._latest_decision_context()
+
+        self.assertIn("_decision_context_error", context)
+        self.assertIn("remote read failed", context["_decision_context_error"])
+
+    def test_finalize_remote_script_uses_shared_score_episode_source(self) -> None:
+        class FakeRemote:
+            config = sample_remote_config()
+
+        runtime = EpisodeRuntime(FakeRemote())  # type: ignore[arg-type]
+        runtime.options = EpisodeOptions(run_id="unit-finalize", task=TASK_METRICS_STALENESS_NOOP_V1)
+        runtime.paths = episode_paths(SAMPLE_WORKSPACE, "unit-finalize")
+        scripts = []
+
+        def fake_remote_json(body):
+            scripts.append(body)
+            return {"status": "ok", "scored": False}
+
+        runtime._remote_json = fake_remote_json  # type: ignore[method-assign]
+        runtime.finalize()
+
+        self.assertIn("def score_episode(", scripts[0])
+        self.assertIn("scoring = score_episode(", scripts[0])
+        self.assertIn("decision_context_errors", scripts[0])
 
     def test_start_rejects_unimplemented_task_even_if_manifest_exists_later(self) -> None:
         class FakeRemote:

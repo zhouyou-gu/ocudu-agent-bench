@@ -2,6 +2,28 @@
 
 This page is for agents and harness authors that need to run benchmark episodes. Use the Python API for live observe/act loops and the CLI for setup, conformance, smoke tests, cleanup, and deterministic baselines.
 
+## Setup Workflow Concepts
+
+Agents should distinguish provisioning from conformance:
+
+- **Provision** prepares the remote testbed. It installs or builds workspace-owned OCUDU, srsUE, Open5GS assets, runtime libraries, Docker images, and FlexRIC/KPM assets from the configured source pins.
+- **Conformance** validates that the provisioned testbed can run the task APIs and episode path before the agent is scored.
+
+Provision changes the remote workspace; conformance tests the workspace. A scored agent episode should run only after the task's conformance gate passes.
+
+Typical operator workflow:
+
+```bash
+python3 benchmark/benchctl.py remote check --config .config --json
+python3 benchmark/benchctl.py remote init --config .config --json
+python3 benchmark/benchctl.py remote sync --config .config --json
+python3 benchmark/benchctl.py remote provision --config .config --json
+python3 benchmark/benchctl.py remote ric-prepare --config .config --json
+python3 benchmark/benchctl.py conformance run --config .config --json
+```
+
+After this, agents can use `BenchmarkEnv.reset({"conformance": "required"})` or `episode suite` for scored runs. Rerun provisioning when source pins, Docker images, or workspace-owned runtime assets change. Rerun conformance after provisioning, after config changes, or after a runtime failure that may have left stale state.
+
 ## Python API Lifecycle
 
 ```python
@@ -61,8 +83,23 @@ python3 benchmark/benchctl.py episode cleanup \
 - `fixed_prb`: sends one valid `{min=10,max=90}` PRB policy action after the first observation.
 - `sweep_prb`: cycles deterministic valid min/max PRB ranges.
 - `invalid_then_fixed`: sends one locally invalid PRB action, then the fixed valid action.
+- `noop`: returns `None` for every observation and never calls the RAN control path.
+- `evidence_gated_prb`: waits for fresh JSON metrics, and for E2 tasks decoded PRB KPM evidence, then sends one fixed PRB action.
+- `stale_guard_prb`: returns `None` while metrics are marked stale, then sends one fixed PRB action after fresh metrics return.
 
-Agents may return `None` to their own loop when they do not want to act on an observation. In that case, skip calling `act()`; `BenchmarkEnv.act()` accepts action dictionaries only.
+Recommended baseline by task:
+
+| Task | Baseline |
+| --- | --- |
+| `ws_prb_ping_v1` | `fixed_prb` |
+| `e2_kpm_prb_ping_v1` | `fixed_prb` |
+| `ws_prb_noop_guard_v1` | `noop` |
+| `ws_prb_error_repair_v1` | `invalid_then_fixed` |
+| `ws_prb_action_budget_v1` | `fixed_prb` |
+| `e2_kpm_json_consistency_v1` | `evidence_gated_prb` |
+| `metrics_staleness_noop_v1` | `stale_guard_prb` |
+
+Agents may return `None` when they do not want to act on an observation. Suite loops skip `None` decisions, and `BenchmarkEnv.act(None)` returns a non-logged no-op result for episode tasks.
 
 ## Action Contract
 
@@ -98,6 +135,7 @@ Observation frames are normalized dictionaries. Agents should:
 - Tolerate missing optional fields.
 - Treat E2 fields as meaningful only for `e2_kpm_prb_ping_v1`.
 - Use `last_action` for the most recent local validation and WebSocket dispatch result.
+- Use `metrics.stale` and `metrics.fresh` in staleness tasks before deciding whether an action is safe.
 
 Common observation sources are ping counters, JSON metrics status, backend status, and last action result. E2 tasks add RIC, xApp, decoded KPM, and oracle status fields.
 
@@ -110,6 +148,7 @@ Setup, conformance, runtime, and oracle failures make a run unscored. Once setup
 - Ping success ratio.
 - JSON metrics continuity.
 - E2 KPM continuity for E2 tasks.
+- Task-specific behavior such as no-op correctness, action-budget compliance, evidence-gated action, and stale-metrics action avoidance.
 - Clean teardown success.
 
 Single-UE ping is a control-loop health signal, not a throughput or fairness benchmark.

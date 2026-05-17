@@ -19,7 +19,13 @@
           "component_keys",
           "timestamp",
           "raw",
-          "error"
+          "error",
+          "stale",
+          "fresh"
+        ],
+        "scenario": [
+          "metrics_stale",
+          "stale_metrics_window"
         ],
         "backend": [
           "websocket",
@@ -45,7 +51,13 @@
           "component_keys",
           "timestamp",
           "raw",
-          "error"
+          "error",
+          "stale",
+          "fresh"
+        ],
+        "scenario": [
+          "metrics_stale",
+          "stale_metrics_window"
         ],
         "e2": [
           "enabled",
@@ -64,6 +76,96 @@
         ],
         "last_action": "most recent local validation and WebSocket dispatch result"
       }
+    },
+    {
+      "stage": "v3_2_episode",
+      "task": "ws_prb_noop_guard_v1",
+      "state": "running",
+      "fields": {
+        "ping": "same as ws_prb_ping_v1",
+        "metrics": "same as ws_prb_ping_v1",
+        "scenario": "healthy no-op guard; no stale metrics",
+        "backend": [
+          "websocket",
+          "ping"
+        ],
+        "last_action": "should remain absent unless the agent incorrectly acts"
+      }
+    },
+    {
+      "stage": "v3_2_episode",
+      "task": "ws_prb_error_repair_v1",
+      "state": "running",
+      "fields": {
+        "ping": "same as ws_prb_ping_v1",
+        "metrics": "same as ws_prb_ping_v1",
+        "scenario": "healthy invalid-action repair",
+        "backend": [
+          "websocket",
+          "ping"
+        ],
+        "last_action": "local validation and dispatch result used for repair"
+      }
+    },
+    {
+      "stage": "v3_2_episode",
+      "task": "ws_prb_action_budget_v1",
+      "state": "running",
+      "fields": {
+        "ping": "same as ws_prb_ping_v1",
+        "metrics": "same as ws_prb_ping_v1",
+        "scenario": "healthy single-action budget",
+        "backend": [
+          "websocket",
+          "ping"
+        ],
+        "last_action": "used to avoid repeated action churn"
+      }
+    },
+    {
+      "stage": "v4_1_episode",
+      "task": "e2_kpm_json_consistency_v1",
+      "state": "running",
+      "fields": {
+        "ping": "same as e2_kpm_prb_ping_v1",
+        "metrics": "fresh JSON metrics required before action",
+        "scenario": "multi-source evidence gate",
+        "e2": "decoded KPM v05 fields, including PRB evidence",
+        "backend": [
+          "websocket",
+          "ping",
+          "e2_kpm"
+        ],
+        "last_action": "decision context records metrics and E2 evidence at action time"
+      }
+    },
+    {
+      "stage": "v3_2_episode",
+      "task": "metrics_staleness_noop_v1",
+      "state": "running",
+      "fields": {
+        "ping": "same as ws_prb_ping_v1",
+        "metrics": [
+          "present",
+          "component_keys",
+          "timestamp",
+          "raw",
+          "error",
+          "stale",
+          "fresh",
+          "stale_reason",
+          "masked_raw_present"
+        ],
+        "scenario": [
+          "metrics_stale",
+          "stale_metrics_window"
+        ],
+        "backend": [
+          "websocket",
+          "ping"
+        ],
+        "last_action": "decision context is used to detect action during stale metrics"
+      }
     }
   ],
   "other_sources": [
@@ -71,6 +173,8 @@
     "json_metrics",
     "e2_kpm",
     "websocket_control_outcomes",
+    "decision_context",
+    "scenario_metrics_staleness",
     "zmq_broker_state",
     "pcap_log_oracle"
   ]

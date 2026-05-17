@@ -1,0 +1,39 @@
+{
+  "id": "ws_prb_noop_guard_v1",
+  "name": "WebSocket PRB No-Op Guard",
+  "summary": "A healthy Docker Open5GS, OCUDU gNB, and srsUE episode where the correct LLM-agent decision is to avoid unnecessary PRB control while ping and JSON metrics remain healthy.",
+  "stage": "v3_2_episode",
+  "suite_stage": "v3_2_suite",
+  "runtime": "docker_e2e",
+  "readiness": "scored",
+  "action_types": [
+    "SET_PRB_POLICY_RATIO_WS",
+    "NO_ACTION"
+  ],
+  "observation_sources": [
+    "ping",
+    "json_metrics",
+    "websocket_control"
+  ],
+  "required_conformance": [
+    "docker_e2e_assets",
+    "open5gs_core_health",
+    "srsue_zmq_attach",
+    "ping_traffic_path",
+    "websocket_prb_policy_action"
+  ],
+  "scoring": [
+    "noop_correctness",
+    "ping_success_ratio",
+    "json_metrics_continuity",
+    "clean_teardown_success"
+  ],
+  "artifact_groups": [
+    "episode/scenario.json",
+    "episode/actions.jsonl",
+    "episode/observations.jsonl",
+    "episode/metrics_raw.jsonl",
+    "episode/summary.json",
+    "episode/logs"
+  ]
+}

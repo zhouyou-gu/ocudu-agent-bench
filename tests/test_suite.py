@@ -5,6 +5,7 @@ import benchmark.benchmark_api.suite as suite_module
 from benchmark.benchmark_api.config import RemoteConfig, RuntimeConfig
 from benchmark.benchmark_api.suite import (
     BaselineAgent,
+    BUILTIN_AGENTS,
     SuiteOptions,
     SuiteRunner,
     V4_SUITE_CONFORMANCE_CHECKS,
@@ -78,6 +79,32 @@ class SuiteTests(unittest.TestCase):
         sweep_a = BaselineAgent("sweep_prb", seed=2)
         sweep_b = BaselineAgent("sweep_prb", seed=2)
         self.assertEqual([sweep_a.next_action({}) for _ in range(4)], [sweep_b.next_action({}) for _ in range(4)])
+
+        self.assertIsNone(BaselineAgent("noop", seed=1).next_action({"observation": {"metrics": {"present": True}}}))
+
+        evidence = BaselineAgent("evidence_gated_prb", seed=1)
+        self.assertIsNone(evidence.next_action({"observation": {"metrics": {"present": True}, "e2": {"enabled": True}}}))
+        self.assertIsNotNone(
+            evidence.next_action(
+                {
+                    "observation": {
+                        "metrics": {"present": True, "stale": False},
+                        "e2": {"enabled": True, "has_prb_measurement": True},
+                    }
+                }
+            )
+        )
+
+        stale_guard = BaselineAgent("stale_guard_prb", seed=1)
+        self.assertIsNone(
+            stale_guard.next_action({"observation": {"metrics": {"present": False, "stale": True}}})
+        )
+        self.assertIsNotNone(
+            stale_guard.next_action({"observation": {"metrics": {"present": True, "stale": False}}})
+        )
+
+    def test_builtin_agent_catalog_contains_task_specific_agents(self) -> None:
+        self.assertTrue({"noop", "evidence_gated_prb", "stale_guard_prb"}.issubset(BUILTIN_AGENTS))
 
     def test_aggregate_suite_scores(self) -> None:
         options = SuiteOptions(suite_id="unit-suite", runs=2)
@@ -306,6 +333,73 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(result["stage"], "v4_suite")
         self.assertEqual(result["task"], "e2_kpm_prb_ping_v1")
         self.assertEqual(result["runs"][0]["artifacts"]["summary"], "/tmp/workspace/runs/unit-v4-blocked-r001/episode/summary.json")
+
+    def test_suite_validation_reads_supported_tasks_at_validation_time(self) -> None:
+        original_supported_task_ids = suite_module.supported_task_ids
+        calls = []
+
+        def fake_supported_task_ids():
+            calls.append("called")
+            return {"dynamic_task_v1"}
+
+        suite_module.supported_task_ids = fake_supported_task_ids
+        try:
+            runner = SuiteRunner(FakeRemote(), Path(".").resolve(), Path("benchmark/conformance/tests.json"))
+            runner._validate_options(SuiteOptions(suite_id="unit-dynamic", task="dynamic_task_v1", runs=1))
+        finally:
+            suite_module.supported_task_ids = original_supported_task_ids
+
+        self.assertEqual(calls, ["called"])
+
+    def test_suite_accepts_new_task_ids_and_none_actions_are_not_logged(self) -> None:
+        original_runtime = suite_module.EpisodeRuntime
+        original_conformance = suite_module.run_conformance
+
+        class FakeRuntime:
+            actions = []
+
+            def __init__(self, remote, repo_root=None):
+                self.options = None
+
+            def start(self, options):
+                self.options = options
+                return {"status": "ok", "stage": "v3_2_episode"}
+
+            def observe(self):
+                return {"status": "ok", "observation": {"metrics": {"present": True}, "ping": {"packets_received": 1}}}
+
+            def act(self, action):
+                type(self).actions.append(action)
+                return {"status": "ok", "accepted": True}
+
+            def _cleanup_after_error(self, run_id):
+                return {"status": "ok", "leftover_containers": [], "ws_port_open": False, "errors": []}
+
+            def _finalize_after_error(self, reason, cleanup_success):
+                return {
+                    "status": "ok",
+                    "scored": True,
+                    "scores": {"noop_correctness": 1.0},
+                    "counts": {"actions": len(type(self).actions)},
+                    "artifacts": {"summary": f"/tmp/{self.options.run_id}.json"},
+                }
+
+        def fake_run_conformance(**kwargs):
+            return {"status": "pass", "remote": {}, "checks": []}
+
+        suite_module.EpisodeRuntime = FakeRuntime
+        suite_module.run_conformance = fake_run_conformance
+        try:
+            runner = SuiteRunner(FakeRemote(), Path(".").resolve(), Path("benchmark/conformance/tests.json"))
+            result = runner.run(
+                SuiteOptions(suite_id="unit-noop", task="ws_prb_noop_guard_v1", agent="noop", runs=1, duration=0)
+            )
+        finally:
+            suite_module.EpisodeRuntime = original_runtime
+            suite_module.run_conformance = original_conformance
+
+        self.assertEqual(result["task"], "ws_prb_noop_guard_v1")
+        self.assertEqual(FakeRuntime.actions, [])
 
 
 if __name__ == "__main__":

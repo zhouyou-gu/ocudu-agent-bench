@@ -429,6 +429,63 @@ class ConformanceTests(unittest.TestCase):
         self.assertEqual(by_id["ping_traffic_path"]["status"], "pass")
         self.assertEqual(by_id["websocket_prb_policy_action"]["status"], "pass")
 
+    def test_v3_staleness_conformance_uses_staleness_task_and_checks_mask(self) -> None:
+        original_runtime = conformance_module.EpisodeRuntime
+
+        class FakeEpisodeRuntime:
+            started_tasks = []
+
+            def __init__(self, remote, repo_root=None) -> None:
+                self.options = None
+
+            def check_docker_assets(self):
+                return {"status": "pass", "summary": "assets ok", "details": {}}
+
+            def start(self, options):
+                self.options = options
+                type(self).started_tasks.append(options.task)
+                return {"status": "ok", "stage": "v3_2_episode", "run_id": options.run_id}
+
+            def observe(self):
+                return {
+                    "status": "ok",
+                    "observation": {
+                        "ping": {"packets_received": 1},
+                        "metrics": {"present": False, "stale": True},
+                        "scenario": {"metrics_stale": True, "stale_metrics_window": 2},
+                    },
+                }
+
+            def cleanup(self, run_id):
+                return {"status": "ok", "run_id": run_id}
+
+            def finalize(self, unscored_reason=None, cleanup_success=True):
+                return {"status": "ok", "scored": False}
+
+        conformance_module.EpisodeRuntime = FakeEpisodeRuntime
+        try:
+            runner = ConformanceRunner(
+                remote=FakeRemoteManager(),
+                repo_root=Path(".").resolve(),
+                specs_path=Path("benchmark/conformance/tests.json"),
+            )
+            result = runner.run(
+                options=ConformanceOptions(
+                    run_id="unit-v3-stale",
+                    checks={"scenario_metrics_staleness_mask"},
+                    ws_port=8001,
+                    launch_timeout=1,
+                    probe_timeout=1,
+                )
+            )
+        finally:
+            conformance_module.EpisodeRuntime = original_runtime
+
+        by_id = {check["id"]: check for check in result["checks"]}
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(FakeEpisodeRuntime.started_tasks, [conformance_module.TASK_METRICS_STALENESS_NOOP_V1])
+        self.assertEqual(by_id["scenario_metrics_staleness_mask"]["status"], "pass")
+
     def test_v4_e2_checks_use_flexric_and_episode_runtime_adapters(self) -> None:
         original_runtime = conformance_module.EpisodeRuntime
         original_flexric_assets = conformance_module.ConformanceRunner._check_flexric_assets

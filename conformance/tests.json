@@ -122,6 +122,16 @@
       "launch_required": true
     },
     {
+      "id": "scenario_metrics_staleness_mask",
+      "name": "Scenario metrics staleness mask",
+      "backend": "scenario",
+      "stage": "v3.2",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": true
+    },
+    {
       "id": "e2_kpm",
       "name": "E2 setup and KPM indication path",
       "backend": "e2_kpm",

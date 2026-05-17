@@ -1,0 +1,46 @@
+{
+  "id": "e2_kpm_json_consistency_v1",
+  "name": "E2 KPM And JSON Metrics Consistency Gate",
+  "summary": "A Docker OCUDU, Open5GS, srsUE, and FlexRIC episode where the agent must wait for both JSON metrics and decoded E2SM-KPM v05 PRB evidence before issuing a WebSocket PRB policy action.",
+  "stage": "v4_1_episode",
+  "suite_stage": "v4_1_suite",
+  "runtime": "docker_e2e_flexric",
+  "readiness": "scored",
+  "action_types": [
+    "SET_PRB_POLICY_RATIO_WS"
+  ],
+  "observation_sources": [
+    "ping",
+    "json_metrics",
+    "websocket_control",
+    "e2_kpm_v05",
+    "pcap_log_oracle"
+  ],
+  "required_conformance": [
+    "flexric_docker_assets",
+    "near_rt_ric_health",
+    "ocudu_e2_config",
+    "e2_setup_path",
+    "e2_kpm_subscription",
+    "e2_pcap_log_oracle"
+  ],
+  "scoring": [
+    "evidence_gated_action",
+    "valid_action_accepted_rate",
+    "ping_success_ratio",
+    "json_metrics_continuity",
+    "e2_kpm_continuity",
+    "e2_oracle_availability",
+    "clean_teardown_success"
+  ],
+  "artifact_groups": [
+    "episode/scenario.json",
+    "episode/actions.jsonl",
+    "episode/observations.jsonl",
+    "episode/metrics_raw.jsonl",
+    "episode/e2_kpm_raw.jsonl",
+    "episode/e2_oracle.json",
+    "episode/summary.json",
+    "episode/logs"
+  ]
+}

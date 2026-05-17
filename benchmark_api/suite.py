@@ -33,10 +33,9 @@ from benchmark.benchmark_api.tasks import (
 )
 
 
-BUILTIN_AGENTS = {"fixed_prb", "sweep_prb", "invalid_then_fixed"}
+BUILTIN_AGENTS = {"fixed_prb", "sweep_prb", "invalid_then_fixed", "noop", "evidence_gated_prb", "stale_guard_prb"}
 V3_SUITE_CONFORMANCE_CHECKS = set(V3_EPISODE_GATE_CHECKS)
 V4_SUITE_CONFORMANCE_CHECKS = set(V4_EPISODE_GATE_CHECKS)
-SUPPORTED_SUITE_TASKS = supported_task_ids()
 _SUITE_COUNTER = itertools.count()
 
 
@@ -93,7 +92,32 @@ class BaselineAgent:
         self.sent_fixed = False
 
     def next_action(self, observation: dict[str, Any]) -> dict[str, Any] | None:
-        _ = observation
+        frame = observation.get("observation", observation)
+        if self.name == "noop":
+            return None
+        if self.name == "evidence_gated_prb":
+            if self.sent_fixed:
+                return None
+            metrics = frame.get("metrics", {})
+            e2 = frame.get("e2", {})
+            has_required_evidence = metrics.get("present") and not metrics.get("stale") and (
+                not e2.get("enabled")
+                or e2.get("has_prb_measurement")
+                or e2.get("oracle_available")
+                or int(e2.get("kpm_indications", 0) or 0) >= 3
+            )
+            if not has_required_evidence:
+                return None
+            self.sent_fixed = True
+            return fixed_prb_action()
+        if self.name == "stale_guard_prb":
+            if self.sent_fixed:
+                return None
+            metrics = frame.get("metrics", {})
+            if metrics.get("stale") or frame.get("scenario", {}).get("metrics_stale") or not metrics.get("present"):
+                return None
+            self.sent_fixed = True
+            return fixed_prb_action()
         if self.name == "fixed_prb":
             if self.sent_fixed:
                 return None
@@ -235,7 +259,7 @@ class SuiteRunner:
 
     def _validate_options(self, options: SuiteOptions) -> None:
         safe_run_id(options.suite_id)
-        if options.task not in SUPPORTED_SUITE_TASKS:
+        if options.task not in supported_task_ids():
             raise ValueError(f"Unsupported suite task: {options.task}")
         if options.agent not in BUILTIN_AGENTS:
             raise ValueError(f"Unknown built-in agent: {options.agent}")

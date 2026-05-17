@@ -19,11 +19,11 @@ from benchmark.benchmark_api.episode import (
 )
 from benchmark.benchmark_api.remote import RemoteManager
 from benchmark.benchmark_api.tasks import (
-    EPISODE_TASKS,
     V3_EPISODE_GATE_CHECKS,
     V4_EPISODE_GATE_CHECKS,
     conformance_checks_for_task,
     episode_stage_for_task,
+    implemented_episode_task_ids,
 )
 
 
@@ -52,10 +52,11 @@ class BenchmarkEnv:
             raise ValueError("reset config must be a dictionary")
         self.remote_config = parse_config(self.config_path)
         self.task = str(config.get("task", "v1_stub"))
-        if self.task != "v1_stub" and self.task not in EPISODE_TASKS:
-            supported = ", ".join(sorted(EPISODE_TASKS | {"v1_stub"}))
+        episode_tasks = implemented_episode_task_ids()
+        if self.task != "v1_stub" and self.task not in episode_tasks:
+            supported = ", ".join(sorted(episode_tasks | {"v1_stub"}))
             raise ValueError(f"Unsupported benchmark task: {self.task}. Supported tasks: {supported}")
-        self.run_id = str(config.get("run_id") or (f"ep-{int(time.time())}" if self.task in EPISODE_TASKS else f"v1-{int(time.time())}"))
+        self.run_id = str(config.get("run_id") or (f"ep-{int(time.time())}" if self._is_episode_task() else f"v1-{int(time.time())}"))
         self.remote = self.remote_manager_factory(self.remote_config)
         self.actions = []
         self.started_at = time.time()
@@ -80,7 +81,7 @@ class BenchmarkEnv:
         workspace_init: dict[str, Any] | None = None
         run_metadata: dict[str, Any] | None = None
         conformance_result: dict[str, Any] | None = None
-        stage = self._episode_stage() if self.task in EPISODE_TASKS else "v1_stub"
+        stage = self._episode_stage() if self._is_episode_task() else "v1_stub"
 
         if check_remote:
             remote_check = self.remote.check()
@@ -143,7 +144,7 @@ class BenchmarkEnv:
             raise ValueError("conformance must be one of: skip, observe, required")
         if conformance_mode in {"observe", "required"}:
             check_value = config.get("conformance_checks")
-            if self.task in EPISODE_TASKS and check_value is None:
+            if self._is_episode_task() and check_value is None:
                 checks = conformance_checks_for_task(self.task)
             elif isinstance(check_value, str) or check_value is None:
                 checks = parse_checks(check_value)
@@ -180,7 +181,7 @@ class BenchmarkEnv:
                     "conformance": conformance_result,
                 }
 
-        if self.task in EPISODE_TASKS:
+        if self._is_episode_task():
             if conformance_mode == "skip":
                 self.state = "error"
                 return {
@@ -297,12 +298,12 @@ class BenchmarkEnv:
         if self.state == "closed":
             return {
                 "status": "error",
-                "stage": self._episode_stage() if self.task in EPISODE_TASKS else "v1_stub",
+                "stage": self._episode_stage() if self._is_episode_task() else "v1_stub",
                 "run_id": self.run_id,
                 "state": self.state,
                 "reason": "episode is closed",
             }
-        if self.task in EPISODE_TASKS and self.episode_runtime is not None:
+        if self._is_episode_task() and self.episode_runtime is not None:
             self.last_observation = self.episode_runtime.observe()
             return self.last_observation
         return {
@@ -328,20 +329,29 @@ class BenchmarkEnv:
         if self.state == "closed":
             return {
                 "status": "rejected",
-                "stage": self._episode_stage() if self.task in EPISODE_TASKS else "v1_stub",
+                "stage": self._episode_stage() if self._is_episode_task() else "v1_stub",
                 "run_id": self.run_id,
                 "accepted": False,
                 "reason": "episode is closed",
             }
+        if action is None and self._is_episode_task() and self.episode_runtime is not None:
+            return {
+                "status": "ok",
+                "stage": self._episode_stage(),
+                "run_id": self.run_id,
+                "accepted": True,
+                "action_logged": False,
+                "reason": "no-op decision",
+            }
         if not isinstance(action, dict):
             return {
                 "status": "rejected",
-                "stage": "v1_stub",
+                "stage": self._episode_stage() if self._is_episode_task() else "v1_stub",
                 "run_id": self.run_id,
                 "accepted": False,
                 "reason": "action must be a dictionary",
             }
-        if self.task in EPISODE_TASKS and self.episode_runtime is not None:
+        if self._is_episode_task() and self.episode_runtime is not None:
             result = self.episode_runtime.act(action)
             self.actions.append(
                 {
@@ -370,7 +380,7 @@ class BenchmarkEnv:
 
     def close(self) -> dict[str, Any]:
         self.closed_at = time.time()
-        if self.task in EPISODE_TASKS and self.episode_runtime is not None and self.run_id is not None:
+        if self._is_episode_task() and self.episode_runtime is not None and self.run_id is not None:
             cleanup = self._cleanup_episode_runtime()
             summary = self._finalize_episode_runtime(
                 reason=self.unscored_reason,
@@ -426,4 +436,7 @@ class BenchmarkEnv:
             }
 
     def _episode_stage(self) -> str:
-        return episode_stage_for_task(self.task) if self.task in EPISODE_TASKS else "v1_stub"
+        return episode_stage_for_task(self.task) if self._is_episode_task() else "v1_stub"
+
+    def _is_episode_task(self) -> bool:
+        return self.task in implemented_episode_task_ids() if self.task is not None else False

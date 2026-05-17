@@ -1,0 +1,43 @@
+{
+  "id": "metrics_staleness_noop_v1",
+  "name": "Metrics Staleness No-Op Guard",
+  "summary": "A Docker OCUDU episode where ping remains healthy while JSON metrics are deliberately masked as stale for early observations; the agent must avoid acting until fresh metrics return.",
+  "stage": "v3_2_episode",
+  "suite_stage": "v3_2_suite",
+  "runtime": "docker_e2e",
+  "readiness": "scored",
+  "action_types": [
+    "SET_PRB_POLICY_RATIO_WS",
+    "NO_ACTION"
+  ],
+  "observation_sources": [
+    "ping",
+    "json_metrics",
+    "websocket_control",
+    "scenario_metrics_staleness"
+  ],
+  "required_conformance": [
+    "docker_e2e_assets",
+    "open5gs_core_health",
+    "srsue_zmq_attach",
+    "ping_traffic_path",
+    "websocket_prb_policy_action",
+    "scenario_metrics_staleness_mask"
+  ],
+  "scoring": [
+    "stale_action_avoidance",
+    "evidence_gated_action",
+    "valid_action_accepted_rate",
+    "ping_success_ratio",
+    "json_metrics_continuity",
+    "clean_teardown_success"
+  ],
+  "artifact_groups": [
+    "episode/scenario.json",
+    "episode/actions.jsonl",
+    "episode/observations.jsonl",
+    "episode/metrics_raw.jsonl",
+    "episode/summary.json",
+    "episode/logs"
+  ]
+}

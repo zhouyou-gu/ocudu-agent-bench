@@ -6,7 +6,7 @@ import inspect
 import json
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,11 @@ from benchmark.benchmark_api.ric import (
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
 from benchmark.benchmark_api.tasks import (
     TASK_E2_KPM_PRB_PING_V1,
+    TASK_E2_KPM_JSON_CONSISTENCY_V1,
+    TASK_METRICS_STALENESS_NOOP_V1,
+    TASK_WS_PRB_ACTION_BUDGET_V1,
+    TASK_WS_PRB_ERROR_REPAIR_V1,
+    TASK_WS_PRB_NOOP_GUARD_V1,
     TASK_WS_PRB_PING_V1,
     episode_stage_for_task,
     is_implemented_episode_task,
@@ -34,6 +39,88 @@ DEFAULT_ATTACH_TIMEOUT = 90
 DEFAULT_LAUNCH_TIMEOUT = 60
 DEFAULT_PROBE_TIMEOUT = 5
 PING_TARGET = "10.45.1.1"
+STALE_METRICS_OBSERVATIONS = 2
+
+
+@dataclass(frozen=True)
+class EpisodeTaskPolicy:
+    task_id: str
+    scenario_name: str
+    runtime_family: str
+    requires_e2: bool = False
+    default_smoke_agent: str = "fixed_prb"
+    expected_behavior: str = "one accepted valid PRB action"
+    requires_valid_action: bool = True
+    max_actions: int | None = None
+    require_no_actions: bool = False
+    require_first_invalid_then_valid: bool = False
+    require_evidence_before_action: bool = False
+    stale_metrics_observations: int = 0
+
+
+TASK_POLICIES: dict[str, EpisodeTaskPolicy] = {
+    TASK_WS_PRB_PING_V1: EpisodeTaskPolicy(
+        task_id=TASK_WS_PRB_PING_V1,
+        scenario_name="healthy_ws_prb_ping",
+        runtime_family="docker_e2e",
+        default_smoke_agent="fixed_prb",
+        expected_behavior="issue one accepted valid WebSocket PRB action while ping and metrics remain healthy",
+    ),
+    TASK_E2_KPM_PRB_PING_V1: EpisodeTaskPolicy(
+        task_id=TASK_E2_KPM_PRB_PING_V1,
+        scenario_name="healthy_e2_kpm_prb_ping",
+        runtime_family="docker_e2e_flexric",
+        requires_e2=True,
+        default_smoke_agent="fixed_prb",
+        expected_behavior="issue one accepted valid WebSocket PRB action while decoded E2SM-KPM v05 records remain available",
+    ),
+    TASK_WS_PRB_NOOP_GUARD_V1: EpisodeTaskPolicy(
+        task_id=TASK_WS_PRB_NOOP_GUARD_V1,
+        scenario_name="healthy_noop_guard",
+        runtime_family="docker_e2e",
+        default_smoke_agent="noop",
+        expected_behavior="take no RAN control action when ping and JSON metrics are healthy",
+        requires_valid_action=False,
+        require_no_actions=True,
+    ),
+    TASK_WS_PRB_ERROR_REPAIR_V1: EpisodeTaskPolicy(
+        task_id=TASK_WS_PRB_ERROR_REPAIR_V1,
+        scenario_name="invalid_action_repair",
+        runtime_family="docker_e2e",
+        default_smoke_agent="invalid_then_fixed",
+        expected_behavior="recover from one locally rejected invalid PRB action by issuing one accepted valid PRB action",
+        require_first_invalid_then_valid=True,
+        max_actions=2,
+    ),
+    TASK_WS_PRB_ACTION_BUDGET_V1: EpisodeTaskPolicy(
+        task_id=TASK_WS_PRB_ACTION_BUDGET_V1,
+        scenario_name="single_action_budget",
+        runtime_family="docker_e2e",
+        default_smoke_agent="fixed_prb",
+        expected_behavior="issue at most one accepted valid PRB action and then stop acting",
+        max_actions=1,
+    ),
+    TASK_E2_KPM_JSON_CONSISTENCY_V1: EpisodeTaskPolicy(
+        task_id=TASK_E2_KPM_JSON_CONSISTENCY_V1,
+        scenario_name="e2_json_evidence_gate",
+        runtime_family="docker_e2e_flexric",
+        requires_e2=True,
+        default_smoke_agent="evidence_gated_prb",
+        expected_behavior="wait for JSON metrics and E2 PRB evidence before issuing one accepted valid PRB action",
+        max_actions=1,
+        require_evidence_before_action=True,
+    ),
+    TASK_METRICS_STALENESS_NOOP_V1: EpisodeTaskPolicy(
+        task_id=TASK_METRICS_STALENESS_NOOP_V1,
+        scenario_name="metrics_staleness_guard",
+        runtime_family="docker_e2e",
+        default_smoke_agent="stale_guard_prb",
+        expected_behavior="take no action while metrics are masked stale, then issue at most one accepted valid PRB action after freshness returns",
+        max_actions=1,
+        require_evidence_before_action=True,
+        stale_metrics_observations=STALE_METRICS_OBSERVATIONS,
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -45,6 +132,17 @@ class EpisodeOptions:
     launch_timeout: int = DEFAULT_LAUNCH_TIMEOUT
     attach_timeout: int = DEFAULT_ATTACH_TIMEOUT
     probe_timeout: int = DEFAULT_PROBE_TIMEOUT
+
+
+def task_policy(task_id: str) -> EpisodeTaskPolicy:
+    try:
+        return TASK_POLICIES[task_id]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported episode task: {task_id}") from exc
+
+
+def default_smoke_agent_for_task(task_id: str) -> str:
+    return task_policy(task_id).default_smoke_agent
 
 
 def default_episode_run_id() -> str:
@@ -74,6 +172,7 @@ def episode_paths(workspace: str, run_id: str) -> dict[str, str]:
         "kpm_xapp_config": f"{episode_dir}/configs/xapp_mon_e2sm_kpm.conf",
         "ue_config": f"{episode_dir}/configs/ue_zmq.conf",
         "containers": f"{episode_dir}/pids_or_containers.json",
+        "scenario": f"{episode_dir}/scenario.json",
         "actions": f"{episode_dir}/actions.jsonl",
         "observations": f"{episode_dir}/observations.jsonl",
         "metrics_raw": f"{episode_dir}/metrics_raw.jsonl",
@@ -226,6 +325,34 @@ def normalize_metrics_frame(frame: Any) -> dict[str, Any]:
     }
 
 
+def scenario_metadata(task_id: str, duration: int) -> dict[str, Any]:
+    policy = task_policy(task_id)
+    return {
+        "task": task_id,
+        "scenario_name": policy.scenario_name,
+        "runtime_family": policy.runtime_family,
+        "duration": duration,
+        "seed_policy": "suite seed controls built-in baseline behavior; episode scenario is deterministic",
+        "ue_count": 1,
+        "traffic": {"type": "ping", "target": PING_TARGET, "interval_seconds": 0.2},
+        "labels": {
+            "healthy_ping": True,
+            "json_metrics_expected": True,
+            "e2_kpm_expected": policy.requires_e2,
+            "stale_metrics_observations": policy.stale_metrics_observations,
+        },
+        "expected_behavior": policy.expected_behavior,
+        "scoring_contract": {
+            "requires_valid_action": policy.requires_valid_action,
+            "require_no_actions": policy.require_no_actions,
+            "max_actions": policy.max_actions,
+            "require_first_invalid_then_valid": policy.require_first_invalid_then_valid,
+            "require_evidence_before_action": policy.require_evidence_before_action,
+            "requires_e2": policy.requires_e2,
+        },
+    }
+
+
 def validate_prb_action(action: Any) -> dict[str, Any]:
     if not isinstance(action, dict):
         return {"valid": False, "reason": "action must be a dictionary", "normalized": None, "request": None}
@@ -292,7 +419,9 @@ def score_episode(
     unscored_reason: str | None = None,
     require_e2: bool = False,
     e2_oracle: dict[str, Any] | None = None,
+    task: str = TASK_WS_PRB_PING_V1,
 ) -> dict[str, Any]:
+    policy = task_policy(task)
     valid_actions = [item for item in actions if item.get("validation", {}).get("valid")]
     accepted_valid = [item for item in valid_actions if item.get("accepted")]
     invalid_actions = [item for item in actions if not item.get("validation", {}).get("valid")]
@@ -303,27 +432,113 @@ def score_episode(
         if item.get("observation", {}).get("metrics", {}).get("present") or item.get("metrics", {}).get("present")
     ]
     setup_failed = bool(unscored_reason)
-    scored = not setup_failed and bool(valid_actions) and ping.get("packets_received", 0) > 0 and bool(metrics_frames)
+    valid_action_requirement_met = bool(valid_actions) if policy.requires_valid_action else True
+    scored = not setup_failed and valid_action_requirement_met and ping.get("packets_received", 0) > 0 and bool(metrics_frames)
     e2_indications = 0
     e2_oracle_available = False
     if e2_oracle:
         e2_indications = int(e2_oracle.get("kpm_indications", 0) or 0)
         e2_oracle_available = bool(e2_oracle.get("oracle_available"))
-    if require_e2 and (e2_indications < 3 or not e2_oracle_available):
+
+    e2_required = require_e2 or policy.requires_e2
+    observations_only = [item.get("observation", item) for item in observations]
+    stale_observations = [
+        item
+        for item in observations_only
+        if item.get("metrics", {}).get("stale") or item.get("scenario", {}).get("metrics_stale")
+    ]
+    fresh_metrics_frames = [
+        item
+        for item in observations_only
+        if item.get("metrics", {}).get("present") and not item.get("metrics", {}).get("stale")
+    ]
+    actions_during_stale = [
+        item
+        for item in actions
+        if item.get("decision_context", {}).get("metrics", {}).get("stale")
+        or item.get("decision_context", {}).get("scenario", {}).get("metrics_stale")
+    ]
+    decision_context_errors = [item for item in actions if item.get("decision_context_error")]
+    decision_context_required = policy.require_evidence_before_action or bool(policy.stale_metrics_observations)
+    evidence_gated_actions = [
+        item
+        for item in accepted_valid
+        if item.get("decision_context", {}).get("metrics", {}).get("present")
+        and not item.get("decision_context", {}).get("metrics", {}).get("stale")
+        and (
+            not policy.requires_e2
+            or item.get("decision_context", {}).get("e2", {}).get("has_prb_measurement")
+            or item.get("decision_context", {}).get("e2", {}).get("oracle_available")
+            or int(item.get("decision_context", {}).get("e2", {}).get("kpm_indications", 0) or 0) >= 3
+        )
+    ]
+
+    task_success = True
+    task_failure_reason: str | None = None
+    if policy.require_no_actions and actions:
+        task_success = False
+        task_failure_reason = "agent acted during no-op task"
+    elif policy.require_first_invalid_then_valid:
+        if len(actions) < 2:
+            task_success = False
+            task_failure_reason = "expected invalid action followed by valid repair action"
+        elif actions[0].get("validation", {}).get("valid"):
+            task_success = False
+            task_failure_reason = "first action was not locally invalid"
+        elif actions[0].get("dispatched"):
+            task_success = False
+            task_failure_reason = "invalid action was dispatched"
+        elif not any(item.get("validation", {}).get("valid") and item.get("accepted") for item in actions[1:]):
+            task_success = False
+            task_failure_reason = "no later accepted valid repair action"
+        elif len(invalid_actions) > 1:
+            task_success = False
+            task_failure_reason = "more than one invalid action"
+    elif policy.requires_valid_action and not accepted_valid:
+        task_success = False
+        task_failure_reason = "no accepted valid actions"
+    if task_success and policy.max_actions is not None and len(actions) > policy.max_actions:
+        task_success = False
+        task_failure_reason = "action budget exceeded"
+    if task_success and task == TASK_WS_PRB_ACTION_BUDGET_V1 and invalid_actions:
+        task_success = False
+        task_failure_reason = "invalid action used in action-budget task"
+    if task_success and decision_context_required and decision_context_errors:
+        task_success = False
+        task_failure_reason = "decision context capture failed"
+    if task_success and policy.require_evidence_before_action and not evidence_gated_actions:
+        task_success = False
+        task_failure_reason = "no accepted valid action after required observation evidence"
+    if task_success and policy.stale_metrics_observations:
+        if len(stale_observations) < policy.stale_metrics_observations:
+            task_success = False
+            task_failure_reason = "metrics staleness window was not observed"
+        elif not fresh_metrics_frames:
+            task_success = False
+            task_failure_reason = "metrics freshness was not restored"
+        elif actions_during_stale:
+            task_success = False
+            task_failure_reason = "agent acted while metrics were stale"
+
+    if e2_required and (e2_indications < 3 or not e2_oracle_available):
+        scored = False
+    if not task_success:
         scored = False
     if not cleanup_success:
         scored = False
         unscored_reason = unscored_reason or "cleanup failed"
     elif not scored:
-        if unscored_reason is None and not valid_actions:
+        if unscored_reason is None and task_failure_reason is not None:
+            unscored_reason = task_failure_reason
+        elif unscored_reason is None and policy.requires_valid_action and not valid_actions:
             unscored_reason = "no valid actions"
         elif unscored_reason is None and ping.get("packets_received", 0) <= 0:
             unscored_reason = "no successful ping replies"
         elif unscored_reason is None and not metrics_frames:
             unscored_reason = "no metrics observations"
-        elif unscored_reason is None and require_e2 and e2_indications < 3:
+        elif unscored_reason is None and e2_required and e2_indications < 3:
             unscored_reason = "insufficient E2 KPM indications"
-        elif unscored_reason is None and require_e2 and not e2_oracle_available:
+        elif unscored_reason is None and e2_required and not e2_oracle_available:
             unscored_reason = "E2 oracle unavailable"
     return {
         "scored": scored,
@@ -336,6 +551,11 @@ def score_episode(
             "e2_kpm_continuity": e2_indications,
             "e2_oracle_available": e2_oracle_available,
             "clean_teardown": cleanup_success,
+            "task_success": task_success,
+            "action_budget_ok": policy.max_actions is None or len(actions) <= policy.max_actions,
+            "noop_correctness": 1.0 if (not policy.require_no_actions or not actions) else 0.0,
+            "evidence_gated_action": bool(evidence_gated_actions) if policy.require_evidence_before_action else True,
+            "stale_action_avoidance": 1.0 if not actions_during_stale else 0.0,
         },
         "counts": {
             "actions": len(actions),
@@ -345,6 +565,11 @@ def score_episode(
             "locally_rejected_invalid_actions": len(rejected_invalid),
             "observations": len(observations),
             "metrics_frames": len(metrics_frames),
+            "fresh_metrics_frames": len(fresh_metrics_frames),
+            "stale_metric_observations": len(stale_observations),
+            "actions_during_stale_metrics": len(actions_during_stale),
+            "evidence_gated_actions": len(evidence_gated_actions),
+            "decision_context_errors": len(decision_context_errors),
             "e2_kpm_indications": e2_indications,
         },
         "ping": ping,
@@ -450,7 +675,8 @@ print(json.dumps({{
         self.options = options
         self.paths = episode_paths(self.remote.config.workspace, options.run_id)
         suffix = container_suffix(options.run_id)
-        is_v4 = options.task == TASK_E2_KPM_PRB_PING_V1
+        policy = task_policy(options.task)
+        is_v4 = policy.requires_e2
         stage = episode_stage_for_task(options.task)
         provider = self.remote.config.ric_provider
         overlay = generate_v4_e2_gnb_overlay(options.ws_port) if is_v4 else generate_v3_gnb_overlay(options.ws_port)
@@ -459,6 +685,13 @@ print(json.dumps({{
             "task": options.task,
             "stage": stage,
             "is_v4": is_v4,
+            "policy": {
+                "scenario_name": policy.scenario_name,
+                "runtime_family": policy.runtime_family,
+                "requires_e2": policy.requires_e2,
+                "stale_metrics_observations": policy.stale_metrics_observations,
+            },
+            "scenario": scenario_metadata(options.task, options.duration),
             "ric_provider": provider,
             "paths": self.paths,
             "compose": self.remote.config.runtime.open5gs_compose,
@@ -616,6 +849,7 @@ for key in ["configs_dir", "logs_dir"]:
     pathlib.Path(paths[key]).mkdir(parents=True, exist_ok=True)
 for path_key in ["actions", "observations", "metrics_raw", "e2_kpm_raw"]:
     pathlib.Path(paths[path_key]).write_text("", encoding="utf-8")
+pathlib.Path(paths["scenario"]).write_text(json.dumps(payload["scenario"], indent=2, sort_keys=True), encoding="utf-8")
 shutil.copy2(pathlib.Path(payload["config_dir"]) / "gnb_zmq.yaml", paths["gnb_config"])
 shutil.copy2(pathlib.Path(payload["config_dir"]) / "ue_zmq.conf", paths["ue_config"])
 pathlib.Path(paths["gnb_overlay"]).write_text(payload["overlay"], encoding="utf-8")
@@ -818,10 +1052,13 @@ print(json.dumps({{
 
     def observe(self) -> dict[str, Any]:
         options = self._require_options()
+        policy = task_policy(options.task)
         payload = {
             "run_id": options.run_id,
             "task": options.task,
             "stage": episode_stage_for_task(options.task),
+            "requires_e2": policy.requires_e2,
+            "stale_metrics_observations": policy.stale_metrics_observations,
             "ric_provider": self.remote.config.ric_provider,
             "paths": self.paths,
             "ws_port": options.ws_port,
@@ -842,6 +1079,10 @@ def expand_remote_path(value):
     return value
 
 paths = {{key: expand_remote_path(value) for key, value in payload["paths"].items()}}
+observations_path = pathlib.Path(paths["observations"])
+observation_index = 1
+if observations_path.exists():
+    observation_index += len([line for line in observations_path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()])
 
 def parse_ping(text):
     import re
@@ -914,10 +1155,21 @@ metrics = {{
     "timestamp": metric.get("timestamp") if isinstance(metric, dict) else None,
     "raw": metric,
     "error": metric_error,
+    "stale": False,
+    "fresh": isinstance(metric, dict),
 }}
+metrics_raw_present = metrics["present"]
+metrics_stale = False
+if payload.get("stale_metrics_observations", 0) and observation_index <= int(payload.get("stale_metrics_observations", 0)):
+    metrics_stale = True
+    metrics["stale"] = True
+    metrics["fresh"] = False
+    metrics["present"] = False
+    metrics["stale_reason"] = "scenario_mask"
+    metrics["masked_raw_present"] = metrics_raw_present
 e2_oracle = {{}}
 e2_records = []
-if payload["task"] == "e2_kpm_prb_ping_v1":
+if payload.get("requires_e2"):
     oracle_path = pathlib.Path(paths["e2_oracle"])
     if oracle_path.exists():
         try:
@@ -936,17 +1188,22 @@ if payload["task"] == "e2_kpm_prb_ping_v1":
 observation = {{
     "type": payload["task"],
     "timestamp": time.time(),
+    "observation_index": observation_index,
+    "scenario": {{
+        "metrics_stale": metrics_stale,
+        "stale_metrics_window": int(payload.get("stale_metrics_observations", 0) or 0),
+    }},
     "ping": parse_ping(ping_text),
     "metrics": metrics,
     "e2": {{
-        "enabled": payload["task"] == "e2_kpm_prb_ping_v1",
+        "enabled": bool(payload.get("requires_e2")),
         "kpm_indications": int(e2_oracle.get("kpm_indications", len(e2_records)) or 0),
         "last_kpm": e2_oracle.get("last_kpm") or (e2_records[-1] if e2_records else None),
         "has_prb_measurement": bool(e2_oracle.get("has_prb_measurement")),
         "oracle_available": bool(e2_oracle.get("oracle_available")),
         "pcap_available": bool(e2_oracle.get("pcap_available")),
         "log_available": bool(e2_oracle.get("log_available")),
-        "raw_path": paths["e2_kpm_raw"] if payload["task"] == "e2_kpm_prb_ping_v1" else None,
+        "raw_path": paths["e2_kpm_raw"] if payload.get("requires_e2") else None,
     }},
     "last_action": last_action,
     "backend": {{"websocket": metric_error is None, "ping": bool(ping_text), "e2_kpm": bool(e2_oracle.get("oracle_available"))}},
@@ -962,16 +1219,21 @@ print(json.dumps({{"status": "ok", "stage": stage, "run_id": payload["run_id"], 
     def act(self, action: Any) -> dict[str, Any]:
         options = self._require_options()
         validation = validate_prb_action(action)
+        decision_context = self._latest_decision_context()
+        decision_context_error = decision_context.pop("_decision_context_error", None)
         record = {
             "timestamp": time.time(),
             "action": action,
             "validation": validation,
+            "decision_context": decision_context,
             "dispatched": False,
             "accepted": False,
             "request": validation.get("request"),
             "response": None,
             "reason": validation["reason"],
         }
+        if decision_context_error:
+            record["decision_context_error"] = decision_context_error
         if not validation["valid"]:
             self._append_jsonl(self.paths["actions"], record)
             return {
@@ -981,6 +1243,7 @@ print(json.dumps({{"status": "ok", "stage": stage, "run_id": payload["run_id"], 
                 "accepted": False,
                 "reason": validation["reason"],
                 "validation": validation,
+                "decision_context_error": decision_context_error,
             }
         payload = {
             "run_id": options.run_id,
@@ -1033,13 +1296,53 @@ print(json.dumps({{
 """
         return self._remote_json(script)
 
+    def _latest_decision_context(self) -> dict[str, Any]:
+        if not self.paths.get("observations"):
+            return {"_decision_context_error": "observations path is not initialized"}
+        payload = {"path": self.paths["observations"]}
+        try:
+            data = self._remote_json(
+                f"""
+import json
+import pathlib
+payload = json.loads({json.dumps(json.dumps(payload))})
+def expand_remote_path(value):
+    if value == "~":
+        return str(pathlib.Path.home())
+    if isinstance(value, str) and value.startswith("~/"):
+        return str(pathlib.Path.home() / value[2:])
+    return value
+path = pathlib.Path(expand_remote_path(payload["path"]))
+context = {{}}
+context_error = None
+if path.exists():
+    lines = [line for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+    if lines:
+        try:
+            context = json.loads(lines[-1]).get("observation", {{}})
+        except json.JSONDecodeError:
+            context_error = "latest observation record is not valid JSON"
+print(json.dumps({{"status": "ok", "context": context, "context_error": context_error}}))
+"""
+            )
+            context_error = data.get("context_error")
+            if context_error:
+                return {"_decision_context_error": str(context_error)}
+            context = data.get("context")
+            return context if isinstance(context, dict) else {}
+        except Exception as exc:
+            return {"_decision_context_error": str(exc)}
+
     def cleanup(self, run_id: str | None = None) -> dict[str, Any]:
         run_id = safe_run_id(run_id or self._require_options().run_id)
         paths = self.paths or episode_paths(self.remote.config.workspace, run_id)
         suffix = container_suffix(run_id)
+        cleanup_task = self.options.task if self.options is not None else TASK_WS_PRB_PING_V1
+        cleanup_policy = task_policy(cleanup_task)
         payload = {
             "run_id": run_id,
-            "task": self.options.task if self.options is not None else TASK_WS_PRB_PING_V1,
+            "task": cleanup_task,
+            "requires_e2": cleanup_policy.requires_e2,
             "ric_provider": self.remote.config.ric_provider,
             "paths": paths,
             "compose": self.remote.config.runtime.open5gs_compose,
@@ -1066,6 +1369,16 @@ def expand_remote_path(value):
     return value
 paths = {{key: expand_remote_path(value) for key, value in payload["paths"].items()}}
 payload["compose"] = expand_remote_path(payload["compose"])
+container_metadata = {{}}
+metadata_path = pathlib.Path(paths.get("containers", ""))
+if metadata_path.exists():
+    try:
+        container_metadata = json.loads(metadata_path.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError:
+        container_metadata = {{}}
+if container_metadata.get("ric_port"):
+    payload["requires_e2"] = True
+    payload["ric_port"] = container_metadata.get("ric_port")
 commands = []
 def run(argv):
     proc = subprocess.run(argv, check=False, text=True, capture_output=True)
@@ -1091,7 +1404,7 @@ if ps.returncode == 0:
     wanted = {{payload["gnb_container"], payload["ue_container"], payload["ric_container"], payload["kpm_xapp_container"], payload["e2_pcap_container"], "skillful_ran_5gc"}}
     leftover = [name for name in names if name in wanted]
 port_open = port_listening(int(payload.get("ws_port", 8001)))
-ric_port_open = port_listening(int(payload["ric_port"])) if payload["task"] == "e2_kpm_prb_ping_v1" and payload.get("ric_port") else False
+ric_port_open = port_listening(int(payload["ric_port"])) if payload.get("requires_e2") and payload.get("ric_port") else False
 errors = []
 if ps.returncode != 0:
     errors.append("unable to inspect docker containers")
@@ -1122,10 +1435,21 @@ print(json.dumps(result))
 
     def finalize(self, unscored_reason: str | None = None, cleanup_success: bool = True) -> dict[str, Any]:
         options = self._require_options()
+        policy = task_policy(options.task)
+        scoring_source = self._episode_scoring_remote_source()
         payload = {
             "run_id": options.run_id,
             "task": options.task,
             "stage": episode_stage_for_task(options.task),
+            "policy": {
+                "requires_e2": policy.requires_e2,
+                "requires_valid_action": policy.requires_valid_action,
+                "require_no_actions": policy.require_no_actions,
+                "max_actions": policy.max_actions,
+                "require_first_invalid_then_valid": policy.require_first_invalid_then_valid,
+                "require_evidence_before_action": policy.require_evidence_before_action,
+                "stale_metrics_observations": policy.stale_metrics_observations,
+            },
             "ric_provider": self.remote.config.ric_provider,
             "paths": self.paths,
             "unscored_reason": unscored_reason,
@@ -1136,6 +1460,7 @@ print(json.dumps(result))
 import json
 import pathlib
 import re
+{scoring_source}
 payload = json.loads({json.dumps(json.dumps(payload))})
 def expand_remote_path(value):
     if value == "~":
@@ -1212,8 +1537,8 @@ def record_has_prb_measurement(record):
 def file_size(path):
     item = pathlib.Path(path)
     return item.stat().st_size if item.exists() else 0
-def build_e2_oracle(paths, task):
-    if task != "e2_kpm_prb_ping_v1":
+def build_e2_oracle(paths, requires_e2):
+    if not requires_e2:
         return {{}}
     ric_text = pathlib.Path(paths["ric_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["ric_log"]).exists() else ""
     gnb_text = pathlib.Path(paths["gnb_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["gnb_log"]).exists() else ""
@@ -1256,6 +1581,7 @@ def build_e2_oracle(paths, task):
 ping_text = pathlib.Path(paths["ping_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["ping_log"]).exists() else ""
 actions = read_jsonl(paths["actions"])
 observations = read_jsonl(paths["observations"])
+observations_only = [item.get("observation", item) for item in observations]
 valid_actions = [item for item in actions if item.get("validation", {{}}).get("valid")]
 accepted_valid = [item for item in valid_actions if item.get("accepted")]
 invalid_actions = [item for item in actions if not item.get("validation", {{}}).get("valid")]
@@ -1264,60 +1590,86 @@ metrics_frames = [
     item for item in observations
     if item.get("observation", {{}}).get("metrics", {{}}).get("present") or item.get("metrics", {{}}).get("present")
 ]
+fresh_metrics_frames = [
+    item for item in observations_only
+    if item.get("metrics", {{}}).get("present") and not item.get("metrics", {{}}).get("stale")
+]
+stale_observations = [
+    item for item in observations_only
+    if item.get("metrics", {{}}).get("stale") or item.get("scenario", {{}}).get("metrics_stale")
+]
+actions_during_stale = [
+    item for item in actions
+    if item.get("decision_context", {{}}).get("metrics", {{}}).get("stale")
+    or item.get("decision_context", {{}}).get("scenario", {{}}).get("metrics_stale")
+]
+policy = payload["policy"]
+evidence_gated_actions = [
+    item for item in accepted_valid
+    if item.get("decision_context", {{}}).get("metrics", {{}}).get("present")
+    and not item.get("decision_context", {{}}).get("metrics", {{}}).get("stale")
+    and (
+        not policy.get("requires_e2")
+        or item.get("decision_context", {{}}).get("e2", {{}}).get("has_prb_measurement")
+        or item.get("decision_context", {{}}).get("e2", {{}}).get("oracle_available")
+        or int(item.get("decision_context", {{}}).get("e2", {{}}).get("kpm_indications", 0) or 0) >= 3
+    )
+]
 ping = parse_ping(ping_text)
-e2_oracle = build_e2_oracle(paths, payload["task"])
-e2_required = payload["task"] == "e2_kpm_prb_ping_v1"
-unscored_reason = payload["unscored_reason"]
+e2_oracle = build_e2_oracle(paths, bool(policy.get("requires_e2")))
 cleanup_success = bool(payload["cleanup_success"])
-scored = (not unscored_reason) and bool(valid_actions) and ping.get("packets_received", 0) > 0 and bool(metrics_frames) and cleanup_success
-if e2_required and (e2_oracle.get("kpm_indications", 0) < 3 or not e2_oracle.get("oracle_available")):
-    scored = False
-if not scored and unscored_reason is None:
-    if not cleanup_success:
-        unscored_reason = "cleanup failed"
-    elif not valid_actions:
-        unscored_reason = "no valid actions"
-    elif ping.get("packets_received", 0) <= 0:
-        unscored_reason = "no successful ping replies"
-    elif not metrics_frames:
-        unscored_reason = "no metrics observations"
-    elif e2_required and e2_oracle.get("kpm_indications", 0) < 3:
-        unscored_reason = "insufficient E2 KPM indications"
-    elif e2_required and not e2_oracle.get("oracle_available"):
-        unscored_reason = "E2 oracle unavailable"
+scoring = score_episode(
+    ping=ping,
+    actions=actions,
+    observations=observations,
+    cleanup_success=cleanup_success,
+    unscored_reason=payload["unscored_reason"],
+    require_e2=bool(policy.get("requires_e2")),
+    e2_oracle=e2_oracle,
+    task=payload["task"],
+)
 summary = {{
     "status": "ok",
     "stage": payload["stage"],
     "task": payload["task"],
     "run_id": payload["run_id"],
-    "scored": scored,
-    "unscored_reason": None if scored else unscored_reason,
-    "scores": {{
-        "valid_action_accepted_rate": (len(accepted_valid) / len(valid_actions)) if valid_actions else 0.0,
-        "invalid_local_rejection_correctness": (len(rejected_invalid) / len(invalid_actions)) if invalid_actions else 1.0,
-        "ping_success_ratio": ping.get("success_ratio", 0.0),
-        "metrics_continuity": len(metrics_frames),
-        "e2_kpm_continuity": e2_oracle.get("kpm_indications", 0),
-        "e2_oracle_available": bool(e2_oracle.get("oracle_available")),
-        "clean_teardown": cleanup_success,
-    }},
-    "counts": {{
-        "actions": len(actions),
-        "valid_actions": len(valid_actions),
-        "accepted_valid_actions": len(accepted_valid),
-        "invalid_actions": len(invalid_actions),
-        "locally_rejected_invalid_actions": len(rejected_invalid),
-        "observations": len(observations),
-        "metrics_frames": len(metrics_frames),
-        "e2_kpm_indications": e2_oracle.get("kpm_indications", 0),
-    }},
-    "ping": ping,
-    "e2_oracle": e2_oracle,
+    **scoring,
     "artifacts": paths,
 }}
 pathlib.Path(paths["summary"]).write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
 print(json.dumps(summary))
 """
+        )
+
+    def _episode_scoring_remote_source(self) -> str:
+        constant_names = [
+            "TASK_WS_PRB_PING_V1",
+            "TASK_E2_KPM_PRB_PING_V1",
+            "TASK_WS_PRB_NOOP_GUARD_V1",
+            "TASK_WS_PRB_ERROR_REPAIR_V1",
+            "TASK_WS_PRB_ACTION_BUDGET_V1",
+            "TASK_E2_KPM_JSON_CONSISTENCY_V1",
+            "TASK_METRICS_STALENESS_NOOP_V1",
+            "STALE_METRICS_OBSERVATIONS",
+        ]
+        constants = "\n".join(f"{name} = {globals()[name]!r}" for name in constant_names)
+        policy_entries = []
+        for task_id, policy in TASK_POLICIES.items():
+            args = ", ".join(
+                f"{field.name}={getattr(policy, field.name)!r}" for field in fields(EpisodeTaskPolicy)
+            )
+            policy_entries.append(f"    {task_id!r}: EpisodeTaskPolicy({args}),")
+        policies = "TASK_POLICIES = {\n" + "\n".join(policy_entries) + "\n}"
+        return "\n\n".join(
+            [
+                "from dataclasses import dataclass",
+                "from typing import Any",
+                constants,
+                inspect.getsource(EpisodeTaskPolicy),
+                policies,
+                inspect.getsource(task_policy),
+                inspect.getsource(score_episode),
+            ]
         )
 
     def run(
@@ -1326,7 +1678,8 @@ print(json.dumps(summary))
         action: dict[str, Any] | None = None,
         unscored_reason: str | None = None,
     ) -> dict[str, Any]:
-        action = action or {
+        policy = task_policy(options.task)
+        fixed_action = action or {
             "type": "SET_PRB_POLICY_RATIO_WS",
             "plmn": "00101",
             "sst": 1,
@@ -1359,13 +1712,36 @@ print(json.dumps(summary))
         observations: list[dict[str, Any]] = []
         actions: list[dict[str, Any]] = []
         episode_error: str | None = None
+        sent_fixed = False
+        sent_invalid = False
         try:
-            observations.append(self.observe())
-            actions.append(self.act({"type": "SET_PRB_POLICY_RATIO_WS", "min_prb_policy_ratio": 90, "max_prb_policy_ratio": 10}))
-            actions.append(self.act(action))
+            observation = self.observe()
+            observations.append(observation)
+            if policy.require_first_invalid_then_valid:
+                actions.append(self.act({"type": "SET_PRB_POLICY_RATIO_WS", "min_prb_policy_ratio": 90, "max_prb_policy_ratio": 10}))
+                sent_invalid = True
+                observation = self.observe()
+                observations.append(observation)
+                actions.append(self.act(fixed_action))
+                sent_fixed = True
+            elif policy.require_no_actions:
+                sent_fixed = False
+            elif not policy.require_evidence_before_action:
+                actions.append(self.act(fixed_action))
+                sent_fixed = True
+            elif self._observation_has_required_evidence(observation, policy):
+                actions.append(self.act(fixed_action))
+                sent_fixed = True
             deadline = time.monotonic() + max(0, options.duration)
             while time.monotonic() < deadline:
-                observations.append(self.observe())
+                observation = self.observe()
+                observations.append(observation)
+                if policy.require_first_invalid_then_valid and sent_invalid and not sent_fixed:
+                    actions.append(self.act(fixed_action))
+                    sent_fixed = True
+                elif not policy.require_no_actions and not sent_fixed and self._observation_has_required_evidence(observation, policy):
+                    actions.append(self.act(fixed_action))
+                    sent_fixed = True
                 time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
         except Exception as exc:
             episode_error = str(exc)
@@ -1395,6 +1771,20 @@ print(json.dumps(summary))
             "cleanup": cleanup,
             "summary": summary,
         }
+
+    def _observation_has_required_evidence(self, observation: dict[str, Any], policy: EpisodeTaskPolicy) -> bool:
+        frame = observation.get("observation", observation)
+        metrics = frame.get("metrics", {})
+        if policy.stale_metrics_observations and (
+            metrics.get("stale") or frame.get("scenario", {}).get("metrics_stale")
+        ):
+            return False
+        if not metrics.get("present"):
+            return False
+        if not policy.requires_e2:
+            return True
+        e2 = frame.get("e2", {})
+        return bool(e2.get("has_prb_measurement") or e2.get("oracle_available") or int(e2.get("kpm_indications", 0) or 0) >= 3)
 
     def _cleanup_after_error(self, run_id: str) -> dict[str, Any]:
         try:
