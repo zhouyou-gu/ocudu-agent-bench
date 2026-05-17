@@ -799,6 +799,38 @@ class EpisodeTests(unittest.TestCase):
         self.assertIn("startswith(payload[\"e2_control_container_prefix\"])", scripts[0])
         self.assertIn("status = \"error\" if errors else \"ok\"", scripts[0])
 
+    def test_e2_control_dispatch_script_quotes_remote_args_at_remote_runtime(self) -> None:
+        class FakeRemote:
+            config = sample_remote_config()
+
+        runtime = EpisodeRuntime(FakeRemote())  # type: ignore[arg-type]
+        runtime.options = EpisodeOptions(run_id="unit-e2-control", task=TASK_E2_CCC_PRB_POLICY_PING_V1)
+        runtime.paths = episode_paths(SAMPLE_WORKSPACE, "unit-e2-control")
+        scripts = []
+
+        def fake_remote_json(body):
+            scripts.append(body)
+            return {"status": "ok", "accepted": True}
+
+        runtime._remote_json = fake_remote_json  # type: ignore[method-assign]
+        runtime._dispatch_e2_control_action(
+            {
+                "validation": {
+                    "normalized": {
+                        "plmn": "00101",
+                        "sst": 1,
+                        "min_prb_policy_ratio": 10,
+                        "max_prb_policy_ratio": 90,
+                    }
+                },
+                "request": {"tool": "ocudu-ccc-prb-control"},
+            },
+            "e2_ccc",
+        )
+
+        self.assertIn('quoted_args = " ".join(shlex.quote(arg) for arg in args)', scripts[0])
+        self.assertIn('f"$TOOL {quoted_args}"', scripts[0])
+
     def test_docker_asset_check_uses_configured_images(self) -> None:
         class FakeRemote:
             config = sample_remote_config()

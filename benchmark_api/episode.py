@@ -2203,7 +2203,7 @@ shell = (
     "set -eu; "
     f"TOOL=$(command -v {{shlex.quote(str(tool))}} || true); "
     "if [ -z \\"$TOOL\\" ]; then echo '{{\\"error\\":\\"missing E2 control tool\\"}}'; exit 66; fi; "
-    f"$TOOL {quoted_args}"
+    f"$TOOL {{quoted_args}}"
 )
 proc = subprocess.run(
     [
