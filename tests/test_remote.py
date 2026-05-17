@@ -201,8 +201,17 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertEqual(result["dockerfile_rel"], "docker/ocudu-kpm-v05/Dockerfile")
         self.assertEqual(result["context_prep_script"], "tools/prepare_ocudu_kpm_v05_context.sh")
         self.assertIn("docker build -t", result["planned_remote_command"])
+        self.assertIn("DOCKER_BUILDKIT=1 docker build", result["planned_remote_command"])
+        self.assertIn("--cache-from $IMAGE", result["planned_remote_command"])
+        self.assertIn("--build-arg BUILDKIT_INLINE_CACHE=1", result["planned_remote_command"])
         self.assertIn(DEFAULT_FLEXRIC_OCUDU_REPO, result["planned_remote_command"])
         self.assertIn("git clone", result["planned_remote_command"])
+        force_cleanup = result["planned_remote_command"].split('if [ "0" = "1" ]; then', 1)[1].split(
+            'fi\nmkdir -p "$RIC_ROOT"',
+            1,
+        )[0]
+        self.assertNotIn('"$FLEXRIC_SRC"', force_cleanup)
+        self.assertNotIn('"$RIC_ROOT/build-context"', force_cleanup)
         self.assertIn("prepare_ocudu_kpm_v05_context.sh", result["planned_remote_command"])
         self.assertIn("docker/ocudu-kpm-v05/Dockerfile", result["planned_remote_command"])
         self.assertIn("--build-arg FLEXRIC_COMMIT", result["planned_remote_command"])
@@ -237,6 +246,7 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertIn('"ocudu_commit": os.environ["OCUDU_COMMIT"]', command)
         self.assertIn("if [ \"$REUSE_OK\" = \"1\" ]; then", command)
         self.assertIn("docker build -t", command)
+        self.assertIn("CACHE_FROM_ARGS", command)
 
     def test_prepare_ric_initializes_workspace_before_build(self) -> None:
         commands = []

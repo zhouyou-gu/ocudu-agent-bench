@@ -676,7 +676,7 @@ if [ -n "$missing" ]; then
 fi
 mkdir -p "$RIC_ROOT"
 if [ "{'1' if force else '0'}" = "1" ]; then
-  rm -rf "$RIC_ROOT/build-context" "$RIC_ROOT/ocudu-asn1" "$RIC_ROOT/patches" "$RIC_ROOT/Dockerfile" "$RIC_ROOT/expected_manifest.json" "$RIC_ROOT/manifest.json" "$RIC_ROOT/build.log" "$FLEXRIC_SRC"
+  rm -rf "$RIC_ROOT/ocudu-asn1" "$RIC_ROOT/patches" "$RIC_ROOT/Dockerfile" "$RIC_ROOT/expected_manifest.json" "$RIC_ROOT/manifest.json" "$RIC_ROOT/build.log" "$RIC_ROOT/context.log"
 fi
 mkdir -p "$RIC_ROOT" "$BENCHMARK_WORKSPACE/sources"
 if [ ! -d "$FLEXRIC_SRC/.git" ]; then
@@ -685,8 +685,13 @@ if [ ! -d "$FLEXRIC_SRC/.git" ]; then
 else
   git -C "$FLEXRIC_SRC" remote set-url origin "$FLEXRIC_REPO"
 fi
-git -C "$FLEXRIC_SRC" fetch --tags origin
-git -C "$FLEXRIC_SRC" checkout "$FLEXRIC_REF"
+git -C "$FLEXRIC_SRC" fetch --tags origin "$FLEXRIC_REF" || git -C "$FLEXRIC_SRC" fetch --tags origin
+if git -C "$FLEXRIC_SRC" rev-parse --verify --quiet "origin/$FLEXRIC_REF^{{commit}}" >/dev/null; then
+  git -C "$FLEXRIC_SRC" checkout -B "$FLEXRIC_REF" "origin/$FLEXRIC_REF"
+else
+  git -C "$FLEXRIC_SRC" checkout --detach "$FLEXRIC_REF"
+fi
+git -C "$FLEXRIC_SRC" reset --hard
 if [ ! -x "$FLEXRIC_SRC/{FLEXRIC_CONTEXT_PREP_SCRIPT}" ]; then
   echo status=error
   echo error='dedicated FlexRIC source is missing the OCUDU KPM v05 build-context helper'
@@ -772,7 +777,12 @@ PY
   echo reuse_mismatch="$(tr '\\n' ';' < "$RIC_ROOT/reuse_mismatch.txt")"
 fi
 OCUDU_ASN1_ROOT="$OCUDU_ROOT/src/ocudu" FLEXRIC_SOURCE_ROOT="$FLEXRIC_SRC" BUILD_CONTEXT="$BUILD_CONTEXT" "$FLEXRIC_SRC/{FLEXRIC_CONTEXT_PREP_SCRIPT}" > "$RIC_ROOT/context.log" 2>&1
-docker build -t "$IMAGE" \\
+CACHE_FROM_ARGS=""
+if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  CACHE_FROM_ARGS="--cache-from $IMAGE"
+fi
+DOCKER_BUILDKIT=1 docker build -t "$IMAGE" $CACHE_FROM_ARGS \\
+  --build-arg BUILDKIT_INLINE_CACHE=1 \\
   --build-arg FLEXRIC_REPO="$FLEXRIC_REPO" \\
   --build-arg FLEXRIC_REF="$FLEXRIC_REF" \\
   --build-arg FLEXRIC_COMMIT="$FLEXRIC_COMMIT" \\
