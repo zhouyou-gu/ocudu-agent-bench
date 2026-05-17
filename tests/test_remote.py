@@ -4,7 +4,7 @@ from pathlib import Path
 
 from benchmark.benchmark_api.config import RemoteConfig, RuntimeConfig, SourcesConfig
 from benchmark.benchmark_api.remote import RUNTIME_DEP_PACKAGES, RemoteCommandError, RemoteManager
-from benchmark.benchmark_api.ric import FLEXRIC_IMAGE
+from benchmark.benchmark_api.ric import DEFAULT_FLEXRIC_OCUDU_REPO, FLEXRIC_IMAGE
 
 
 SAMPLE_SSH = "user@host"
@@ -29,6 +29,8 @@ def sample_sources() -> SourcesConfig:
         srsran_4g_repo="https://github.com/srsran/srsRAN_4G.git",
         srsran_4g_ref="release_23_11",
         open5gs_ref="v2.7.0",
+        flexric_ocudu_repo=DEFAULT_FLEXRIC_OCUDU_REPO,
+        flexric_ocudu_ref="main",
     )
 
 
@@ -174,18 +176,17 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertTrue(result["dry_run"])
         self.assertEqual(result["image"], FLEXRIC_IMAGE)
         self.assertEqual(result["paths"]["root"], f"{SAMPLE_WORKSPACE}/flexric")
+        self.assertEqual(result["flexric_repo"], DEFAULT_FLEXRIC_OCUDU_REPO)
+        self.assertEqual(result["flexric_ref"], "main")
+        self.assertEqual(result["dockerfile_rel"], "docker/ocudu-kpm-v05/Dockerfile")
+        self.assertEqual(result["context_prep_script"], "tools/prepare_ocudu_kpm_v05_context.sh")
         self.assertIn("docker build -t", result["planned_remote_command"])
-        self.assertIn("ubuntu:22.04", result["dockerfile"])
-        self.assertIn("-DE2AP_VERSION=E2AP_V3", result["dockerfile"])
-        self.assertIn("-DSM_ENCODING_KPM=ASN", result["dockerfile"])
-        self.assertIn("-DKPM_VERSION=KPM_V5_00", result["dockerfile"])
-        self.assertIn("-DUNIT_TEST=OFF", result["dockerfile"])
-        self.assertIn("ocudu_kpm_v05_decode.cpp", result["planned_remote_command"])
-        self.assertIn("ocudu-kpm-v05-decode", result["dockerfile"])
-        self.assertIn("byte_buffer.cpp", result["dockerfile"])
-        self.assertIn("ocudulog.cpp", result["dockerfile"])
-        self.assertIn("apply_kpm_v05_patch.py", result["planned_remote_command"])
-        self.assertIn("ocudu-asn1", result["planned_remote_command"])
+        self.assertIn(DEFAULT_FLEXRIC_OCUDU_REPO, result["planned_remote_command"])
+        self.assertIn("git clone", result["planned_remote_command"])
+        self.assertIn("prepare_ocudu_kpm_v05_context.sh", result["planned_remote_command"])
+        self.assertIn("docker/ocudu-kpm-v05/Dockerfile", result["planned_remote_command"])
+        self.assertIn("--build-arg FLEXRIC_COMMIT", result["planned_remote_command"])
+        self.assertIn("--build-arg OCUDU_COMMIT", result["planned_remote_command"])
         self.assertIn("e2sm_kpm_ies.h", result["planned_remote_command"])
         self.assertEqual(result["manifest"]["e2ap_version"], "E2AP_V3")
         self.assertEqual(result["manifest"]["kpm_release"], "KPM_V5_00")
@@ -195,9 +196,10 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertEqual(result["manifest"]["kpm_indication_decode_per_syntax"], "ATS_UNALIGNED_BASIC_PER")
         self.assertEqual(result["manifest"]["kpm_subscription_encode_per_syntax"], "ATS_ALIGNED_BASIC_PER")
         self.assertEqual(result["manifest"]["ocudu_kpm_decoder_binary"], "/usr/local/bin/ocudu-kpm-v05-decode")
-        self.assertIn("-DXAPP_DB=NONE_XAPP", result["dockerfile"])
-        self.assertIn("tcpdump", result["dockerfile"])
-        self.assertIn("flexric-ric", result["dockerfile"])
+        self.assertNotIn("dockerfile", result)
+        self.assertNotIn("patch_script", result)
+        self.assertNotIn("decoder_source", result)
+        self.assertNotIn("apply_" + "kpm_v05_patch.py", result["planned_remote_command"])
         self.assertNotIn("sudo", result["planned_remote_command"])
         self.assertNotIn("sudo apt-get", result["planned_remote_command"])
 
@@ -223,6 +225,7 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertIn("metadata.json", commands[0])
         self.assertIn("docker build -t", commands[1])
         self.assertIn(FLEXRIC_IMAGE, commands[1])
+        self.assertIn(DEFAULT_FLEXRIC_OCUDU_REPO, commands[1])
 
     def test_provision_assets_dry_run_is_workspace_owned(self) -> None:
         result = self.manager.provision(stage="assets", dry_run=True)

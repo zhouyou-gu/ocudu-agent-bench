@@ -76,6 +76,8 @@ def validate_provision_config(config: RemoteConfig) -> None:
         "sources.srsran-4g-repo": config.sources.srsran_4g_repo,
         "sources.srsran-4g-ref": config.sources.srsran_4g_ref,
         "sources.open5gs-ref": config.sources.open5gs_ref,
+        "sources.flexric-ocudu-repo": config.sources.flexric_ocudu_repo,
+        "sources.flexric-ocudu-ref": config.sources.flexric_ocudu_ref,
     }
     for name, value in source_fields.items():
         if not value:
@@ -104,6 +106,8 @@ def provision_payload(config: RemoteConfig, stage_names: list[str], force: bool)
             "srsran_4g_repo": config.sources.srsran_4g_repo,
             "srsran_4g_ref": config.sources.srsran_4g_ref,
             "open5gs_ref": config.sources.open5gs_ref,
+            "flexric_ocudu_repo": config.sources.flexric_ocudu_repo,
+            "flexric_ocudu_ref": config.sources.flexric_ocudu_ref,
         },
         "stages": stage_names,
         "force": force,

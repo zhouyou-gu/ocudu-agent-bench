@@ -23,6 +23,8 @@ sources:
     srsran-4g-repo https://github.com/srsran/srsRAN_4G.git
     srsran-4g-ref release_23_11
     open5gs-ref v2.7.0
+    flexric-ocudu-repo https://github.com/zhouyou-gu/flexric-ocudu-kpm-v05.git
+    flexric-ocudu-ref main
 provision:
     mode workspace-owned
 """
@@ -49,6 +51,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg.runtime.open5gs_image, "skillful-ran/open5gs:v2.7.0")
         self.assertEqual(cfg.runtime.gnb_image, "skillful-ran/ocudu-build:release_26_04")
         self.assertEqual(cfg.sources.ocudu_ref, "release_26_04")
+        self.assertEqual(cfg.sources.flexric_ocudu_repo, "https://github.com/zhouyou-gu/flexric-ocudu-kpm-v05.git")
+        self.assertEqual(cfg.sources.flexric_ocudu_ref, "main")
         self.assertEqual(cfg.provision.mode, "workspace-owned")
         self.assertEqual(cfg.ric_provider, "flexric")
 
@@ -59,6 +63,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg.ocudu_root, "~/skillful-ran-benchmark-workspace/ocudu")
         self.assertEqual(cfg.runtime.open5gs_image, "skillful-ran/open5gs:v2.7.0")
         self.assertEqual(cfg.sources.open5gs_ref, "v2.7.0")
+        self.assertEqual(cfg.sources.flexric_ocudu_ref, "main")
 
     def test_old_srsran_project_source_fields_error(self) -> None:
         path = self.write_config(

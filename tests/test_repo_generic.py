@@ -90,6 +90,26 @@ class RepoGenericityTests(unittest.TestCase):
 
         self.assertEqual(offenders, [])
 
+    def test_benchmark_repo_does_not_embed_flexric_patch_scripts(self) -> None:
+        proc = subprocess.run(["git", "ls-files", "-z", "--", "benchmark"], check=True, capture_output=True)
+        tracked = [Path(item.decode("utf-8")) for item in proc.stdout.split(b"\0") if item]
+        bad_tokens = [
+            "apply_" + "kpm_v05_patch.py",
+            "def generate_flexric_" + "kpm_v05_patch_script",
+            "def generate_ocudu_" + "kpm_v05_decoder_source",
+        ]
+
+        offenders = []
+        for path in tracked:
+            if not path.exists():
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for token in bad_tokens:
+                if token in text:
+                    offenders.append(f"{path}: {token}")
+
+        self.assertEqual(offenders, [])
+
 
 if __name__ == "__main__":
     unittest.main()

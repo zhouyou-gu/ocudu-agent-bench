@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 RIC_PROVIDER_FLEXRIC = "flexric"
 
-FLEXRIC_REPO = "https://gitlab.eurecom.fr/mosaic5g/flexric.git"
-FLEXRIC_BRANCH = "br-flexric"
-FLEXRIC_COMMIT = "1a3903a7"
+DEFAULT_FLEXRIC_OCUDU_REPO = "https://github.com/zhouyou-gu/flexric-ocudu-kpm-v05.git"
+DEFAULT_FLEXRIC_OCUDU_REF = "main"
+FLEXRIC_UPSTREAM_REPO = "https://gitlab.eurecom.fr/mosaic5g/flexric.git"
+FLEXRIC_UPSTREAM_REF = "br-flexric"
+FLEXRIC_UPSTREAM_COMMIT = "1a3903a7"
 FLEXRIC_IMAGE = "skillful-ran/flexric-bench:br-flexric-1a3903a7-kpm-v5-ocudu-26_04"
+FLEXRIC_SOURCE_DIRNAME = "flexric-ocudu-kpm-v05"
+FLEXRIC_CONTEXT_PREP_SCRIPT = "tools/prepare_ocudu_kpm_v05_context.sh"
+FLEXRIC_DOCKERFILE_REL = "docker/ocudu-kpm-v05/Dockerfile"
 FLEXRIC_CONTAINER_PREFIX = "skillful-ran-bench-flexric"
 KPM_XAPP_CONTAINER_PREFIX = "skillful-ran-bench-kpm-xapp"
 E2_PCAP_CONTAINER_PREFIX = "skillful-ran-bench-e2-pcap"
@@ -70,13 +74,26 @@ def flexric_workspace_paths(workspace: str) -> dict[str, str]:
     }
 
 
-def flexric_manifest() -> dict[str, Any]:
+def flexric_manifest(
+    repo: str = DEFAULT_FLEXRIC_OCUDU_REPO,
+    ref: str = DEFAULT_FLEXRIC_OCUDU_REF,
+    commit: str = "",
+    ocudu_repo: str = "",
+    ocudu_ref: str = "",
+    ocudu_commit: str = "",
+) -> dict[str, Any]:
     return {
         "kind": "dockerized-flexric",
         "image": FLEXRIC_IMAGE,
-        "repo": FLEXRIC_REPO,
-        "branch": FLEXRIC_BRANCH,
-        "commit": FLEXRIC_COMMIT,
+        "repo": repo,
+        "ref": ref,
+        "commit": commit,
+        "base_upstream_repo": FLEXRIC_UPSTREAM_REPO,
+        "base_upstream_ref": FLEXRIC_UPSTREAM_REF,
+        "base_upstream_commit": FLEXRIC_UPSTREAM_COMMIT,
+        "ocudu_repo": ocudu_repo,
+        "ocudu_ref": ocudu_ref,
+        "ocudu_commit": ocudu_commit,
         "e2ap_version": FLEXRIC_E2AP_VERSION,
         "sm_encoding_kpm": FLEXRIC_SM_ENCODING_KPM,
         "kpm_version": FLEXRIC_CMAKE_KPM_VERSION,
@@ -97,82 +114,3 @@ def flexric_manifest() -> dict[str, Any]:
         "xapp_search_root": "/opt/flexric/build/examples",
         "default_port": RIC_PORT,
     }
-
-
-def generate_flexric_kpm_v05_patch_script() -> str:
-    script = Path(__file__).resolve().parents[1] / "provision" / "flexric" / "apply_kpm_v05_patch.py"
-    return script.read_text(encoding="utf-8")
-
-
-def generate_ocudu_kpm_v05_decoder_source() -> str:
-    source = Path(__file__).resolve().parents[1] / "provision" / "flexric" / "ocudu_kpm_v05_decode.cpp"
-    return source.read_text(encoding="utf-8")
-
-
-def generate_flexric_dockerfile() -> str:
-    manifest = flexric_manifest()
-    return f"""FROM ubuntu:22.04
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \\
-    ca-certificates git build-essential gcc-10 g++-10 swig cmake cmake-curses-gui \\
-    libsctp-dev python3 python3-dev pkg-config libconfig-dev libconfig++-dev libpcre2-dev tcpdump \\
-  && rm -rf /var/lib/apt/lists/*
-RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 \\
-  && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-10 100
-COPY ocudu-asn1/ /opt/ocudu-asn1/
-COPY patches/ /opt/flexric-bench/patches/
-RUN g++ -std=c++17 \\
-  -I/opt/ocudu-asn1/include -I/opt/ocudu-asn1/external -I/opt/ocudu-asn1/external/fmt/include \\
-  -I/opt/ocudu-asn1/include/ocudu/ocudulog/bundled -I/opt/ocudu-asn1/include/ocudu/ocudulog/formatters \\
-  -I/opt/ocudu-asn1/lib/ocudulog -I/opt/ocudu-asn1/lib/ocudulog/formatters -I/opt/ocudu-asn1/lib/ocudulog/sinks \\
-  /opt/flexric-bench/patches/ocudu_kpm_v05_decode.cpp \\
-  /opt/ocudu-asn1/lib/asn1/e2sm/e2sm_kpm_ies.cpp \\
-  /opt/ocudu-asn1/lib/asn1/e2sm/e2sm_common_ies.cpp \\
-  /opt/ocudu-asn1/lib/asn1/asn1_utils.cpp \\
-  /opt/ocudu-asn1/lib/support/byte_buffer.cpp \\
-  /opt/ocudu-asn1/external/fmt/src/format.cc \\
-  /opt/ocudu-asn1/lib/ocudulog/ocudulog.cpp \\
-  /opt/ocudu-asn1/lib/ocudulog/ocudulog_c.cpp \\
-  /opt/ocudu-asn1/lib/ocudulog/backend_worker.cpp \\
-  /opt/ocudu-asn1/lib/ocudulog/event_trace.cpp \\
-  /opt/ocudu-asn1/lib/ocudulog/formatters/json_formatter.cpp \\
-  /opt/ocudu-asn1/lib/ocudulog/formatters/text_formatter.cpp \\
-  -lpthread -o /usr/local/bin/ocudu-kpm-v05-decode
-RUN git clone --branch {FLEXRIC_BRANCH} {FLEXRIC_REPO} /opt/flexric \\
-  && cd /opt/flexric \\
-  && git checkout {FLEXRIC_COMMIT} \\
-  && python3 /opt/flexric-bench/patches/apply_kpm_v05_patch.py /opt/flexric /opt/ocudu-asn1 \\
-  && mkdir -p build \\
-  && cd build \\
-  && cmake -DE2AP_VERSION={FLEXRIC_E2AP_VERSION} -DSM_ENCODING_KPM={FLEXRIC_SM_ENCODING_KPM} -DKPM_VERSION={FLEXRIC_CMAKE_KPM_VERSION} -DXAPP_DB=NONE_XAPP -DUNIT_TEST=OFF .. \\
-  && make -j$(nproc) \\
-  && make install \\
-  && ldconfig
-RUN mkdir -p /opt/flexric-bench \\
-  && python3 - <<'PY'
-import json
-import os
-import pathlib
-manifest = {manifest!r}
-root = pathlib.Path("/opt/flexric/build/examples")
-xapps = []
-for path in root.rglob("*"):
-    if path.is_file() and os.access(path, os.X_OK):
-        name = path.name.lower()
-        if ("kpm" in name and "moni" in name) or "oran_moni" in name:
-            xapps.append(str(path))
-manifest["kpm_xapp_candidates"] = sorted(xapps)
-pathlib.Path("/opt/flexric-bench/manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
-PY
-RUN printf '%s\\n' \\
-    '#!/bin/sh' \\
-    'if command -v nearRT-RIC >/dev/null 2>&1; then exec nearRT-RIC "$@"; fi' \\
-    'if [ -x /usr/local/bin/flexric/ric/nearRT-RIC ]; then exec /usr/local/bin/flexric/ric/nearRT-RIC "$@"; fi' \\
-    'if [ -x /opt/flexric/build/examples/ric/nearRT-RIC ]; then exec /opt/flexric/build/examples/ric/nearRT-RIC "$@"; fi' \\
-    'echo "nearRT-RIC binary not found" >&2' \\
-    'exit 127' \\
-  > /usr/local/bin/flexric-ric \\
-  && chmod +x /usr/local/bin/flexric-ric
-WORKDIR /opt/flexric
-CMD ["flexric-ric"]
-"""

@@ -24,6 +24,8 @@ class SourcesConfig:
     srsran_4g_repo: str = ""
     srsran_4g_ref: str = ""
     open5gs_ref: str = ""
+    flexric_ocudu_repo: str = ""
+    flexric_ocudu_ref: str = ""
 
 
 @dataclass(frozen=True)
@@ -123,6 +125,8 @@ def parse_config(path: Path) -> RemoteConfig:
             srsran_4g_repo=sources.get("srsran-4g-repo", ""),
             srsran_4g_ref=sources.get("srsran-4g-ref", ""),
             open5gs_ref=sources.get("open5gs-ref", ""),
+            flexric_ocudu_repo=sources.get("flexric-ocudu-repo", ""),
+            flexric_ocudu_ref=sources.get("flexric-ocudu-ref", ""),
         ),
         provision=ProvisionConfig(
             mode=provision.get("mode", "workspace-owned"),

@@ -18,16 +18,16 @@ from benchmark.benchmark_api.provision import (
     validate_provision_config,
 )
 from benchmark.benchmark_api.ric import (
+    DEFAULT_FLEXRIC_OCUDU_REF,
+    DEFAULT_FLEXRIC_OCUDU_REPO,
+    FLEXRIC_CONTEXT_PREP_SCRIPT,
+    FLEXRIC_DOCKERFILE_REL,
     FLEXRIC_IMAGE,
-    FLEXRIC_OCUDU_ASN_BUNDLE_SOURCES,
-    FLEXRIC_OCUDU_DECODER_SUPPORT_SOURCES,
     FLEXRIC_OCUDU_ASN_HEADER,
     FLEXRIC_OCUDU_ASN_SOURCE,
-    generate_flexric_kpm_v05_patch_script,
-    generate_ocudu_kpm_v05_decoder_source,
+    FLEXRIC_SOURCE_DIRNAME,
     flexric_manifest,
     flexric_workspace_paths,
-    generate_flexric_dockerfile,
 )
 
 RUNTIME_DEP_PACKAGES = [
@@ -342,6 +342,7 @@ fi
                     "ocudu_ref": self.config.sources.ocudu_ref,
                     "srsran_4g_ref": self.config.sources.srsran_4g_ref,
                     "open5gs_ref": self.config.sources.open5gs_ref,
+                    "flexric_ocudu_ref": self.config.sources.flexric_ocudu_ref,
                 },
             },
         }
@@ -596,40 +597,23 @@ echo library_count=$(find "$LIB_ROOT/root" \\( -type f -o -type l \\) | grep -E 
 
     def prepare_ric(self, dry_run: bool = False, force: bool = False) -> dict[str, Any]:
         paths = flexric_workspace_paths(self.config.workspace)
-        dockerfile = generate_flexric_dockerfile()
-        patch_script = generate_flexric_kpm_v05_patch_script()
-        decoder_source = generate_ocudu_kpm_v05_decoder_source()
-        manifest = flexric_manifest()
-        payload = {
-            "paths": paths,
-            "image": FLEXRIC_IMAGE,
-            "dockerfile": dockerfile,
-            "patch_script": patch_script,
-            "decoder_source": decoder_source,
-            "manifest": manifest,
-            "force": force,
-            "ocudu_root": self.config.ocudu_root,
-            "ocudu_asn_sources": sorted(
-                set(
-                    [
-                        FLEXRIC_OCUDU_ASN_HEADER,
-                        FLEXRIC_OCUDU_ASN_SOURCE,
-                        *FLEXRIC_OCUDU_ASN_BUNDLE_SOURCES,
-                        *FLEXRIC_OCUDU_DECODER_SUPPORT_SOURCES,
-                        "lib/ocudulog/",
-                    ]
-                )
-            ),
-        }
-        missing_checks = "\n".join(
-            f'test -f "$OCUDU_ROOT/src/ocudu/{source}" || missing="$missing $OCUDU_ROOT/src/ocudu/{source}"'
-            for source in [*FLEXRIC_OCUDU_ASN_BUNDLE_SOURCES, *FLEXRIC_OCUDU_DECODER_SUPPORT_SOURCES]
+        flexric_repo = self.config.sources.flexric_ocudu_repo or DEFAULT_FLEXRIC_OCUDU_REPO
+        flexric_ref = self.config.sources.flexric_ocudu_ref or DEFAULT_FLEXRIC_OCUDU_REF
+        manifest = flexric_manifest(
+            repo=flexric_repo,
+            ref=flexric_ref,
+            ocudu_repo=self.config.sources.ocudu_repo,
+            ocudu_ref=self.config.sources.ocudu_ref,
         )
-        source_dir_copies = "\n".join(
-            f'mkdir -p "$RIC_ROOT/ocudu-asn1/$(dirname {shlex.quote(source)})"\n'
-            f'cp "$OCUDU_ROOT/src/ocudu/{source}" "$RIC_ROOT/ocudu-asn1/{source}"'
-            for source in [*FLEXRIC_OCUDU_ASN_BUNDLE_SOURCES, *FLEXRIC_OCUDU_DECODER_SUPPORT_SOURCES]
-        )
+        ocudu_asn_sources = [
+            FLEXRIC_OCUDU_ASN_HEADER,
+            FLEXRIC_OCUDU_ASN_SOURCE,
+            "lib/asn1/e2sm/e2sm_common_ies.cpp",
+            "lib/asn1/asn1_utils.cpp",
+            "lib/support/byte_buffer.cpp",
+            "external/fmt/src/format.cc",
+            "lib/ocudulog/",
+        ]
         script = f"""
 set -eu
 RIC_ROOT_RAW={shlex.quote(paths["root"])}
@@ -637,6 +621,10 @@ RIC_ROOT="$(expand_remote_path "$RIC_ROOT_RAW")"
 OCUDU_ROOT_RAW={shlex.quote(self.config.ocudu_root)}
 OCUDU_ROOT="$(expand_remote_path "$OCUDU_ROOT_RAW")"
 IMAGE={shlex.quote(FLEXRIC_IMAGE)}
+FLEXRIC_REPO={shlex.quote(flexric_repo)}
+FLEXRIC_REF={shlex.quote(flexric_ref)}
+FLEXRIC_SRC="$BENCHMARK_WORKSPACE/sources/{FLEXRIC_SOURCE_DIRNAME}"
+BUILD_CONTEXT="$RIC_ROOT/build-context"
 if [ ! -d "$OCUDU_ROOT/src/ocudu" ]; then
   echo status=error
   echo error='OCUDU source is missing; run remote provision --stage ocudu first'
@@ -646,7 +634,8 @@ missing=""
 test -d "$OCUDU_ROOT/src/ocudu/include" || missing="$missing $OCUDU_ROOT/src/ocudu/include"
 test -d "$OCUDU_ROOT/src/ocudu/external" || missing="$missing $OCUDU_ROOT/src/ocudu/external"
 test -d "$OCUDU_ROOT/src/ocudu/lib/ocudulog" || missing="$missing $OCUDU_ROOT/src/ocudu/lib/ocudulog"
-{missing_checks}
+test -f "$OCUDU_ROOT/src/ocudu/{FLEXRIC_OCUDU_ASN_HEADER}" || missing="$missing $OCUDU_ROOT/src/ocudu/{FLEXRIC_OCUDU_ASN_HEADER}"
+test -f "$OCUDU_ROOT/src/ocudu/{FLEXRIC_OCUDU_ASN_SOURCE}" || missing="$missing $OCUDU_ROOT/src/ocudu/{FLEXRIC_OCUDU_ASN_SOURCE}"
 if [ -n "$missing" ]; then
   echo status=error
   echo error='OCUDU KPM v05 decoder inputs are missing; run remote provision --stage ocudu first'
@@ -655,25 +644,25 @@ if [ -n "$missing" ]; then
 fi
 mkdir -p "$RIC_ROOT"
 if [ "{'1' if force else '0'}" = "1" ]; then
-  rm -rf "$RIC_ROOT/ocudu-asn1" "$RIC_ROOT/patches" "$RIC_ROOT/Dockerfile" "$RIC_ROOT/expected_manifest.json"
+  rm -rf "$RIC_ROOT/build-context" "$RIC_ROOT/ocudu-asn1" "$RIC_ROOT/patches" "$RIC_ROOT/Dockerfile" "$RIC_ROOT/expected_manifest.json" "$RIC_ROOT/manifest.json" "$RIC_ROOT/build.log" "$FLEXRIC_SRC"
 fi
-rm -rf "$RIC_ROOT/ocudu-asn1"
-mkdir -p "$RIC_ROOT/ocudu-asn1"
-cp -a "$OCUDU_ROOT/src/ocudu/include" "$RIC_ROOT/ocudu-asn1/"
-cp -a "$OCUDU_ROOT/src/ocudu/external" "$RIC_ROOT/ocudu-asn1/"
-mkdir -p "$RIC_ROOT/ocudu-asn1/lib"
-cp -a "$OCUDU_ROOT/src/ocudu/lib/ocudulog" "$RIC_ROOT/ocudu-asn1/lib/"
-{source_dir_copies}
-mkdir -p "$RIC_ROOT/patches"
-cat > "$RIC_ROOT/patches/apply_kpm_v05_patch.py" <<'PY'
-{patch_script}
-PY
-cat > "$RIC_ROOT/patches/ocudu_kpm_v05_decode.cpp" <<'CPP'
-{decoder_source}
-CPP
-cat > "$RIC_ROOT/Dockerfile" <<'DOCKERFILE'
-{dockerfile}
-DOCKERFILE
+mkdir -p "$RIC_ROOT" "$BENCHMARK_WORKSPACE/sources"
+if [ ! -d "$FLEXRIC_SRC/.git" ]; then
+  rm -rf "$FLEXRIC_SRC"
+  git clone "$FLEXRIC_REPO" "$FLEXRIC_SRC"
+else
+  git -C "$FLEXRIC_SRC" remote set-url origin "$FLEXRIC_REPO"
+fi
+git -C "$FLEXRIC_SRC" fetch --tags origin
+git -C "$FLEXRIC_SRC" checkout "$FLEXRIC_REF"
+if [ ! -x "$FLEXRIC_SRC/{FLEXRIC_CONTEXT_PREP_SCRIPT}" ]; then
+  echo status=error
+  echo error='dedicated FlexRIC source is missing the OCUDU KPM v05 build-context helper'
+  exit 2
+fi
+FLEXRIC_COMMIT="$(git -C "$FLEXRIC_SRC" rev-parse --short=12 HEAD 2>/dev/null || true)"
+OCUDU_COMMIT="$(git -C "$OCUDU_ROOT/src/ocudu" rev-parse --short=12 HEAD 2>/dev/null || true)"
+OCUDU_REPO="$(git -C "$OCUDU_ROOT/src/ocudu" remote get-url origin 2>/dev/null || true)"
 cat > "$RIC_ROOT/expected_manifest.json" <<'JSON'
 {json.dumps(manifest, indent=2, sort_keys=True)}
 JSON
@@ -682,15 +671,30 @@ if [ "{'1' if force else '0'}" != "1" ] && docker image inspect "$IMAGE" >/dev/n
   echo image=$IMAGE
   echo manifest=$RIC_ROOT/manifest.json
   echo build_log=$RIC_ROOT/build.log
+  echo flexric_source=$FLEXRIC_SRC
+  echo flexric_commit=$FLEXRIC_COMMIT
   echo reused=1
   exit 0
 fi
-docker build -t "$IMAGE" "$RIC_ROOT" > "$RIC_ROOT/build.log" 2>&1
+OCUDU_ASN1_ROOT="$OCUDU_ROOT/src/ocudu" FLEXRIC_SOURCE_ROOT="$FLEXRIC_SRC" BUILD_CONTEXT="$BUILD_CONTEXT" "$FLEXRIC_SRC/{FLEXRIC_CONTEXT_PREP_SCRIPT}" > "$RIC_ROOT/context.log" 2>&1
+docker build -t "$IMAGE" \\
+  --build-arg FLEXRIC_REPO="$FLEXRIC_REPO" \\
+  --build-arg FLEXRIC_REF="$FLEXRIC_REF" \\
+  --build-arg FLEXRIC_COMMIT="$FLEXRIC_COMMIT" \\
+  --build-arg OCUDU_REPO="$OCUDU_REPO" \\
+  --build-arg OCUDU_REF={shlex.quote(self.config.sources.ocudu_ref)} \\
+  --build-arg OCUDU_COMMIT="$OCUDU_COMMIT" \\
+  --build-arg FLEXRIC_IMAGE="$IMAGE" \\
+  -f "$BUILD_CONTEXT/flexric/{FLEXRIC_DOCKERFILE_REL}" \\
+  "$BUILD_CONTEXT" > "$RIC_ROOT/build.log" 2>&1
 docker run --rm "$IMAGE" cat /opt/flexric-bench/manifest.json > "$RIC_ROOT/manifest.json"
 echo status=ok
 echo image=$IMAGE
 echo manifest=$RIC_ROOT/manifest.json
 echo build_log=$RIC_ROOT/build.log
+echo context_log=$RIC_ROOT/context.log
+echo flexric_source=$FLEXRIC_SRC
+echo flexric_commit=$FLEXRIC_COMMIT
 echo reused=0
 """
         remote_command = self._remote_shell(script)
@@ -701,12 +705,14 @@ echo reused=0
                 "force": force,
                 "image": FLEXRIC_IMAGE,
                 "paths": paths,
+                "flexric_repo": flexric_repo,
+                "flexric_ref": flexric_ref,
+                "source_dir": f"{self.config.workspace}/sources/{FLEXRIC_SOURCE_DIRNAME}",
+                "context_prep_script": FLEXRIC_CONTEXT_PREP_SCRIPT,
+                "dockerfile_rel": FLEXRIC_DOCKERFILE_REL,
                 "manifest": manifest,
                 "planned_remote_command": remote_command,
-                "dockerfile": dockerfile,
-                "patch_script": patch_script,
-                "decoder_source": decoder_source,
-                "ocudu_asn_sources": payload["ocudu_asn_sources"],
+                "ocudu_asn_sources": ocudu_asn_sources,
             }
         init_result = self.init_workspace()
         if init_result.get("status") != "ok":
@@ -729,6 +735,9 @@ echo reused=0
             "paths": paths,
             "manifest": data.get("manifest", paths["manifest"]),
             "build_log": data.get("build_log", paths["build_log"]),
+            "context_log": data.get("context_log", f'{paths["root"]}/context.log'),
+            "flexric_source": data.get("flexric_source", f"{self.config.workspace}/sources/{FLEXRIC_SOURCE_DIRNAME}"),
+            "flexric_commit": data.get("flexric_commit", ""),
             "reused": data.get("reused") == "1",
             "init": init_result,
             "stdout": proc.stdout.strip(),
@@ -797,6 +806,8 @@ echo reused=0
                 "srsran_4g_repo": self.config.sources.srsran_4g_repo,
                 "srsran_4g_ref": self.config.sources.srsran_4g_ref,
                 "open5gs_ref": self.config.sources.open5gs_ref,
+                "flexric_ocudu_repo": self.config.sources.flexric_ocudu_repo,
+                "flexric_ocudu_ref": self.config.sources.flexric_ocudu_ref,
             },
             "stage_summaries": self._provision_stage_summaries(steps),
         }
