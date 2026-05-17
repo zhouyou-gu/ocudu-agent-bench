@@ -16,6 +16,7 @@ from benchmark.benchmark_api.conformance import (
     load_conformance_specs,
 )
 from benchmark.benchmark_api.episode import TASK_E2_KPM_PRB_PING_V1
+from benchmark.benchmark_api.episode import TASK_E2_CCC_PRB_POLICY_PING_V1
 
 
 def sample_runtime() -> RuntimeConfig:
@@ -147,6 +148,8 @@ class ConformanceTests(unittest.TestCase):
             "e2_setup_path",
             "e2_kpm_subscription",
             "e2_pcap_log_oracle",
+            "e2_ccc_prb_control_path",
+            "e2_rc_du_prb_control_path",
         ]:
             self.assertTrue(by_id[check_id].executable)
             self.assertEqual(by_id[check_id].status, "executable")
@@ -187,6 +190,11 @@ class ConformanceTests(unittest.TestCase):
         self.assertTrue(e2_enablement["e2_kpm"])
         self.assertTrue(e2_enablement["v4_e2_kpm"])
         self.assertTrue(e2_enablement["pcap_log"])
+        control_enablement = compute_backend_enablement(
+            [ConformanceCheckResult("e2_ccc_prb_control_path", "CCC", "e2_control", True, "pass", "ok", {})]
+        )
+        self.assertTrue(control_enablement["e2_control"])
+        self.assertTrue(control_enablement["e2_ccc"])
 
     def test_missing_runtime_dependencies_block_launch_checks(self) -> None:
         runner = ConformanceRunner(
@@ -536,7 +544,12 @@ class ConformanceTests(unittest.TestCase):
         conformance_module.ConformanceRunner._check_flexric_assets = lambda self: {  # type: ignore[method-assign]
             "status": "pass",
             "summary": "flexric ok",
-            "details": {},
+            "details": {
+                "control_tools": {
+                    conformance_module.E2_CCC_CONTROL_TOOL: {"available": True, "path": "/usr/local/bin/ocudu-ccc-prb-control"},
+                    conformance_module.E2_RC_DU_CONTROL_TOOL: {"available": False, "path": ""},
+                }
+            },
         }
         conformance_module.ConformanceRunner._check_ric_health = lambda self, options: {  # type: ignore[method-assign]
             "status": "pass",
@@ -623,7 +636,12 @@ class ConformanceTests(unittest.TestCase):
         conformance_module.ConformanceRunner._check_flexric_assets = lambda self: {  # type: ignore[method-assign]
             "status": "pass",
             "summary": "flexric ok",
-            "details": {},
+            "details": {
+                "control_tools": {
+                    conformance_module.E2_CCC_CONTROL_TOOL: {"available": True, "path": "/usr/local/bin/ocudu-ccc-prb-control"},
+                    conformance_module.E2_RC_DU_CONTROL_TOOL: {"available": False, "path": ""},
+                }
+            },
         }
         conformance_module.ConformanceRunner._check_ric_health = lambda self, options: {  # type: ignore[method-assign]
             "status": "pass",
@@ -679,7 +697,12 @@ class ConformanceTests(unittest.TestCase):
         conformance_module.ConformanceRunner._check_flexric_assets = lambda self: {  # type: ignore[method-assign]
             "status": "pass",
             "summary": "flexric ok",
-            "details": {},
+            "details": {
+                "control_tools": {
+                    conformance_module.E2_CCC_CONTROL_TOOL: {"available": True, "path": "/usr/local/bin/ocudu-ccc-prb-control"},
+                    conformance_module.E2_RC_DU_CONTROL_TOOL: {"available": False, "path": ""},
+                }
+            },
         }
         conformance_module.ConformanceRunner._check_ric_health = lambda self, options: {  # type: ignore[method-assign]
             "status": "pass",
@@ -718,6 +741,226 @@ class ConformanceTests(unittest.TestCase):
         self.assertIn("incompatible", by_id["ocudu_e2_config"]["summary"])
         self.assertEqual(by_id["e2_setup_path"]["status"], "blocked")
         self.assertEqual(by_id["e2_kpm_subscription"]["status"], "blocked")
+
+    def test_v4_e2_control_checks_use_task_specific_actions(self) -> None:
+        original_runtime = conformance_module.EpisodeRuntime
+        original_flexric_assets = conformance_module.ConformanceRunner._check_flexric_assets
+        original_ric_health = conformance_module.ConformanceRunner._check_ric_health
+        original_kpm_compat = conformance_module.ConformanceRunner._detect_ocudu_kpm_compatibility
+
+        class FakeEpisodeRuntime:
+            started_tasks = []
+            actions = []
+
+            def __init__(self, remote, repo_root=None) -> None:
+                self.options = None
+
+            def check_docker_assets(self):
+                return {"status": "pass", "summary": "docker assets ok", "details": {}}
+
+            def start(self, options):
+                self.options = options
+                type(self).started_tasks.append(options.task)
+                return {"status": "ok", "stage": "v4_2_episode", "run_id": options.run_id}
+
+            def observe(self):
+                return {
+                    "status": "ok",
+                    "observation": {
+                        "e2": {
+                            "kpm_indications": 3,
+                            "oracle_available": True,
+                            "has_prb_measurement": True,
+                            "du_ue_id": 9,
+                        },
+                        "metrics": {"present": True},
+                    },
+                }
+
+            def act(self, action):
+                type(self).actions.append(action)
+                if action.get("min_prb_policy_ratio", 0) > action.get("max_prb_policy_ratio", 100):
+                    return {"status": "rejected", "accepted": False}
+                return {"status": "ok", "accepted": True, "validation": {"valid": True}}
+
+            def cleanup(self, run_id):
+                return {"status": "ok", "run_id": run_id, "ric_port_open": False}
+
+            def finalize(self, unscored_reason=None, cleanup_success=True):
+                return {
+                    "status": "ok",
+                    "scored": cleanup_success,
+                    "e2_oracle": {
+                        "kpm_indications": 3,
+                        "oracle_available": True,
+                        "control_oracle_available": True,
+                        "control_types": ["SET_PRB_POLICY_RATIO_CCC"],
+                        "control_records": [{"accepted": True}],
+                    },
+                }
+
+        conformance_module.EpisodeRuntime = FakeEpisodeRuntime
+        conformance_module.ConformanceRunner._check_flexric_assets = lambda self: {  # type: ignore[method-assign]
+            "status": "pass",
+            "summary": "flexric ok",
+            "details": {
+                "control_tools": {
+                    conformance_module.E2_CCC_CONTROL_TOOL: {"available": True, "path": "/usr/local/bin/ocudu-ccc-prb-control"},
+                    conformance_module.E2_RC_DU_CONTROL_TOOL: {"available": False, "path": ""},
+                }
+            },
+        }
+        conformance_module.ConformanceRunner._check_ric_health = lambda self, options: {  # type: ignore[method-assign]
+            "status": "pass",
+            "summary": "ric ok",
+            "details": {},
+        }
+        conformance_module.ConformanceRunner._detect_ocudu_kpm_compatibility = lambda self: {  # type: ignore[method-assign]
+            "compatible": True,
+            "summary": "compatible",
+        }
+        try:
+            runner = ConformanceRunner(
+                remote=FakeRemoteManager(),
+                repo_root=Path(".").resolve(),
+                specs_path=Path("benchmark/conformance/tests.json"),
+            )
+            result = runner.run(
+                options=ConformanceOptions(
+                    run_id="unit-v4-control",
+                    checks={"e2_ccc_prb_control_path"},
+                    ws_port=8001,
+                    launch_timeout=1,
+                    probe_timeout=1,
+                )
+            )
+        finally:
+            conformance_module.EpisodeRuntime = original_runtime
+            conformance_module.ConformanceRunner._check_flexric_assets = original_flexric_assets
+            conformance_module.ConformanceRunner._check_ric_health = original_ric_health
+            conformance_module.ConformanceRunner._detect_ocudu_kpm_compatibility = original_kpm_compat
+
+        by_id = {check["id"]: check for check in result["checks"]}
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(FakeEpisodeRuntime.started_tasks, [TASK_E2_CCC_PRB_POLICY_PING_V1])
+        self.assertEqual(by_id["e2_ccc_prb_control_path"]["status"], "pass")
+        self.assertTrue(any(action.get("type") == "SET_PRB_POLICY_RATIO_CCC" for action in FakeEpisodeRuntime.actions))
+
+    def test_v4_e2_control_check_fails_fast_when_tool_missing(self) -> None:
+        original_runtime = conformance_module.EpisodeRuntime
+        original_flexric_assets = conformance_module.ConformanceRunner._check_flexric_assets
+        original_ric_health = conformance_module.ConformanceRunner._check_ric_health
+        original_kpm_compat = conformance_module.ConformanceRunner._detect_ocudu_kpm_compatibility
+
+        class FakeEpisodeRuntime:
+            actions = []
+
+            def __init__(self, remote, repo_root=None) -> None:
+                self.options = None
+
+            def check_docker_assets(self):
+                return {"status": "pass", "summary": "docker assets ok", "details": {}}
+
+            def start(self, options):
+                self.options = options
+                return {"status": "ok", "stage": "v4_2_episode", "run_id": options.run_id}
+
+            def observe(self):
+                return {
+                    "status": "ok",
+                    "observation": {
+                        "e2": {
+                            "kpm_indications": 3,
+                            "oracle_available": True,
+                            "has_prb_measurement": True,
+                            "du_ue_id": 9,
+                        }
+                    },
+                }
+
+            def act(self, action):
+                type(self).actions.append(action)
+                raise AssertionError("control action should not run when the tool is missing")
+
+            def cleanup(self, run_id):
+                return {"status": "ok", "run_id": run_id, "ric_port_open": False}
+
+            def finalize(self, unscored_reason=None, cleanup_success=True):
+                return {
+                    "status": "ok",
+                    "scored": cleanup_success,
+                    "e2_oracle": {"kpm_indications": 3, "oracle_available": True},
+                }
+
+        conformance_module.EpisodeRuntime = FakeEpisodeRuntime
+        conformance_module.ConformanceRunner._check_flexric_assets = lambda self: {  # type: ignore[method-assign]
+            "status": "pass",
+            "summary": "flexric ok",
+            "details": {
+                "control_tools": {
+                    conformance_module.E2_CCC_CONTROL_TOOL: {"available": False, "path": ""},
+                    conformance_module.E2_RC_DU_CONTROL_TOOL: {"available": False, "path": ""},
+                }
+            },
+        }
+        conformance_module.ConformanceRunner._check_ric_health = lambda self, options: {  # type: ignore[method-assign]
+            "status": "pass",
+            "summary": "ric ok",
+            "details": {},
+        }
+        conformance_module.ConformanceRunner._detect_ocudu_kpm_compatibility = lambda self: {  # type: ignore[method-assign]
+            "compatible": True,
+            "summary": "compatible",
+        }
+        try:
+            runner = ConformanceRunner(
+                remote=FakeRemoteManager(),
+                repo_root=Path(".").resolve(),
+                specs_path=Path("benchmark/conformance/tests.json"),
+            )
+            result = runner.run(
+                options=ConformanceOptions(
+                    run_id="unit-v4-control-tool-missing",
+                    checks={"e2_ccc_prb_control_path"},
+                    ws_port=8001,
+                    launch_timeout=1,
+                    probe_timeout=1,
+                )
+            )
+        finally:
+            conformance_module.EpisodeRuntime = original_runtime
+            conformance_module.ConformanceRunner._check_flexric_assets = original_flexric_assets
+            conformance_module.ConformanceRunner._check_ric_health = original_ric_health
+            conformance_module.ConformanceRunner._detect_ocudu_kpm_compatibility = original_kpm_compat
+
+        by_id = {check["id"]: check for check in result["checks"]}
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(by_id["e2_ccc_prb_control_path"]["status"], "fail")
+        self.assertIn("ocudu-ccc-prb-control", by_id["e2_ccc_prb_control_path"]["summary"])
+        self.assertEqual(FakeEpisodeRuntime.actions, [])
+
+    def test_e2_control_check_requires_oracle_evidence(self) -> None:
+        runner = ConformanceRunner(
+            remote=FakeRemoteManager(),
+            repo_root=Path(".").resolve(),
+            specs_path=Path("benchmark/conformance/tests.json"),
+        )
+        results = [
+            runner._result(
+                "e2_ccc_prb_control_path",
+                "pass",
+                "control action accepted",
+                {"valid": {"accepted": True}},
+            )
+        ]
+        runner._attach_e2_control_oracle_results(
+            results,
+            {"e2_ccc_prb_control_path"},
+            {"e2_oracle": {"control_oracle_available": False, "control_types": []}},
+        )
+
+        self.assertEqual(results[0].status, "fail")
+        self.assertIn("oracle evidence is missing", results[0].summary)
 
     def test_flexric_compatibility_uses_kpm_asn_header_over_metric_comments(self) -> None:
         result = classify_flexric_kpm_compatibility(

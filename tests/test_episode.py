@@ -4,7 +4,12 @@ from benchmark.benchmark_api.config import RemoteConfig, RuntimeConfig
 from benchmark.benchmark_api.episode import (
     EpisodeOptions,
     EpisodeRuntime,
+    ACTION_SET_PRB_POLICY_RATIO_CCC,
+    ACTION_SET_PRB_POLICY_RATIO_RC_DU,
     TASK_E2_KPM_PRB_PING_V1,
+    TASK_E2_CCC_PRB_POLICY_PING_V1,
+    TASK_E2_RC_DU_PRB_POLICY_PING_V1,
+    TASK_E2_CONTROL_API_CONSISTENCY_V1,
     TASK_E2_KPM_JSON_CONSISTENCY_V1,
     TASK_METRICS_STALENESS_NOOP_V1,
     TASK_WS_PRB_ACTION_BUDGET_V1,
@@ -23,6 +28,7 @@ from benchmark.benchmark_api.episode import (
     score_episode,
     task_policy,
     validate_prb_action,
+    validate_episode_action,
 )
 from benchmark.benchmark_api.ric import RIC_PORT
 
@@ -171,8 +177,8 @@ class EpisodeTests(unittest.TestCase):
         self.assertIn(f"port: {RIC_PORT}", overlay)
         self.assertIn("bind_addr: 127.0.0.1", overlay)
         self.assertIn("e2sm_kpm_enabled: true", overlay)
-        self.assertIn("e2sm_rc_enabled: false", overlay)
-        self.assertIn("e2sm_ccc_enabled: false", overlay)
+        self.assertIn("e2sm_rc_enabled: true", overlay)
+        self.assertIn("e2sm_ccc_enabled: true", overlay)
         self.assertIn("e2ap_enable: true", overlay)
         self.assertIn("/stage/logs/e2ap_du.pcap", overlay)
 
@@ -357,9 +363,93 @@ class EpisodeTests(unittest.TestCase):
     def test_task_policy_and_scenario_metadata_describe_new_tasks(self) -> None:
         self.assertTrue(task_policy(TASK_E2_KPM_JSON_CONSISTENCY_V1).requires_e2)
         self.assertEqual(task_policy(TASK_WS_PRB_NOOP_GUARD_V1).default_smoke_agent, "noop")
+        self.assertEqual(task_policy(TASK_E2_CCC_PRB_POLICY_PING_V1).expected_action_type, ACTION_SET_PRB_POLICY_RATIO_CCC)
+        self.assertTrue(task_policy(TASK_E2_RC_DU_PRB_POLICY_PING_V1).requires_ue_identity)
+        self.assertIn(ACTION_SET_PRB_POLICY_RATIO_RC_DU, task_policy(TASK_E2_CONTROL_API_CONSISTENCY_V1).allowed_action_types)
         scenario = scenario_metadata(TASK_METRICS_STALENESS_NOOP_V1, duration=5)
         self.assertEqual(scenario["labels"]["stale_metrics_observations"], 2)
         self.assertEqual(scenario["traffic"]["target"], "10.45.1.1")
+
+    def test_validate_e2_prb_actions_use_expected_wire_shapes(self) -> None:
+        ccc = validate_episode_action(
+            {
+                "type": ACTION_SET_PRB_POLICY_RATIO_CCC,
+                "min_prb_policy_ratio": 10,
+                "max_prb_policy_ratio": 90,
+            },
+            TASK_E2_CCC_PRB_POLICY_PING_V1,
+        )
+        rc = validate_episode_action(
+            {
+                "type": ACTION_SET_PRB_POLICY_RATIO_RC_DU,
+                "min_prb_policy_ratio": 10,
+                "max_prb_policy_ratio": 90,
+                "du_ue_id": 7,
+            },
+            TASK_E2_RC_DU_PRB_POLICY_PING_V1,
+        )
+
+        self.assertTrue(ccc["valid"])
+        self.assertEqual(ccc["dispatch"], "e2_ccc")
+        self.assertEqual(ccc["request"]["control"], "O-RRMPolicyRatio")
+        self.assertTrue(rc["valid"])
+        self.assertEqual(rc["dispatch"], "e2_rc_du")
+        self.assertEqual(rc["request"]["control_style"], 2)
+        self.assertEqual(rc["request"]["control_action"], 6)
+
+    def test_score_episode_requires_expected_e2_control_action_and_oracle(self) -> None:
+        action = {
+            "validation": {
+                "valid": True,
+                "dispatch": "e2_ccc",
+                "normalized": {"type": ACTION_SET_PRB_POLICY_RATIO_CCC},
+            },
+            "dispatched": True,
+            "accepted": True,
+            "decision_context": {
+                "metrics": {"present": True, "stale": False},
+                "e2": {"kpm_indications": 3, "has_prb_measurement": True},
+            },
+            "action": {"type": ACTION_SET_PRB_POLICY_RATIO_CCC},
+        }
+        passed = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[action],
+            observations=[{"observation": {"metrics": {"present": True}}}],
+            cleanup_success=True,
+            task=TASK_E2_CCC_PRB_POLICY_PING_V1,
+            e2_oracle={
+                "kpm_indications": 3,
+                "oracle_available": True,
+                "control_oracle_available": True,
+                "control_records": [{"accepted": True}],
+            },
+        )
+        wrong_api = dict(action)
+        wrong_api["validation"] = {
+            "valid": True,
+            "dispatch": "e2_rc_du",
+            "normalized": {"type": ACTION_SET_PRB_POLICY_RATIO_RC_DU},
+        }
+        wrong_api["action"] = {"type": ACTION_SET_PRB_POLICY_RATIO_RC_DU}
+        failed = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[wrong_api],
+            observations=[{"observation": {"metrics": {"present": True}}}],
+            cleanup_success=True,
+            task=TASK_E2_CONTROL_API_CONSISTENCY_V1,
+            e2_oracle={
+                "kpm_indications": 3,
+                "oracle_available": True,
+                "control_oracle_available": True,
+                "control_records": [{"accepted": True}],
+            },
+        )
+
+        self.assertTrue(passed["scored"])
+        self.assertEqual(passed["scores"]["accepted_e2_control_actions"], 1)
+        self.assertFalse(failed["scored"])
+        self.assertEqual(failed["unscored_reason"], "no accepted valid expected action")
 
     def test_run_cleans_up_and_marks_unscored_on_observe_failure(self) -> None:
         class FailingRuntime(EpisodeRuntime):
@@ -480,6 +570,9 @@ class EpisodeTests(unittest.TestCase):
         self.assertIn("leftover_containers", scripts[0])
         self.assertIn("ws_port_open", scripts[0])
         self.assertIn("ric_port_open", scripts[0])
+        self.assertIn("e2_control_container_prefix", scripts[0])
+        self.assertIn("e2_control_containers_removed", scripts[0])
+        self.assertIn("startswith(payload[\"e2_control_container_prefix\"])", scripts[0])
         self.assertIn("status = \"error\" if errors else \"ok\"", scripts[0])
 
     def test_docker_asset_check_uses_configured_images(self) -> None:

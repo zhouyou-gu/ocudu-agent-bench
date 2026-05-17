@@ -166,12 +166,82 @@
         ],
         "last_action": "decision context is used to detect action during stale metrics"
       }
+    },
+    {
+      "stage": "v4_2_episode",
+      "task": "e2_ccc_prb_policy_ping_v1",
+      "state": "running",
+      "fields": {
+        "ping": "same as e2_kpm_prb_ping_v1",
+        "metrics": "same as e2_kpm_prb_ping_v1",
+        "e2": [
+          "kpm_indications",
+          "has_prb_measurement",
+          "control_records",
+          "accepted_control_records",
+          "control_types",
+          "control_oracle_available",
+          "ccc_control_available",
+          "control_raw_path"
+        ],
+        "backend": [
+          "websocket",
+          "ping",
+          "e2_kpm",
+          "e2_control"
+        ],
+        "last_action": "decision context records metrics and E2 evidence at CCC action time"
+      }
+    },
+    {
+      "stage": "v4_2_episode",
+      "task": "e2_rc_du_prb_policy_ping_v1",
+      "state": "running",
+      "fields": {
+        "ping": "same as e2_kpm_prb_ping_v1",
+        "metrics": "same as e2_kpm_prb_ping_v1",
+        "e2": [
+          "kpm_indications",
+          "has_prb_measurement",
+          "du_ue_id",
+          "control_records",
+          "accepted_control_records",
+          "control_oracle_available",
+          "rc_du_control_available",
+          "control_raw_path"
+        ],
+        "backend": [
+          "websocket",
+          "ping",
+          "e2_kpm",
+          "e2_control"
+        ],
+        "last_action": "decision context records metrics, E2 evidence, and UE identity at RC DU action time"
+      }
+    },
+    {
+      "stage": "v4_2_episode",
+      "task": "e2_control_api_consistency_v1",
+      "state": "running",
+      "fields": {
+        "ping": "same as e2_kpm_prb_ping_v1",
+        "metrics": "same as e2_kpm_prb_ping_v1",
+        "e2": "KPM evidence plus available CCC/RC DU control state",
+        "backend": [
+          "websocket",
+          "ping",
+          "e2_kpm",
+          "e2_control"
+        ],
+        "last_action": "used to score whether the agent selected the expected CCC action type"
+      }
     }
   ],
   "other_sources": [
     "v1_stub",
     "json_metrics",
     "e2_kpm",
+    "e2_control",
     "websocket_control_outcomes",
     "decision_context",
     "scenario_metrics_staleness",

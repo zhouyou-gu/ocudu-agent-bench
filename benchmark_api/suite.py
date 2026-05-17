@@ -11,6 +11,9 @@ from typing import Any
 
 from benchmark.benchmark_api.conformance import run_conformance
 from benchmark.benchmark_api.episode import (
+    ACTION_SET_PRB_POLICY_RATIO_CCC,
+    ACTION_SET_PRB_POLICY_RATIO_RC_DU,
+    ACTION_SET_PRB_POLICY_RATIO_WS,
     DEFAULT_ATTACH_TIMEOUT,
     DEFAULT_EPISODE_DURATION,
     DEFAULT_LAUNCH_TIMEOUT,
@@ -20,6 +23,7 @@ from benchmark.benchmark_api.episode import (
     EpisodeOptions,
     EpisodeRuntime,
     episode_paths,
+    fixed_prb_action_for_type,
     safe_run_id,
 )
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
@@ -33,7 +37,17 @@ from benchmark.benchmark_api.tasks import (
 )
 
 
-BUILTIN_AGENTS = {"fixed_prb", "sweep_prb", "invalid_then_fixed", "noop", "evidence_gated_prb", "stale_guard_prb"}
+BUILTIN_AGENTS = {
+    "fixed_prb",
+    "sweep_prb",
+    "invalid_then_fixed",
+    "noop",
+    "evidence_gated_prb",
+    "stale_guard_prb",
+    "ccc_prb",
+    "rc_du_prb",
+    "e2_control_consistency",
+}
 V3_SUITE_CONFORMANCE_CHECKS = set(V3_EPISODE_GATE_CHECKS)
 V4_SUITE_CONFORMANCE_CHECKS = set(V4_EPISODE_GATE_CHECKS)
 _SUITE_COUNTER = itertools.count()
@@ -123,6 +137,22 @@ class BaselineAgent:
                 return None
             self.sent_fixed = True
             return fixed_prb_action()
+        if self.name in {"ccc_prb", "e2_control_consistency"}:
+            if self.sent_fixed:
+                return None
+            if not has_e2_evidence(frame):
+                return None
+            self.sent_fixed = True
+            return fixed_prb_action_for_type(ACTION_SET_PRB_POLICY_RATIO_CCC)
+        if self.name == "rc_du_prb":
+            if self.sent_fixed:
+                return None
+            if not has_e2_evidence(frame) or frame.get("e2", {}).get("du_ue_id") is None:
+                return None
+            self.sent_fixed = True
+            action = fixed_prb_action_for_type(ACTION_SET_PRB_POLICY_RATIO_RC_DU)
+            action["du_ue_id"] = frame.get("e2", {}).get("du_ue_id")
+            return action
         if self.name == "invalid_then_fixed":
             self.step += 1
             if self.step == 1:
@@ -146,15 +176,21 @@ class BaselineAgent:
 
 
 def fixed_prb_action() -> dict[str, Any]:
-    return {
-        "type": "SET_PRB_POLICY_RATIO_WS",
-        "plmn": "00101",
-        "sst": 1,
-        "sd": 0xFFFFFF,
-        "min_prb_policy_ratio": 10,
-        "max_prb_policy_ratio": 90,
-        "dedicated_ratio": 0,
-    }
+    return fixed_prb_action_for_type(ACTION_SET_PRB_POLICY_RATIO_WS)
+
+
+def has_e2_evidence(frame: dict[str, Any]) -> bool:
+    metrics = frame.get("metrics", {})
+    e2 = frame.get("e2", {})
+    return bool(
+        metrics.get("present")
+        and not metrics.get("stale")
+        and (
+            e2.get("has_prb_measurement")
+            or e2.get("oracle_available")
+            or int(e2.get("kpm_indications", 0) or 0) >= 3
+        )
+    )
 
 
 def aggregate_suite(

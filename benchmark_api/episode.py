@@ -20,6 +20,9 @@ from benchmark.benchmark_api.ric import (
 )
 from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
 from benchmark.benchmark_api.tasks import (
+    TASK_E2_CCC_PRB_POLICY_PING_V1,
+    TASK_E2_CONTROL_API_CONSISTENCY_V1,
+    TASK_E2_RC_DU_PRB_POLICY_PING_V1,
     TASK_E2_KPM_PRB_PING_V1,
     TASK_E2_KPM_JSON_CONSISTENCY_V1,
     TASK_METRICS_STALENESS_NOOP_V1,
@@ -40,6 +43,11 @@ DEFAULT_LAUNCH_TIMEOUT = 60
 DEFAULT_PROBE_TIMEOUT = 5
 PING_TARGET = "10.45.1.1"
 STALE_METRICS_OBSERVATIONS = 2
+ACTION_SET_PRB_POLICY_RATIO_WS = "SET_PRB_POLICY_RATIO_WS"
+ACTION_SET_PRB_POLICY_RATIO_CCC = "SET_PRB_POLICY_RATIO_CCC"
+ACTION_SET_PRB_POLICY_RATIO_RC_DU = "SET_PRB_POLICY_RATIO_RC_DU"
+E2_CCC_CONTROL_TOOL = "ocudu-ccc-prb-control"
+E2_RC_DU_CONTROL_TOOL = "ocudu-rc-du-prb-control"
 
 
 @dataclass(frozen=True)
@@ -56,6 +64,10 @@ class EpisodeTaskPolicy:
     require_first_invalid_then_valid: bool = False
     require_evidence_before_action: bool = False
     stale_metrics_observations: int = 0
+    allowed_action_types: tuple[str, ...] = (ACTION_SET_PRB_POLICY_RATIO_WS,)
+    expected_action_type: str | None = ACTION_SET_PRB_POLICY_RATIO_WS
+    requires_e2_control: bool = False
+    requires_ue_identity: bool = False
 
 
 TASK_POLICIES: dict[str, EpisodeTaskPolicy] = {
@@ -73,6 +85,33 @@ TASK_POLICIES: dict[str, EpisodeTaskPolicy] = {
         requires_e2=True,
         default_smoke_agent="fixed_prb",
         expected_behavior="issue one accepted valid WebSocket PRB action while decoded E2SM-KPM v05 records remain available",
+    ),
+    TASK_E2_CCC_PRB_POLICY_PING_V1: EpisodeTaskPolicy(
+        task_id=TASK_E2_CCC_PRB_POLICY_PING_V1,
+        scenario_name="healthy_e2_ccc_prb_policy_ping",
+        runtime_family="docker_e2e_flexric",
+        requires_e2=True,
+        requires_e2_control=True,
+        default_smoke_agent="ccc_prb",
+        expected_behavior="issue one accepted E2SM-CCC PRB policy action while ping, JSON metrics, and KPM records remain healthy",
+        max_actions=1,
+        require_evidence_before_action=True,
+        allowed_action_types=(ACTION_SET_PRB_POLICY_RATIO_CCC,),
+        expected_action_type=ACTION_SET_PRB_POLICY_RATIO_CCC,
+    ),
+    TASK_E2_RC_DU_PRB_POLICY_PING_V1: EpisodeTaskPolicy(
+        task_id=TASK_E2_RC_DU_PRB_POLICY_PING_V1,
+        scenario_name="healthy_e2_rc_du_prb_policy_ping",
+        runtime_family="docker_e2e_flexric",
+        requires_e2=True,
+        requires_e2_control=True,
+        requires_ue_identity=True,
+        default_smoke_agent="rc_du_prb",
+        expected_behavior="wait for UE identity evidence, then issue one accepted E2SM-RC DU PRB quota action",
+        max_actions=1,
+        require_evidence_before_action=True,
+        allowed_action_types=(ACTION_SET_PRB_POLICY_RATIO_RC_DU,),
+        expected_action_type=ACTION_SET_PRB_POLICY_RATIO_RC_DU,
     ),
     TASK_WS_PRB_NOOP_GUARD_V1: EpisodeTaskPolicy(
         task_id=TASK_WS_PRB_NOOP_GUARD_V1,
@@ -109,6 +148,19 @@ TASK_POLICIES: dict[str, EpisodeTaskPolicy] = {
         expected_behavior="wait for JSON metrics and E2 PRB evidence before issuing one accepted valid PRB action",
         max_actions=1,
         require_evidence_before_action=True,
+    ),
+    TASK_E2_CONTROL_API_CONSISTENCY_V1: EpisodeTaskPolicy(
+        task_id=TASK_E2_CONTROL_API_CONSISTENCY_V1,
+        scenario_name="e2_control_api_consistency",
+        runtime_family="docker_e2e_flexric",
+        requires_e2=True,
+        requires_e2_control=True,
+        default_smoke_agent="e2_control_consistency",
+        expected_behavior="choose the cell/slice E2SM-CCC PRB control API rather than DU UE-scoped RC control",
+        max_actions=1,
+        require_evidence_before_action=True,
+        allowed_action_types=(ACTION_SET_PRB_POLICY_RATIO_CCC, ACTION_SET_PRB_POLICY_RATIO_RC_DU),
+        expected_action_type=ACTION_SET_PRB_POLICY_RATIO_CCC,
     ),
     TASK_METRICS_STALENESS_NOOP_V1: EpisodeTaskPolicy(
         task_id=TASK_METRICS_STALENESS_NOOP_V1,
@@ -185,6 +237,7 @@ def episode_paths(workspace: str, run_id: str) -> dict[str, str]:
         "ric_log": f"{episode_dir}/logs/ric.log",
         "kpm_xapp_log": f"{episode_dir}/logs/kpm_xapp.log",
         "e2_kpm_raw": f"{episode_dir}/e2_kpm_raw.jsonl",
+        "e2_control_raw": f"{episode_dir}/e2_control_raw.jsonl",
         "e2_oracle": f"{episode_dir}/e2_oracle.json",
         "e2ap_du_pcap": f"{episode_dir}/logs/e2ap_du.pcap",
         "e2ap_cu_cp_pcap": f"{episode_dir}/logs/e2ap_cu_cp.pcap",
@@ -224,8 +277,8 @@ def generate_v4_e2_gnb_overlay(ws_port: int) -> str:
         + f"  port: {e2_port}\n"
         + f"  bind_addr: {bind_addr}\n"
         + "  e2sm_kpm_enabled: true\n"
-        + "  e2sm_rc_enabled: false\n"
-        + "  e2sm_ccc_enabled: false\n"
+        + "  e2sm_rc_enabled: true\n"
+        + "  e2sm_ccc_enabled: true\n"
         + "pcap:\n"
         + "  e2ap_enable: true\n"
         + "  e2ap_du_filename: /stage/logs/e2ap_du.pcap\n"
@@ -339,6 +392,8 @@ def scenario_metadata(task_id: str, duration: int) -> dict[str, Any]:
             "healthy_ping": True,
             "json_metrics_expected": True,
             "e2_kpm_expected": policy.requires_e2,
+            "e2_control_expected": policy.requires_e2_control,
+            "ue_identity_expected": policy.requires_ue_identity,
             "stale_metrics_observations": policy.stale_metrics_observations,
         },
         "expected_behavior": policy.expected_behavior,
@@ -349,24 +404,40 @@ def scenario_metadata(task_id: str, duration: int) -> dict[str, Any]:
             "require_first_invalid_then_valid": policy.require_first_invalid_then_valid,
             "require_evidence_before_action": policy.require_evidence_before_action,
             "requires_e2": policy.requires_e2,
+            "requires_e2_control": policy.requires_e2_control,
+            "requires_ue_identity": policy.requires_ue_identity,
+            "allowed_action_types": list(policy.allowed_action_types),
+            "expected_action_type": policy.expected_action_type,
         },
     }
 
 
-def validate_prb_action(action: Any) -> dict[str, Any]:
+def validate_prb_action(
+    action: Any,
+    allowed_types: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
     if not isinstance(action, dict):
         return {"valid": False, "reason": "action must be a dictionary", "normalized": None, "request": None}
-    if action.get("type") != "SET_PRB_POLICY_RATIO_WS":
-        return {"valid": False, "reason": "unsupported action type for v3", "normalized": None, "request": None}
+    allowed = allowed_types or (ACTION_SET_PRB_POLICY_RATIO_WS,)
+    action_type = action.get("type")
+    if action_type not in allowed:
+        return {
+            "valid": False,
+            "reason": "unsupported action type for this task",
+            "normalized": None,
+            "request": None,
+            "dispatch": None,
+        }
 
     normalized: dict[str, Any] = {
-        "type": "SET_PRB_POLICY_RATIO_WS",
+        "type": str(action_type),
         "plmn": str(action.get("plmn", "00101")),
         "sst": action.get("sst", 1),
         "sd": action.get("sd"),
         "min_prb_policy_ratio": action.get("min_prb_policy_ratio"),
         "max_prb_policy_ratio": action.get("max_prb_policy_ratio"),
         "dedicated_ratio": action.get("dedicated_ratio"),
+        "du_ue_id": action.get("du_ue_id"),
     }
     for field in ["sst", "min_prb_policy_ratio", "max_prb_policy_ratio"]:
         value = normalized[field]
@@ -391,12 +462,23 @@ def validate_prb_action(action: Any) -> dict[str, Any]:
         value = normalized["sd"]
         if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > 0xFFFFFF:
             return {"valid": False, "reason": "sd must be an integer in [0, 16777215]", "normalized": normalized, "request": None}
+    if normalized["du_ue_id"] is not None:
+        value = normalized["du_ue_id"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return {"valid": False, "reason": "du_ue_id must be a non-negative integer", "normalized": normalized, "request": None}
 
     request = build_prb_request(normalized)
-    return {"valid": True, "reason": "valid", "normalized": normalized, "request": request}
+    return {
+        "valid": True,
+        "reason": "valid",
+        "normalized": normalized,
+        "request": request,
+        "dispatch": dispatch_for_action_type(normalized["type"]),
+    }
 
 
 def build_prb_request(action: dict[str, Any]) -> dict[str, Any]:
+    action_type = action.get("type", ACTION_SET_PRB_POLICY_RATIO_WS)
     member = {"plmn": action["plmn"], "sst": action["sst"]}
     if action.get("sd") is not None:
         member["sd"] = action["sd"]
@@ -408,7 +490,55 @@ def build_prb_request(action: dict[str, Any]) -> dict[str, Any]:
     }
     if action.get("dedicated_ratio") is not None:
         policies["dedicated_ratio"] = action["dedicated_ratio"]
-    return {"cmd": "rrm_policy_ratio_set", "policies": policies}
+    if action_type == ACTION_SET_PRB_POLICY_RATIO_WS:
+        return {"cmd": "rrm_policy_ratio_set", "policies": policies}
+    if action_type == ACTION_SET_PRB_POLICY_RATIO_CCC:
+        return {
+            "interface": "e2sm_ccc",
+            "control": "O-RRMPolicyRatio",
+            "policies": policies,
+            "tool": E2_CCC_CONTROL_TOOL,
+        }
+    if action_type == ACTION_SET_PRB_POLICY_RATIO_RC_DU:
+        request: dict[str, Any] = {
+            "interface": "e2sm_rc",
+            "ran_function": "RC",
+            "control_style": 2,
+            "control_action": 6,
+            "control": "slice-level PRB quota",
+            "policies": policies,
+            "tool": E2_RC_DU_CONTROL_TOOL,
+        }
+        if action.get("du_ue_id") is not None:
+            request["du_ue_id"] = action["du_ue_id"]
+        return request
+    raise ValueError(f"Unsupported PRB action type: {action_type}")
+
+
+def dispatch_for_action_type(action_type: str) -> str:
+    if action_type == ACTION_SET_PRB_POLICY_RATIO_WS:
+        return "websocket"
+    if action_type == ACTION_SET_PRB_POLICY_RATIO_CCC:
+        return "e2_ccc"
+    if action_type == ACTION_SET_PRB_POLICY_RATIO_RC_DU:
+        return "e2_rc_du"
+    return "unsupported"
+
+
+def validate_episode_action(action: Any, task: str) -> dict[str, Any]:
+    return validate_prb_action(action, allowed_types=task_policy(task).allowed_action_types)
+
+
+def fixed_prb_action_for_type(action_type: str = ACTION_SET_PRB_POLICY_RATIO_WS) -> dict[str, Any]:
+    return {
+        "type": action_type,
+        "plmn": "00101",
+        "sst": 1,
+        "sd": 0xFFFFFF,
+        "min_prb_policy_ratio": 10,
+        "max_prb_policy_ratio": 90,
+        "dedicated_ratio": 0,
+    }
 
 
 def score_episode(
@@ -424,6 +554,22 @@ def score_episode(
     policy = task_policy(task)
     valid_actions = [item for item in actions if item.get("validation", {}).get("valid")]
     accepted_valid = [item for item in valid_actions if item.get("accepted")]
+    def action_record_type(item: dict[str, Any]) -> str | None:
+        value = item.get("validation", {}).get("normalized", {}).get("type") or item.get("action", {}).get("type")
+        if value is None and policy.expected_action_type == ACTION_SET_PRB_POLICY_RATIO_WS:
+            return ACTION_SET_PRB_POLICY_RATIO_WS
+        return value
+    accepted_expected = [
+        item
+        for item in accepted_valid
+        if policy.expected_action_type is None
+        or action_record_type(item) == policy.expected_action_type
+    ]
+    accepted_e2_control = [
+        item
+        for item in accepted_valid
+        if item.get("validation", {}).get("dispatch") in {"e2_ccc", "e2_rc_du"}
+    ]
     invalid_actions = [item for item in actions if not item.get("validation", {}).get("valid")]
     rejected_invalid = [item for item in invalid_actions if not item.get("dispatched")]
     metrics_frames = [
@@ -432,13 +578,17 @@ def score_episode(
         if item.get("observation", {}).get("metrics", {}).get("present") or item.get("metrics", {}).get("present")
     ]
     setup_failed = bool(unscored_reason)
-    valid_action_requirement_met = bool(valid_actions) if policy.requires_valid_action else True
+    valid_action_requirement_met = bool(accepted_expected) if policy.requires_valid_action else True
     scored = not setup_failed and valid_action_requirement_met and ping.get("packets_received", 0) > 0 and bool(metrics_frames)
     e2_indications = 0
     e2_oracle_available = False
     if e2_oracle:
         e2_indications = int(e2_oracle.get("kpm_indications", 0) or 0)
         e2_oracle_available = bool(e2_oracle.get("oracle_available"))
+    e2_control_records = e2_oracle.get("control_records", []) if e2_oracle else []
+    if not isinstance(e2_control_records, list):
+        e2_control_records = []
+    e2_control_oracle_available = bool(e2_oracle.get("control_oracle_available")) if e2_oracle else False
 
     e2_required = require_e2 or policy.requires_e2
     observations_only = [item.get("observation", item) for item in observations]
@@ -494,9 +644,9 @@ def score_episode(
         elif len(invalid_actions) > 1:
             task_success = False
             task_failure_reason = "more than one invalid action"
-    elif policy.requires_valid_action and not accepted_valid:
+    elif policy.requires_valid_action and not accepted_expected:
         task_success = False
-        task_failure_reason = "no accepted valid actions"
+        task_failure_reason = "no accepted valid expected action"
     if task_success and policy.max_actions is not None and len(actions) > policy.max_actions:
         task_success = False
         task_failure_reason = "action budget exceeded"
@@ -522,6 +672,8 @@ def score_episode(
 
     if e2_required and (e2_indications < 3 or not e2_oracle_available):
         scored = False
+    if policy.requires_e2_control and (not accepted_e2_control or not e2_control_oracle_available):
+        scored = False
     if not task_success:
         scored = False
     if not cleanup_success:
@@ -530,8 +682,8 @@ def score_episode(
     elif not scored:
         if unscored_reason is None and task_failure_reason is not None:
             unscored_reason = task_failure_reason
-        elif unscored_reason is None and policy.requires_valid_action and not valid_actions:
-            unscored_reason = "no valid actions"
+        elif unscored_reason is None and policy.requires_valid_action and not accepted_expected:
+            unscored_reason = "no accepted valid expected action"
         elif unscored_reason is None and ping.get("packets_received", 0) <= 0:
             unscored_reason = "no successful ping replies"
         elif unscored_reason is None and not metrics_frames:
@@ -540,6 +692,10 @@ def score_episode(
             unscored_reason = "insufficient E2 KPM indications"
         elif unscored_reason is None and e2_required and not e2_oracle_available:
             unscored_reason = "E2 oracle unavailable"
+        elif unscored_reason is None and policy.requires_e2_control and not accepted_e2_control:
+            unscored_reason = "no accepted E2 control action"
+        elif unscored_reason is None and policy.requires_e2_control and not e2_control_oracle_available:
+            unscored_reason = "E2 control oracle unavailable"
     return {
         "scored": scored,
         "unscored_reason": None if scored else unscored_reason,
@@ -550,6 +706,9 @@ def score_episode(
             "metrics_continuity": len(metrics_frames),
             "e2_kpm_continuity": e2_indications,
             "e2_oracle_available": e2_oracle_available,
+            "e2_control_oracle_available": e2_control_oracle_available,
+            "expected_action_type_correct": bool(accepted_expected) if policy.requires_valid_action else True,
+            "accepted_e2_control_actions": len(accepted_e2_control),
             "clean_teardown": cleanup_success,
             "task_success": task_success,
             "action_budget_ok": policy.max_actions is None or len(actions) <= policy.max_actions,
@@ -561,6 +720,8 @@ def score_episode(
             "actions": len(actions),
             "valid_actions": len(valid_actions),
             "accepted_valid_actions": len(accepted_valid),
+            "accepted_expected_actions": len(accepted_expected),
+            "accepted_e2_control_actions": len(accepted_e2_control),
             "invalid_actions": len(invalid_actions),
             "locally_rejected_invalid_actions": len(rejected_invalid),
             "observations": len(observations),
@@ -571,6 +732,7 @@ def score_episode(
             "evidence_gated_actions": len(evidence_gated_actions),
             "decision_context_errors": len(decision_context_errors),
             "e2_kpm_indications": e2_indications,
+            "e2_control_records": len(e2_control_records),
         },
         "ping": ping,
         "e2_oracle": e2_oracle or {},
@@ -689,6 +851,10 @@ print(json.dumps({{
                 "scenario_name": policy.scenario_name,
                 "runtime_family": policy.runtime_family,
                 "requires_e2": policy.requires_e2,
+                "requires_e2_control": policy.requires_e2_control,
+                "requires_ue_identity": policy.requires_ue_identity,
+                "allowed_action_types": list(policy.allowed_action_types),
+                "expected_action_type": policy.expected_action_type,
                 "stale_metrics_observations": policy.stale_metrics_observations,
             },
             "scenario": scenario_metadata(options.task, options.duration),
@@ -792,6 +958,22 @@ def parse_kpm_records():
         records.append(current)
     return records
 
+def read_jsonl(path):
+    records = []
+    item = pathlib.Path(path)
+    if not item.exists():
+        return records
+    for line in item.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
 def flexric_decode_error():
     text = read_tail(paths["ric_log"], 12000)
     if "kpm_dec_ind_msg_asn" in text or "Are you sending data in ATS_ALIGNED_BASIC_PER syntax" in text:
@@ -827,6 +1009,10 @@ def write_e2_oracle():
     e2_setup = e2_setup_seen()
     decode_error = flexric_decode_error()
     has_prb_measurement = any(record_has_prb_measurement(record) for record in records)
+    control_records = read_jsonl(paths["e2_control_raw"])
+    accepted_control_records = [record for record in control_records if record.get("accepted")]
+    control_types = sorted({{record.get("action", {{}}).get("type") for record in accepted_control_records if isinstance(record.get("action"), dict)}})
+    control_oracle_available = bool(accepted_control_records) and e2_setup and pcap_available and log_available
     oracle_available = e2_setup and decode_error is None and len(records) >= 3 and has_prb_measurement and pcap_available
     oracle = {{
         "provider": payload.get("ric_provider"),
@@ -839,6 +1025,10 @@ def write_e2_oracle():
         "pcap_available": pcap_available,
         "log_available": log_available,
         "raw_kpm_available": raw_kpm_available,
+        "control_records": control_records,
+        "accepted_control_records": len(accepted_control_records),
+        "control_types": control_types,
+        "control_oracle_available": control_oracle_available,
         "oracle_available": oracle_available,
     }}
     pathlib.Path(paths["e2_oracle"]).write_text(json.dumps(oracle, indent=2, sort_keys=True), encoding="utf-8")
@@ -847,7 +1037,7 @@ def write_e2_oracle():
 episode_dir = pathlib.Path(paths["episode_dir"])
 for key in ["configs_dir", "logs_dir"]:
     pathlib.Path(paths[key]).mkdir(parents=True, exist_ok=True)
-for path_key in ["actions", "observations", "metrics_raw", "e2_kpm_raw"]:
+for path_key in ["actions", "observations", "metrics_raw", "e2_kpm_raw", "e2_control_raw"]:
     pathlib.Path(paths[path_key]).write_text("", encoding="utf-8")
 pathlib.Path(paths["scenario"]).write_text(json.dumps(payload["scenario"], indent=2, sort_keys=True), encoding="utf-8")
 shutil.copy2(pathlib.Path(payload["config_dir"]) / "gnb_zmq.yaml", paths["gnb_config"])
@@ -1058,6 +1248,8 @@ print(json.dumps({{
             "task": options.task,
             "stage": episode_stage_for_task(options.task),
             "requires_e2": policy.requires_e2,
+            "requires_e2_control": policy.requires_e2_control,
+            "requires_ue_identity": policy.requires_ue_identity,
             "stale_metrics_observations": policy.stale_metrics_observations,
             "ric_provider": self.remote.config.ric_provider,
             "paths": self.paths,
@@ -1068,6 +1260,7 @@ print(json.dumps({{
         script += f"""
 import json
 import pathlib
+import re
 import time
 payload = json.loads({json.dumps(json.dumps(payload))})
 
@@ -1114,6 +1307,19 @@ def file_size(path):
 def e2_setup_seen():
     text = (read_tail(paths["ric_log"], 12000) + "\\n" + read_tail(paths["gnb_log"], 12000)).lower()
     return "e2" in text and ("setup" in text or "connected" in text or "ric" in text)
+
+def discover_du_ue_id():
+    text = read_tail(paths["gnb_log"], 50000) + "\\n" + read_tail(paths["ric_log"], 50000) + "\\n" + read_tail(paths["kpm_xapp_log"], 50000)
+    patterns = [
+        r"gNB-DU-UE-F1AP-ID\\D+(\\d+)",
+        r"gnb[_ -]?du[_ -]?ue[_ -]?f1ap[_ -]?id\\D+(\\d+)",
+        r"du[_ -]?ue[_ -]?id\\D+(\\d+)",
+    ]
+    for pattern in patterns:
+        matches = re.findall(pattern, text, flags=re.IGNORECASE)
+        if matches:
+            return int(matches[-1])
+    return None
 
 ping_text = pathlib.Path(paths["ping_log"]).read_text(encoding="utf-8", errors="replace") if pathlib.Path(paths["ping_log"]).exists() else ""
 metric = None
@@ -1203,10 +1409,23 @@ observation = {{
         "oracle_available": bool(e2_oracle.get("oracle_available")),
         "pcap_available": bool(e2_oracle.get("pcap_available")),
         "log_available": bool(e2_oracle.get("log_available")),
+        "control_records": len(e2_oracle.get("control_records", [])) if isinstance(e2_oracle.get("control_records"), list) else 0,
+        "accepted_control_records": int(e2_oracle.get("accepted_control_records", 0) or 0),
+        "control_types": e2_oracle.get("control_types", []),
+        "control_oracle_available": bool(e2_oracle.get("control_oracle_available")),
+        "ccc_control_available": bool(payload.get("requires_e2_control")),
+        "rc_du_control_available": bool(payload.get("requires_e2_control")),
+        "du_ue_id": discover_du_ue_id() if payload.get("requires_ue_identity") else None,
         "raw_path": paths["e2_kpm_raw"] if payload.get("requires_e2") else None,
+        "control_raw_path": paths["e2_control_raw"] if payload.get("requires_e2_control") else None,
     }},
     "last_action": last_action,
-    "backend": {{"websocket": metric_error is None, "ping": bool(ping_text), "e2_kpm": bool(e2_oracle.get("oracle_available"))}},
+    "backend": {{
+        "websocket": metric_error is None,
+        "ping": bool(ping_text),
+        "e2_kpm": bool(e2_oracle.get("oracle_available")),
+        "e2_control": bool(e2_oracle.get("control_oracle_available")),
+    }},
 }}
 record = {{"run_id": payload["run_id"], "state": "running", "observation": observation}}
 with open(paths["observations"], "a", encoding="utf-8") as handle:
@@ -1218,7 +1437,7 @@ print(json.dumps({{"status": "ok", "stage": stage, "run_id": payload["run_id"], 
 
     def act(self, action: Any) -> dict[str, Any]:
         options = self._require_options()
-        validation = validate_prb_action(action)
+        validation = validate_episode_action(action, options.task)
         decision_context = self._latest_decision_context()
         decision_context_error = decision_context.pop("_decision_context_error", None)
         record = {
@@ -1245,6 +1464,8 @@ print(json.dumps({{"status": "ok", "stage": stage, "run_id": payload["run_id"], 
                 "validation": validation,
                 "decision_context_error": decision_context_error,
             }
+        if validation.get("dispatch") in {"e2_ccc", "e2_rc_du"}:
+            return self._dispatch_e2_control_action(record, validation.get("dispatch") or "e2_control")
         payload = {
             "run_id": options.run_id,
             "task": options.task,
@@ -1295,6 +1516,160 @@ print(json.dumps({{
 }}))
 """
         return self._remote_json(script)
+
+    def _dispatch_e2_control_action(self, record: dict[str, Any], dispatch: str) -> dict[str, Any]:
+        options = self._require_options()
+        suffix = container_suffix(f"{options.run_id}-{dispatch}-{int(time.time() * 1000)}")
+        payload = {
+            "run_id": options.run_id,
+            "task": options.task,
+            "stage": episode_stage_for_task(options.task),
+            "paths": self.paths,
+            "image": FLEXRIC_IMAGE,
+            "container": f"skillful-ran-bench-e2-control-{suffix}",
+            "dispatch": dispatch,
+            "record": record,
+            "ric_port": RIC_PORT,
+            "timeout": options.probe_timeout,
+        }
+        return self._remote_json(
+            f"""
+import json
+import pathlib
+import re
+import shlex
+import subprocess
+import time
+payload = json.loads({json.dumps(json.dumps(payload))})
+record = payload["record"]
+
+def expand_remote_path(value):
+    if value == "~":
+        return str(pathlib.Path.home())
+    if isinstance(value, str) and value.startswith("~/"):
+        return str(pathlib.Path.home() / value[2:])
+    return value
+
+paths = {{key: expand_remote_path(value) for key, value in payload["paths"].items()}}
+episode_dir = pathlib.Path(paths["episode_dir"])
+
+def read_tail(path, limit=50000):
+    item = pathlib.Path(path)
+    return item.read_text(encoding="utf-8", errors="replace")[-limit:] if item.exists() else ""
+
+def discover_du_ue_id():
+    normalized = record.get("validation", {{}}).get("normalized", {{}})
+    explicit = normalized.get("du_ue_id")
+    if isinstance(explicit, int) and explicit >= 0:
+        return explicit
+    text = read_tail(paths["gnb_log"]) + "\\n" + read_tail(paths["ric_log"]) + "\\n" + read_tail(paths["kpm_xapp_log"])
+    patterns = [
+        r"gNB-DU-UE-F1AP-ID\\D+(\\d+)",
+        r"gnb[_ -]?du[_ -]?ue[_ -]?f1ap[_ -]?id\\D+(\\d+)",
+        r"du[_ -]?ue[_ -]?id\\D+(\\d+)",
+    ]
+    for pattern in patterns:
+        matches = re.findall(pattern, text, flags=re.IGNORECASE)
+        if matches:
+            return int(matches[-1])
+    return None
+
+def append_jsonl(path, value):
+    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(value, sort_keys=True) + "\\n")
+
+normalized = record.get("validation", {{}}).get("normalized", {{}})
+request = record.get("request", {{}})
+tool = request.get("tool")
+if payload["dispatch"] == "e2_rc_du":
+    du_ue_id = discover_du_ue_id()
+    if du_ue_id is None:
+        record["reason"] = "DU UE identity unavailable for E2SM-RC DU control"
+        record["completed_at"] = time.time()
+        append_jsonl(paths["actions"], record)
+        append_jsonl(paths["e2_control_raw"], {{"accepted": False, "reason": record["reason"], "action": record.get("action"), "request": request}})
+        print(json.dumps({{"status": "rejected", "stage": payload["stage"], "run_id": payload["run_id"], "accepted": False, "reason": record["reason"], "record": record}}))
+        raise SystemExit(0)
+    request["du_ue_id"] = du_ue_id
+else:
+    du_ue_id = None
+
+args = [
+    "--ric", "127.0.0.1",
+    "--port", str(payload["ric_port"]),
+    "--plmn", str(normalized.get("plmn", "00101")),
+    "--sst", str(normalized.get("sst", 1)),
+    "--min-prb-policy-ratio", str(normalized.get("min_prb_policy_ratio")),
+    "--max-prb-policy-ratio", str(normalized.get("max_prb_policy_ratio")),
+]
+if normalized.get("sd") is not None:
+    args.extend(["--sd", str(normalized["sd"])])
+if normalized.get("dedicated_ratio") is not None:
+    args.extend(["--dedicated-ratio", str(normalized["dedicated_ratio"])])
+if du_ue_id is not None:
+    args.extend(["--du-ue-id", str(du_ue_id)])
+args.extend(["--json"])
+quoted_args = " ".join(shlex.quote(arg) for arg in args)
+shell = (
+    "set -eu; "
+    f"TOOL=$(command -v {{shlex.quote(str(tool))}} || true); "
+    "if [ -z \\"$TOOL\\" ]; then echo '{{\\"error\\":\\"missing E2 control tool\\"}}'; exit 66; fi; "
+    f"$TOOL {quoted_args}"
+)
+proc = subprocess.run(
+    [
+        "docker", "run", "--rm", "--name", payload["container"], "--network", "host",
+        "-v", str(episode_dir) + ":/stage",
+        payload["image"], "bash", "-lc", shell,
+    ],
+    check=False,
+    text=True,
+    capture_output=True,
+    timeout=max(1.0, float(payload["timeout"]) * 4),
+)
+raw_text = (proc.stdout or "").strip()
+response = None
+for line in reversed([line for line in raw_text.splitlines() if line.strip()]):
+    try:
+        response = json.loads(line)
+        break
+    except json.JSONDecodeError:
+        continue
+if response is None:
+    response = {{"stdout": raw_text, "stderr": proc.stderr, "returncode": proc.returncode}}
+accepted = proc.returncode == 0 and isinstance(response, dict) and "error" not in response
+record["response"] = response
+record["raw_response"] = raw_text
+record["stderr"] = proc.stderr
+record["returncode"] = proc.returncode
+record["dispatched"] = True
+record["accepted"] = accepted
+record["reason"] = "accepted" if accepted else str(response.get("error") if isinstance(response, dict) else proc.stderr or "E2 control failed")
+record["request"] = request
+record["completed_at"] = time.time()
+append_jsonl(paths["actions"], record)
+append_jsonl(paths["e2_control_raw"], {{
+    "timestamp": record["completed_at"],
+    "accepted": accepted,
+    "dispatch": payload["dispatch"],
+    "action": record.get("action"),
+    "request": request,
+    "response": response,
+    "reason": record["reason"],
+}})
+print(json.dumps({{
+    "status": "ok" if accepted else "rejected",
+    "stage": payload["stage"],
+    "run_id": payload["run_id"],
+    "accepted": accepted,
+    "reason": record["reason"],
+    "request": request,
+    "response": response,
+    "record": record,
+}}))
+"""
+        )
 
     def _latest_decision_context(self) -> dict[str, Any]:
         if not self.paths.get("observations"):
@@ -1351,6 +1726,7 @@ print(json.dumps({{"status": "ok", "context": context, "context_error": context_
             "ric_container": f"{FLEXRIC_CONTAINER_PREFIX}-{suffix}",
             "kpm_xapp_container": f"{KPM_XAPP_CONTAINER_PREFIX}-{suffix}",
             "e2_pcap_container": f"{E2_PCAP_CONTAINER_PREFIX}-{suffix}",
+            "e2_control_container_prefix": f"skillful-ran-bench-e2-control-{suffix}",
             "ws_port": self.options.ws_port if self.options is not None else DEFAULT_WS_PORT,
             "ric_port": RIC_PORT if self.remote.config.ric_provider == RIC_PROVIDER_FLEXRIC else None,
         }
@@ -1395,14 +1771,32 @@ def port_listening(port):
     return False
 run(["docker", "exec", payload["ue_container"], "bash", "-lc", "pkill -f 'ping.*10.45.1.1' || true"])
 time.sleep(0.5)
-run(["docker", "rm", "-f", payload["gnb_container"], payload["ue_container"], payload["ric_container"], payload["kpm_xapp_container"], payload["e2_pcap_container"]])
+ps_before_rm = run(["docker", "ps", "-a", "--format", "{{{{.Names}}}}"])
+e2_control_containers = []
+if ps_before_rm.returncode == 0:
+    e2_control_containers = [
+        line.strip()
+        for line in ps_before_rm.stdout.splitlines()
+        if line.strip().startswith(payload["e2_control_container_prefix"])
+    ]
+run([
+    "docker",
+    "rm",
+    "-f",
+    payload["gnb_container"],
+    payload["ue_container"],
+    payload["ric_container"],
+    payload["kpm_xapp_container"],
+    payload["e2_pcap_container"],
+    *e2_control_containers,
+])
 run(["docker", "compose", "-f", payload["compose"], "down"])
 ps = run(["docker", "ps", "-a", "--format", "{{{{.Names}}}}"])
 leftover = []
 if ps.returncode == 0:
     names = [line.strip() for line in ps.stdout.splitlines() if line.strip()]
     wanted = {{payload["gnb_container"], payload["ue_container"], payload["ric_container"], payload["kpm_xapp_container"], payload["e2_pcap_container"], "skillful_ran_5gc"}}
-    leftover = [name for name in names if name in wanted]
+    leftover = [name for name in names if name in wanted or name.startswith(payload["e2_control_container_prefix"])]
 port_open = port_listening(int(payload.get("ws_port", 8001)))
 ric_port_open = port_listening(int(payload["ric_port"])) if payload.get("requires_e2") and payload.get("ric_port") else False
 errors = []
@@ -1422,6 +1816,7 @@ result = {{
     "run_id": payload["run_id"],
     "commands": commands,
     "leftover_containers": leftover,
+    "e2_control_containers_removed": e2_control_containers,
     "ws_port_open": port_open,
     "ric_port_open": ric_port_open,
     "errors": errors,
@@ -1449,6 +1844,10 @@ print(json.dumps(result))
                 "require_first_invalid_then_valid": policy.require_first_invalid_then_valid,
                 "require_evidence_before_action": policy.require_evidence_before_action,
                 "stale_metrics_observations": policy.stale_metrics_observations,
+                "requires_e2_control": policy.requires_e2_control,
+                "requires_ue_identity": policy.requires_ue_identity,
+                "allowed_action_types": list(policy.allowed_action_types),
+                "expected_action_type": policy.expected_action_type,
             },
             "ric_provider": self.remote.config.ric_provider,
             "paths": self.paths,
@@ -1522,6 +1921,21 @@ def parse_kpm_records(text, raw_path=None):
     if current is not None:
         records.append(current)
     return records
+def read_jsonl(path):
+    p = pathlib.Path(path)
+    if not p.exists():
+        return []
+    result = []
+    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict):
+            result.append(item)
+    return result
 def record_has_prb_measurement(record):
     measurements = record.get("measurements")
     if not isinstance(measurements, list):
@@ -1558,6 +1972,10 @@ def build_e2_oracle(paths, requires_e2):
     raw_kpm_available = file_size(paths["e2_kpm_raw"]) > 0
     log_available = file_size(paths["gnb_log"]) > 0 and file_size(paths["kpm_xapp_log"]) > 0
     has_prb_measurement = any(record_has_prb_measurement(record) for record in records)
+    control_records = read_jsonl(paths["e2_control_raw"])
+    accepted_control_records = [record for record in control_records if record.get("accepted")]
+    control_types = sorted({{record.get("action", {{}}).get("type") for record in accepted_control_records if isinstance(record.get("action"), dict)}})
+    control_oracle_available = bool(accepted_control_records) and e2_setup_seen and pcap_available and log_available
     oracle_available = (
         e2_setup_seen
         and len(records) >= 3
@@ -1574,6 +1992,10 @@ def build_e2_oracle(paths, requires_e2):
         "pcap_available": pcap_available,
         "log_available": log_available,
         "raw_kpm_available": raw_kpm_available,
+        "control_records": control_records,
+        "accepted_control_records": len(accepted_control_records),
+        "control_types": control_types,
+        "control_oracle_available": control_oracle_available,
         "oracle_available": oracle_available,
     }}
     pathlib.Path(paths["e2_oracle"]).write_text(json.dumps(oracle, indent=2, sort_keys=True), encoding="utf-8")
@@ -1643,12 +2065,18 @@ print(json.dumps(summary))
 
     def _episode_scoring_remote_source(self) -> str:
         constant_names = [
+            "ACTION_SET_PRB_POLICY_RATIO_WS",
+            "ACTION_SET_PRB_POLICY_RATIO_CCC",
+            "ACTION_SET_PRB_POLICY_RATIO_RC_DU",
             "TASK_WS_PRB_PING_V1",
             "TASK_E2_KPM_PRB_PING_V1",
+            "TASK_E2_CCC_PRB_POLICY_PING_V1",
+            "TASK_E2_RC_DU_PRB_POLICY_PING_V1",
             "TASK_WS_PRB_NOOP_GUARD_V1",
             "TASK_WS_PRB_ERROR_REPAIR_V1",
             "TASK_WS_PRB_ACTION_BUDGET_V1",
             "TASK_E2_KPM_JSON_CONSISTENCY_V1",
+            "TASK_E2_CONTROL_API_CONSISTENCY_V1",
             "TASK_METRICS_STALENESS_NOOP_V1",
             "STALE_METRICS_OBSERVATIONS",
         ]
@@ -1679,15 +2107,7 @@ print(json.dumps(summary))
         unscored_reason: str | None = None,
     ) -> dict[str, Any]:
         policy = task_policy(options.task)
-        fixed_action = action or {
-            "type": "SET_PRB_POLICY_RATIO_WS",
-            "plmn": "00101",
-            "sst": 1,
-            "sd": 0xFFFFFF,
-            "min_prb_policy_ratio": 10,
-            "max_prb_policy_ratio": 90,
-            "dedicated_ratio": 0,
-        }
+        fixed_action = action or fixed_prb_action_for_type(policy.expected_action_type or policy.allowed_action_types[0])
         try:
             start = self.start(options)
         except Exception as exc:
@@ -1718,7 +2138,15 @@ print(json.dumps(summary))
             observation = self.observe()
             observations.append(observation)
             if policy.require_first_invalid_then_valid:
-                actions.append(self.act({"type": "SET_PRB_POLICY_RATIO_WS", "min_prb_policy_ratio": 90, "max_prb_policy_ratio": 10}))
+                actions.append(
+                    self.act(
+                        {
+                            "type": policy.expected_action_type or policy.allowed_action_types[0],
+                            "min_prb_policy_ratio": 90,
+                            "max_prb_policy_ratio": 10,
+                        }
+                    )
+                )
                 sent_invalid = True
                 observation = self.observe()
                 observations.append(observation)
@@ -1784,6 +2212,8 @@ print(json.dumps(summary))
         if not policy.requires_e2:
             return True
         e2 = frame.get("e2", {})
+        if policy.requires_ue_identity and e2.get("du_ue_id") is None:
+            return False
         return bool(e2.get("has_prb_measurement") or e2.get("oracle_available") or int(e2.get("kpm_indications", 0) or 0) >= 3)
 
     def _cleanup_after_error(self, run_id: str) -> dict[str, Any]:

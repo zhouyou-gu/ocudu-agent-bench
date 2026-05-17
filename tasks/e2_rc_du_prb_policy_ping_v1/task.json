@@ -1,0 +1,49 @@
+{
+  "id": "e2_rc_du_prb_policy_ping_v1",
+  "name": "E2SM-RC DU PRB Quota Control With Ping",
+  "summary": "A Docker Open5GS, OCUDU gNB, srsUE, and FlexRIC episode where the agent controls DU PRB quota through E2SM-RC after UE identity evidence is available.",
+  "stage": "v4_2_episode",
+  "suite_stage": "v4_2_suite",
+  "runtime": "docker_e2e_flexric",
+  "readiness": "scored",
+  "action_types": [
+    "SET_PRB_POLICY_RATIO_RC_DU"
+  ],
+  "observation_sources": [
+    "ping",
+    "json_metrics",
+    "e2_kpm_v05",
+    "e2_control_outcome",
+    "ue_identity",
+    "pcap_log_oracle"
+  ],
+  "required_conformance": [
+    "flexric_docker_assets",
+    "near_rt_ric_health",
+    "ocudu_e2_config",
+    "e2_setup_path",
+    "e2_kpm_subscription",
+    "e2_pcap_log_oracle",
+    "e2_rc_du_prb_control_path"
+  ],
+  "scoring": [
+    "expected_action_type_correct",
+    "valid_action_accepted_rate",
+    "ping_success_ratio",
+    "json_metrics_continuity",
+    "e2_kpm_continuity",
+    "e2_control_oracle_available",
+    "clean_teardown_success"
+  ],
+  "artifact_groups": [
+    "episode/scenario.json",
+    "episode/actions.jsonl",
+    "episode/observations.jsonl",
+    "episode/metrics_raw.jsonl",
+    "episode/e2_kpm_raw.jsonl",
+    "episode/e2_control_raw.jsonl",
+    "episode/e2_oracle.json",
+    "episode/summary.json",
+    "episode/logs"
+  ]
+}

@@ -103,8 +103,27 @@ class SuiteTests(unittest.TestCase):
             stale_guard.next_action({"observation": {"metrics": {"present": True, "stale": False}}})
         )
 
+        e2_frame = {
+            "observation": {
+                "metrics": {"present": True, "stale": False},
+                "e2": {"has_prb_measurement": True, "du_ue_id": 11},
+            }
+        }
+        self.assertEqual(BaselineAgent("ccc_prb", seed=1).next_action(e2_frame)["type"], "SET_PRB_POLICY_RATIO_CCC")
+        rc_action = BaselineAgent("rc_du_prb", seed=1).next_action(e2_frame)
+        self.assertEqual(rc_action["type"], "SET_PRB_POLICY_RATIO_RC_DU")
+        self.assertEqual(rc_action["du_ue_id"], 11)
+        self.assertEqual(
+            BaselineAgent("e2_control_consistency", seed=1).next_action(e2_frame)["type"],
+            "SET_PRB_POLICY_RATIO_CCC",
+        )
+
     def test_builtin_agent_catalog_contains_task_specific_agents(self) -> None:
-        self.assertTrue({"noop", "evidence_gated_prb", "stale_guard_prb"}.issubset(BUILTIN_AGENTS))
+        self.assertTrue(
+            {"noop", "evidence_gated_prb", "stale_guard_prb", "ccc_prb", "rc_du_prb", "e2_control_consistency"}.issubset(
+                BUILTIN_AGENTS
+            )
+        )
 
     def test_aggregate_suite_scores(self) -> None:
         options = SuiteOptions(suite_id="unit-suite", runs=2)

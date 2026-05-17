@@ -230,6 +230,26 @@
       "status": "executable",
       "executable": true,
       "launch_required": true
+    },
+    {
+      "id": "e2_ccc_prb_control_path",
+      "name": "E2SM-CCC PRB policy control path",
+      "backend": "e2_control",
+      "stage": "v4.2",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": true
+    },
+    {
+      "id": "e2_rc_du_prb_control_path",
+      "name": "E2SM-RC DU PRB quota control path",
+      "backend": "e2_control",
+      "stage": "v4.2",
+      "required_for_scoring": true,
+      "status": "executable",
+      "executable": true,
+      "launch_required": true
     }
   ]
 }

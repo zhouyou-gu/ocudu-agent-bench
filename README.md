@@ -41,7 +41,7 @@ python3 benchmark/benchctl.py remote ric-prepare --config .config --json
 The setup commands have two different jobs:
 
 - **Provision** installs or builds the benchmark-owned remote runtime assets under `remote.workspace`. It prepares OCUDU, srsUE, Open5GS assets, Docker images, runtime dependency files, and the FlexRIC/KPM image. Provision answers: "is the remote testbed installed from pinned sources?"
-- **Conformance** verifies that the provisioned runtime actually exposes the APIs and episode paths a task needs before an agent is scored. It checks launch paths, WebSocket control, JSON metrics, Docker e2e traffic, FlexRIC/E2 setup, decoded KPM records, and oracle artifacts. Conformance answers: "is this setup valid enough to score agent performance?"
+- **Conformance** verifies that the provisioned runtime actually exposes the APIs and episode paths a task needs before an agent is scored. It checks launch paths, WebSocket control, JSON metrics, Docker e2e traffic, FlexRIC/E2 setup, decoded KPM records, E2SM-CCC/RC DU control tools, and oracle artifacts. Conformance answers: "is this setup valid enough to score agent performance?"
 
 For scored suites, the benchmark runs the task's required conformance gate before launching scored episodes. You can also run conformance manually:
 
@@ -96,6 +96,9 @@ Current tasks:
 - `ws_prb_action_budget_v1`: WebSocket PRB episode that scores one accepted action without repeated control churn.
 - `e2_kpm_json_consistency_v1`: E2 KPM plus JSON metrics episode that scores action only after multi-source evidence is available.
 - `metrics_staleness_noop_v1`: WebSocket PRB episode that masks early metrics as stale and scores waiting until freshness returns.
+- `e2_ccc_prb_policy_ping_v1`: E2SM-CCC PRB policy control episode with ping, JSON metrics, decoded KPM, and E2 control oracle evidence.
+- `e2_rc_du_prb_policy_ping_v1`: E2SM-RC DU PRB quota control episode that waits for UE identity evidence before dispatch.
+- `e2_control_api_consistency_v1`: E2 control selection episode where the agent must choose CCC for a cell/slice PRB policy objective.
 
 Each task has a machine-readable manifest under `tasks/<task_id>/task.json` and a human task card under `tasks/<task_id>/README.md`.
 
@@ -138,6 +141,9 @@ Conformance is the pre-scoring validation step. Task manifests list the required
 
 - `ws_prb_ping_v1`: Docker e2e assets, Open5GS health, srsUE attach, ping traffic, and WebSocket PRB policy action.
 - `e2_kpm_prb_ping_v1`: FlexRIC assets, RIC health, OCUDU E2 config, E2 setup, KPM subscription, and E2 PCAP/log oracle.
+- `e2_ccc_prb_policy_ping_v1`: the v4 E2/KPM gate plus the E2SM-CCC PRB control path.
+- `e2_rc_du_prb_policy_ping_v1`: the v4 E2/KPM gate plus the E2SM-RC DU PRB control path.
+- `e2_control_api_consistency_v1`: the v4 E2/KPM gate plus both CCC and RC DU control paths.
 - `metrics_staleness_noop_v1`: the v3 WebSocket gate plus a scenario-mask check proving early observation frames are marked stale before scoring.
 
 Run conformance manually after provisioning, after changing config/source pins, or when debugging a failed suite. `episode suite` runs the required gate automatically unless `--skip-conformance` is used; skipped conformance marks the suite unscored.

@@ -86,6 +86,9 @@ python3 benchmark/benchctl.py episode cleanup \
 - `noop`: returns `None` for every observation and never calls the RAN control path.
 - `evidence_gated_prb`: waits for fresh JSON metrics, and for E2 tasks decoded PRB KPM evidence, then sends one fixed PRB action.
 - `stale_guard_prb`: returns `None` while metrics are marked stale, then sends one fixed PRB action after fresh metrics return.
+- `ccc_prb`: waits for fresh metrics and E2 PRB evidence, then sends one E2SM-CCC PRB policy action.
+- `rc_du_prb`: waits for fresh metrics, E2 PRB evidence, and DU UE identity, then sends one E2SM-RC DU PRB quota action.
+- `e2_control_consistency`: waits for E2 evidence, then chooses the CCC action for cell/slice PRB policy selection.
 
 Recommended baseline by task:
 
@@ -98,12 +101,15 @@ Recommended baseline by task:
 | `ws_prb_action_budget_v1` | `fixed_prb` |
 | `e2_kpm_json_consistency_v1` | `evidence_gated_prb` |
 | `metrics_staleness_noop_v1` | `stale_guard_prb` |
+| `e2_ccc_prb_policy_ping_v1` | `ccc_prb` |
+| `e2_rc_du_prb_policy_ping_v1` | `rc_du_prb` |
+| `e2_control_api_consistency_v1` | `e2_control_consistency` |
 
 Agents may return `None` when they do not want to act on an observation. Suite loops skip `None` decisions, and `BenchmarkEnv.act(None)` returns a non-logged no-op result for episode tasks.
 
 ## Action Contract
 
-Current scored tasks accept `SET_PRB_POLICY_RATIO_WS`:
+The current action family controls PRB policy ratios. WebSocket tasks accept `SET_PRB_POLICY_RATIO_WS`:
 
 ```json
 {
@@ -127,13 +133,20 @@ Validation rules:
 
 Invalid actions are rejected locally before dispatch to OCUDU.
 
+E2 control tasks use the same PRB fields with different action types:
+
+- `SET_PRB_POLICY_RATIO_CCC`: E2SM-CCC cell/slice PRB policy through the FlexRIC control xApp.
+- `SET_PRB_POLICY_RATIO_RC_DU`: E2SM-RC DU PRB quota control; `du_ue_id` may be supplied or discovered by the harness.
+
+For `e2_control_api_consistency_v1`, the correct action is `SET_PRB_POLICY_RATIO_CCC`.
+
 ## Observation Rules
 
 Observation frames are normalized dictionaries. Agents should:
 
 - Use the `backend` field to decide whether optional data is available.
 - Tolerate missing optional fields.
-- Treat E2 fields as meaningful only for `e2_kpm_prb_ping_v1`.
+- Treat E2 fields as meaningful only for E2 tasks.
 - Use `last_action` for the most recent local validation and WebSocket dispatch result.
 - Use `metrics.stale` and `metrics.fresh` in staleness tasks before deciding whether an action is safe.
 
@@ -148,6 +161,7 @@ Setup, conformance, runtime, and oracle failures make a run unscored. Once setup
 - Ping success ratio.
 - JSON metrics continuity.
 - E2 KPM continuity for E2 tasks.
+- E2 control oracle availability for CCC/RC tasks.
 - Task-specific behavior such as no-op correctness, action-budget compliance, evidence-gated action, and stale-metrics action avoidance.
 - Clean teardown success.
 

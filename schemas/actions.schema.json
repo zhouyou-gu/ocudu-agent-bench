@@ -39,13 +39,55 @@
     },
     {
       "type": "SET_PRB_POLICY_RATIO_CCC",
-      "stage": "v4",
-      "description": "Future E2SM-CCC PRB policy action."
+      "stage": "v4.2",
+      "tasks": [
+        "e2_ccc_prb_policy_ping_v1",
+        "e2_control_api_consistency_v1"
+      ],
+      "description": "E2SM-CCC cell/slice PRB policy action using OCUDU's O-RRMPolicyRatio control payload. Min/max ratios are scored; dedicated ratio is validity-only.",
+      "required_fields": [
+        "min_prb_policy_ratio",
+        "max_prb_policy_ratio"
+      ],
+      "defaults": {
+        "plmn": "00101",
+        "sst": 1,
+        "sd": null,
+        "dedicated_ratio": null
+      },
+      "constraints": {
+        "min_prb_policy_ratio": "integer in [0, 100]",
+        "max_prb_policy_ratio": "integer in [0, 100]",
+        "ordering": "min_prb_policy_ratio <= max_prb_policy_ratio"
+      },
+      "wire_command": "E2SM-CCC O-RRMPolicyRatio via FlexRIC control xApp"
     },
     {
       "type": "SET_PRB_POLICY_RATIO_RC_DU",
-      "stage": "v4",
-      "description": "Future E2SM-RC DU PRB policy action."
+      "stage": "v4.2",
+      "tasks": [
+        "e2_rc_du_prb_policy_ping_v1",
+        "e2_control_api_consistency_v1"
+      ],
+      "description": "E2SM-RC DU control style 2 action 6 PRB quota action. The benchmark discovers DU UE identity when the action omits du_ue_id.",
+      "required_fields": [
+        "min_prb_policy_ratio",
+        "max_prb_policy_ratio"
+      ],
+      "defaults": {
+        "plmn": "00101",
+        "sst": 1,
+        "sd": null,
+        "dedicated_ratio": null,
+        "du_ue_id": null
+      },
+      "constraints": {
+        "min_prb_policy_ratio": "integer in [0, 100]",
+        "max_prb_policy_ratio": "integer in [0, 100]",
+        "du_ue_id": "optional non-negative integer when supplied by the agent",
+        "ordering": "min_prb_policy_ratio <= max_prb_policy_ratio"
+      },
+      "wire_command": "E2SM-RC DU control style 2 action 6 via FlexRIC control xApp"
     }
   ]
 }

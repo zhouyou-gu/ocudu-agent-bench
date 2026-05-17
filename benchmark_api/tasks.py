@@ -16,6 +16,9 @@ TASK_WS_PRB_ERROR_REPAIR_V1 = "ws_prb_error_repair_v1"
 TASK_WS_PRB_ACTION_BUDGET_V1 = "ws_prb_action_budget_v1"
 TASK_E2_KPM_JSON_CONSISTENCY_V1 = "e2_kpm_json_consistency_v1"
 TASK_METRICS_STALENESS_NOOP_V1 = "metrics_staleness_noop_v1"
+TASK_E2_CCC_PRB_POLICY_PING_V1 = "e2_ccc_prb_policy_ping_v1"
+TASK_E2_RC_DU_PRB_POLICY_PING_V1 = "e2_rc_du_prb_policy_ping_v1"
+TASK_E2_CONTROL_API_CONSISTENCY_V1 = "e2_control_api_consistency_v1"
 
 IMPLEMENTED_EPISODE_TASKS = {
     TASK_WS_PRB_PING_V1,
@@ -25,6 +28,9 @@ IMPLEMENTED_EPISODE_TASKS = {
     TASK_WS_PRB_ACTION_BUDGET_V1,
     TASK_E2_KPM_JSON_CONSISTENCY_V1,
     TASK_METRICS_STALENESS_NOOP_V1,
+    TASK_E2_CCC_PRB_POLICY_PING_V1,
+    TASK_E2_RC_DU_PRB_POLICY_PING_V1,
+    TASK_E2_CONTROL_API_CONSISTENCY_V1,
 }
 DEFAULT_TASKS_DIR = Path(__file__).resolve().parents[1] / "tasks"
 _TASK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_]*_v[0-9]+$")

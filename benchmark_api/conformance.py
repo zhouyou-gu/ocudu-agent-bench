@@ -10,17 +10,26 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.benchmark_api.episode import (
+    ACTION_SET_PRB_POLICY_RATIO_CCC,
+    ACTION_SET_PRB_POLICY_RATIO_RC_DU,
+    ACTION_SET_PRB_POLICY_RATIO_WS,
     DEFAULT_ATTACH_TIMEOUT as DEFAULT_EPISODE_ATTACH_TIMEOUT,
     DEFAULT_LAUNCH_TIMEOUT as DEFAULT_EPISODE_LAUNCH_TIMEOUT,
     DEFAULT_PROBE_TIMEOUT as DEFAULT_EPISODE_PROBE_TIMEOUT,
     DEFAULT_WS_PORT as DEFAULT_EPISODE_WS_PORT,
+    E2_CCC_CONTROL_TOOL,
+    E2_RC_DU_CONTROL_TOOL,
+    TASK_E2_CCC_PRB_POLICY_PING_V1,
+    TASK_E2_CONTROL_API_CONSISTENCY_V1,
     TASK_E2_KPM_PRB_PING_V1,
+    TASK_E2_RC_DU_PRB_POLICY_PING_V1,
     TASK_METRICS_STALENESS_NOOP_V1,
     TASK_WS_PRB_PING_V1,
     EpisodeOptions,
     EpisodeRuntime,
     container_suffix,
     generate_v4_e2_gnb_overlay,
+    fixed_prb_action_for_type,
 )
 from benchmark.benchmark_api.ric import (
     RIC_PROVIDER_FLEXRIC,
@@ -106,6 +115,8 @@ CHECK_DEPENDENCIES = {
     "e2_setup_path": {"ocudu_e2_config"},
     "e2_kpm_subscription": {"e2_setup_path"},
     "e2_pcap_log_oracle": {"e2_kpm_subscription"},
+    "e2_ccc_prb_control_path": {"e2_pcap_log_oracle"},
+    "e2_rc_du_prb_control_path": {"e2_pcap_log_oracle"},
 }
 V3_DOCKER_CHECKS = {
     "docker_e2e_assets",
@@ -122,6 +133,12 @@ V4_E2_CHECKS = {
     "e2_setup_path",
     "e2_kpm_subscription",
     "e2_pcap_log_oracle",
+    "e2_ccc_prb_control_path",
+    "e2_rc_du_prb_control_path",
+}
+V4_E2_CONTROL_CHECKS = {
+    "e2_ccc_prb_control_path",
+    "e2_rc_du_prb_control_path",
 }
 
 
@@ -247,7 +264,11 @@ def compute_backend_enablement(results: list[ConformanceCheckResult]) -> dict[st
         "json_metrics": by_id.get("json_metrics_stream") == RESULT_PASS,
         "e2_kpm": by_id.get("e2_kpm") == RESULT_PASS or by_id.get("e2_kpm_subscription") == RESULT_PASS,
         "v4_e2_kpm": by_id.get("e2_kpm_subscription") == RESULT_PASS,
-        "e2_control": by_id.get("e2_rc_ccc") == RESULT_PASS,
+        "e2_control": by_id.get("e2_rc_ccc") == RESULT_PASS
+        or by_id.get("e2_ccc_prb_control_path") == RESULT_PASS
+        or by_id.get("e2_rc_du_prb_control_path") == RESULT_PASS,
+        "e2_ccc": by_id.get("e2_ccc_prb_control_path") == RESULT_PASS,
+        "e2_rc_du": by_id.get("e2_rc_du_prb_control_path") == RESULT_PASS,
         "zmq": by_id.get("zmq_rf_path") == RESULT_PASS or by_id.get("srsue_zmq_attach") == RESULT_PASS,
         "pcap_log": by_id.get("pcap_log_oracle") == RESULT_PASS or by_id.get("e2_pcap_log_oracle") == RESULT_PASS,
         "docker_e2e": by_id.get("docker_e2e_assets") == RESULT_PASS,
@@ -373,7 +394,14 @@ class ConformanceRunner:
                     if dependency not in expanded:
                         expanded.add(dependency)
                         changed = True
-                if check_id in {"ocudu_e2_config", "e2_setup_path", "e2_kpm_subscription", "e2_pcap_log_oracle"}:
+                if check_id in {
+                    "ocudu_e2_config",
+                    "e2_setup_path",
+                    "e2_kpm_subscription",
+                    "e2_pcap_log_oracle",
+                    "e2_ccc_prb_control_path",
+                    "e2_rc_du_prb_control_path",
+                }:
                     for dependency in provider_setup_checks(self.remote.config.ric_provider):
                         if dependency not in expanded:
                             expanded.add(dependency)
@@ -964,6 +992,8 @@ print(json.dumps({{
                     "enable_du_e2: true",
                     "enable_cu_cp_e2: true",
                     "e2sm_kpm_enabled: true",
+                    "e2sm_rc_enabled: true",
+                    "e2sm_ccc_enabled: true",
                     "e2ap_enable: true",
                     "remote_control:",
                     "enable_json: true",
@@ -986,21 +1016,49 @@ print(json.dumps({{
             else:
                 results.append(self._blocked_result("ocudu_e2_config", "Docker e2e assets check did not pass"))
 
-        need_episode = bool(run_ids & {"e2_setup_path", "e2_kpm_subscription", "e2_pcap_log_oracle"})
+        need_episode = bool(
+            run_ids
+            & {
+                "e2_setup_path",
+                "e2_kpm_subscription",
+                "e2_pcap_log_oracle",
+                "e2_ccc_prb_control_path",
+                "e2_rc_du_prb_control_path",
+            }
+        )
         if not need_episode:
             return results
 
         combined = existing + results
         provider_ready = self._result_passed(combined, "near_rt_ric_health")
         if not provider_ready or not self._result_passed(combined, "ocudu_e2_config"):
-            for check_id in ["e2_setup_path", "e2_kpm_subscription", "e2_pcap_log_oracle"]:
+            for check_id in [
+                "e2_setup_path",
+                "e2_kpm_subscription",
+                "e2_pcap_log_oracle",
+                "e2_ccc_prb_control_path",
+                "e2_rc_du_prb_control_path",
+            ]:
                 if check_id in run_ids:
                     results.append(self._blocked_result(check_id, "V4 RIC or E2 config check did not pass"))
             return results
 
+        missing_control_tools = self._append_missing_e2_control_tool_results(results, combined, run_ids)
+        if missing_control_tools:
+            run_ids = set(run_ids) - missing_control_tools
+
+        if "e2_rc_du_prb_control_path" in run_ids and "e2_ccc_prb_control_path" in run_ids:
+            episode_task = TASK_E2_CONTROL_API_CONSISTENCY_V1
+        elif "e2_rc_du_prb_control_path" in run_ids:
+            episode_task = TASK_E2_RC_DU_PRB_POLICY_PING_V1
+        elif "e2_ccc_prb_control_path" in run_ids:
+            episode_task = TASK_E2_CCC_PRB_POLICY_PING_V1
+        else:
+            episode_task = TASK_E2_KPM_PRB_PING_V1
+
         episode_options = EpisodeOptions(
             run_id=f"{options.run_id}-e2",
-            task=TASK_E2_KPM_PRB_PING_V1,
+            task=episode_task,
             duration=0,
             ws_port=options.ws_port or DEFAULT_EPISODE_WS_PORT,
             launch_timeout=max(options.launch_timeout, DEFAULT_EPISODE_LAUNCH_TIMEOUT),
@@ -1030,6 +1088,24 @@ print(json.dumps({{
                             {"observation": observation},
                         )
                     )
+                if "e2_ccc_prb_control_path" in run_ids:
+                    results.append(
+                        self._run_e2_control_action_check(
+                            runtime=runtime,
+                            check_id="e2_ccc_prb_control_path",
+                            action_type=ACTION_SET_PRB_POLICY_RATIO_CCC,
+                            summary_prefix="E2SM-CCC PRB control",
+                        )
+                    )
+                if "e2_rc_du_prb_control_path" in run_ids:
+                    results.append(
+                        self._run_e2_control_action_check(
+                            runtime=runtime,
+                            check_id="e2_rc_du_prb_control_path",
+                            action_type=ACTION_SET_PRB_POLICY_RATIO_RC_DU,
+                            summary_prefix="E2SM-RC DU PRB control",
+                        )
+                    )
             else:
                 self._append_v4_start_failure(results, run_ids, str(start.get("stage", "v4_episode")), start)
         finally:
@@ -1055,10 +1131,57 @@ print(json.dumps({{
                                 {"summary": summary},
                             )
                         )
+                    if start and start.get("status") == "ok":
+                        self._attach_e2_control_oracle_results(results, run_ids, summary)
             except Exception as exc:
                 if "e2_pcap_log_oracle" in run_ids:
                     results.append(self._error_result("e2_pcap_log_oracle", str(exc)))
+                self._attach_e2_control_oracle_error(results, run_ids, str(exc))
         return results
+
+    def _append_missing_e2_control_tool_results(
+        self,
+        results: list[ConformanceCheckResult],
+        combined: list[ConformanceCheckResult],
+        run_ids: set[str],
+    ) -> set[str]:
+        requirements = {
+            "e2_ccc_prb_control_path": E2_CCC_CONTROL_TOOL,
+            "e2_rc_du_prb_control_path": E2_RC_DU_CONTROL_TOOL,
+        }
+        missing: set[str] = set()
+        for check_id, tool in requirements.items():
+            if check_id not in run_ids:
+                continue
+            if self._e2_control_tool_available(combined, tool):
+                continue
+            missing.add(check_id)
+            results.append(
+                self._result(
+                    check_id,
+                    RESULT_FAIL,
+                    f"FlexRIC image does not expose required E2 control tool {tool}",
+                    {"required_tool": tool, "flexric_assets": self._flexric_assets_details(combined)},
+                )
+            )
+        return missing
+
+    def _e2_control_tool_available(self, results: list[ConformanceCheckResult], tool: str) -> bool:
+        assets = self._flexric_assets_details(results)
+        tools = assets.get("control_tools", {})
+        record = tools.get(tool)
+        if isinstance(record, dict):
+            return bool(record.get("available"))
+        return bool(record)
+
+    def _flexric_assets_details(self, results: list[ConformanceCheckResult]) -> dict[str, Any]:
+        for result in results:
+            if result.id != "flexric_docker_assets":
+                continue
+            details = result.details or {}
+            nested = details.get("details")
+            return nested if isinstance(nested, dict) else details
+        return {}
 
     def _detect_ocudu_kpm_compatibility(self) -> dict[str, Any]:
         paths = flexric_workspace_paths(self.remote.config.workspace)
@@ -1158,11 +1281,16 @@ print(json.dumps({{
 
     def _check_flexric_assets(self) -> dict[str, Any]:
         paths = flexric_workspace_paths(self.remote.config.workspace)
-        payload = {"image": FLEXRIC_IMAGE, "manifest": paths["manifest"]}
+        payload = {
+            "image": FLEXRIC_IMAGE,
+            "manifest": paths["manifest"],
+            "control_tools": [E2_CCC_CONTROL_TOOL, E2_RC_DU_CONTROL_TOOL],
+        }
         data = self._remote_json(
             f"""
 import json
 import pathlib
+import shlex
 import subprocess
 payload = json.loads({json.dumps(json.dumps(payload))})
 def expand_remote_path(value):
@@ -1180,12 +1308,30 @@ if manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         manifest = {{"decode_error": True}}
+control_tools = {{}}
+if image_proc.returncode == 0:
+    for tool in payload["control_tools"]:
+        proc = subprocess.run(
+            ["docker", "run", "--rm", payload["image"], "bash", "-lc", "command -v " + shlex.quote(tool)],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        control_tools[tool] = {{
+            "available": proc.returncode == 0,
+            "path": proc.stdout.strip(),
+            "stderr": proc.stderr.strip()[:500],
+        }}
+else:
+    for tool in payload["control_tools"]:
+        control_tools[tool] = {{"available": False, "path": "", "stderr": "image missing"}}
 print(json.dumps({{
     "image": payload["image"],
     "image_exists": image_proc.returncode == 0,
     "manifest_path": payload["manifest"],
     "manifest_exists": manifest_path.is_file(),
     "manifest": manifest,
+    "control_tools": control_tools,
 }}))
 """
         )
@@ -1296,6 +1442,92 @@ print(json.dumps({{
                 results.append(self._blocked_result("e2_kpm_subscription", "E2 setup did not pass"))
         if "e2_pcap_log_oracle" in run_ids:
             results.append(self._blocked_result("e2_pcap_log_oracle", "KPM subscription did not pass"))
+        for check_id in V4_E2_CONTROL_CHECKS:
+            if check_id in run_ids:
+                results.append(self._blocked_result(check_id, "E2 KPM/setup did not pass"))
+
+    def _run_e2_control_action_check(
+        self,
+        runtime: EpisodeRuntime,
+        check_id: str,
+        action_type: str,
+        summary_prefix: str,
+    ) -> ConformanceCheckResult:
+        invalid = runtime.act(
+            {
+                "type": action_type,
+                "min_prb_policy_ratio": 90,
+                "max_prb_policy_ratio": 10,
+            }
+        )
+        valid_action = fixed_prb_action_for_type(action_type)
+        observation = runtime.observe()
+        du_ue_id = observation.get("observation", {}).get("e2", {}).get("du_ue_id")
+        if action_type == ACTION_SET_PRB_POLICY_RATIO_RC_DU and du_ue_id is not None:
+            valid_action["du_ue_id"] = du_ue_id
+        valid = runtime.act(valid_action)
+        invalid_ok = invalid.get("status") == "rejected" and invalid.get("accepted") is False
+        valid_ok = valid.get("accepted") is True
+        status = RESULT_PASS if invalid_ok and valid_ok else RESULT_FAIL
+        details = {"invalid": invalid, "valid": valid, "observation": observation}
+        summary = (
+            f"{summary_prefix} rejects invalid input locally and accepts a valid E2 control request"
+            if status == RESULT_PASS
+            else f"{summary_prefix} validation or dispatch failed"
+        )
+        return self._result(check_id, status, summary, details)
+
+    def _attach_e2_control_oracle_results(
+        self,
+        results: list[ConformanceCheckResult],
+        run_ids: set[str],
+        summary: dict[str, Any],
+    ) -> None:
+        expected = {
+            "e2_ccc_prb_control_path": ACTION_SET_PRB_POLICY_RATIO_CCC,
+            "e2_rc_du_prb_control_path": ACTION_SET_PRB_POLICY_RATIO_RC_DU,
+        }
+        oracle = summary.get("e2_oracle", {})
+        control_types = set(oracle.get("control_types", []) if isinstance(oracle, dict) else [])
+        oracle_available = bool(oracle.get("control_oracle_available")) if isinstance(oracle, dict) else False
+        for index, result in enumerate(results):
+            expected_action = expected.get(result.id)
+            if expected_action is None or result.id not in run_ids or result.status != RESULT_PASS:
+                continue
+            details = dict(result.details)
+            details["e2_oracle"] = oracle
+            if oracle_available and expected_action in control_types:
+                results[index] = self._result(
+                    result.id,
+                    RESULT_PASS,
+                    result.summary + " with E2 oracle evidence",
+                    details,
+                )
+            else:
+                results[index] = self._result(
+                    result.id,
+                    RESULT_FAIL,
+                    result.summary + " but E2 control oracle evidence is missing",
+                    details,
+                )
+
+    def _attach_e2_control_oracle_error(
+        self,
+        results: list[ConformanceCheckResult],
+        run_ids: set[str],
+        error: str,
+    ) -> None:
+        for index, result in enumerate(results):
+            if result.id not in V4_E2_CONTROL_CHECKS or result.id not in run_ids or result.status != RESULT_PASS:
+                continue
+            details = dict(result.details)
+            details["e2_oracle_error"] = error
+            results[index] = self._result(
+                result.id,
+                RESULT_FAIL,
+                result.summary + " but E2 oracle finalization failed",
+                details,
+            )
 
     def _generate_provider_e2_overlay(self, ws_port: int) -> str:
         return generate_v4_e2_gnb_overlay(ws_port)

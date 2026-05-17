@@ -94,6 +94,8 @@ def flexric_manifest(
             FLEXRIC_OCUDU_ASN_SOURCE,
         ],
         "ocudu_kpm_decoder_binary": "/usr/local/bin/ocudu-kpm-v05-decode",
+        "ccc_prb_control_binary": "/usr/local/bin/ocudu-ccc-prb-control",
+        "rc_du_prb_control_binary": "/usr/local/bin/ocudu-rc-du-prb-control",
         "xapp_db": "NONE_XAPP",
         "ric_binary": "/usr/local/bin/flexric/ric/nearRT-RIC",
         "xapp_search_root": "/opt/flexric/build/examples",

@@ -20,6 +20,11 @@ Use [TASK_AUTHORING_GUIDE.md](TASK_AUTHORING_GUIDE.md) when proposing new tasks.
 | `ws_prb_action_budget_v1` | Docker Open5GS + OCUDU gNB + srsUE | OCUDU WebSocket PRB policy | UE ping + JSON metrics | one accepted action, no action churn, cleanup | scored |
 | `e2_kpm_json_consistency_v1` | Docker Open5GS + OCUDU gNB + srsUE + FlexRIC | OCUDU WebSocket PRB policy | UE ping + JSON metrics + decoded E2SM-KPM v05 | action after multi-source evidence, KPM continuity, cleanup | scored |
 | `metrics_staleness_noop_v1` | Docker Open5GS + OCUDU gNB + srsUE | OCUDU WebSocket PRB policy after fresh metrics | UE ping + masked/fresh JSON metrics | no action on stale metrics, action after recovery, cleanup | scored |
+| `e2_ccc_prb_policy_ping_v1` | Docker Open5GS + OCUDU gNB + srsUE + FlexRIC | E2SM-CCC PRB policy | UE ping + JSON metrics + decoded KPM + E2 control oracle | accepted CCC action, traffic health, KPM/control oracle, cleanup | scored |
+| `e2_rc_du_prb_policy_ping_v1` | Docker Open5GS + OCUDU gNB + srsUE + FlexRIC | E2SM-RC DU PRB quota | UE ping + JSON metrics + decoded KPM + UE identity + E2 control oracle | accepted RC DU action after identity evidence, traffic health, cleanup | scored |
+| `e2_control_api_consistency_v1` | Docker Open5GS + OCUDU gNB + srsUE + FlexRIC | E2SM-CCC or E2SM-RC DU | UE ping + JSON metrics + decoded KPM + E2 control oracle | correct API selection for a cell/slice PRB objective | scored |
+
+The v4.2 E2-control tasks are scored only when conformance proves the FlexRIC-derived runtime image exposes the required one-shot control tools and oracle artifacts.
 
 ## Task Metadata Contract
 
