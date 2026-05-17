@@ -692,6 +692,7 @@ else
   git -C "$FLEXRIC_SRC" checkout --detach "$FLEXRIC_REF"
 fi
 git -C "$FLEXRIC_SRC" reset --hard
+git -C "$FLEXRIC_SRC" clean -fdx
 if [ ! -x "$FLEXRIC_SRC/{FLEXRIC_CONTEXT_PREP_SCRIPT}" ]; then
   echo status=error
   echo error='dedicated FlexRIC source is missing the OCUDU KPM v05 build-context helper'

@@ -206,6 +206,7 @@ class RemoteCommandBuilderTests(unittest.TestCase):
         self.assertIn("--build-arg BUILDKIT_INLINE_CACHE=1", result["planned_remote_command"])
         self.assertIn(DEFAULT_FLEXRIC_OCUDU_REPO, result["planned_remote_command"])
         self.assertIn("git clone", result["planned_remote_command"])
+        self.assertIn('git -C "$FLEXRIC_SRC" clean -fdx', result["planned_remote_command"])
         force_cleanup = result["planned_remote_command"].split('if [ "0" = "1" ]; then', 1)[1].split(
             'fi\nmkdir -p "$RIC_ROOT"',
             1,
