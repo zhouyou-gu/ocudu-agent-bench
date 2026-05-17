@@ -2,40 +2,88 @@
 
 ## Goal
 
-Control OCUDU DU PRB quota through E2SM-RC while a one-UE ping episode remains healthy.
+Evaluate whether an LLM agent can wait for DU UE identity evidence and then control OCUDU DU PRB quota through E2SM-RC.
 
-## LLM-Agent Challenge
+## APIs Used
 
-The agent must wait for sufficient E2/KPM and UE identity evidence before issuing the UE-associated RC DU control action.
+| Role | APIs |
+| --- | --- |
+| Action | E2SM-RC DU control action `SET_PRB_POLICY_RATIO_RC_DU` |
+| Observation | UE ping counters, OCUDU JSON metrics, decoded E2SM-KPM v05 records, DU UE identity, E2 control outcome |
+| Oracle | E2 setup, KPM continuity, RC DU control outcome, UE identity discovery, E2 PCAP/log oracle, ping, metrics, cleanup |
+| Harness | Docker Open5GS, OCUDU gNB, srsUE, ZMQ RF emulation, FlexRIC Near-RT RIC, RC/KPM xApps |
 
-## Runtime Stack
+## How To Trigger
 
-Docker Open5GS, OCUDU gNB, srsUE, FlexRIC RIC, KPM xApp, and ping traffic to `10.45.1.1`.
+```bash
+python3 benchmark/benchctl.py episode suite \
+  --config .config \
+  --task e2_rc_du_prb_policy_ping_v1 \
+  --agent rc_du_prb \
+  --runs 2 \
+  --duration 10 \
+  --seed 1 \
+  --suite-id e2-rc-du-prb-smoke \
+  --json
+```
 
-## Actions
+## Agent Interaction Loop
 
-Allowed action type:
+The agent returns `None` until fresh metrics, E2 PRB evidence, and DU UE identity are available. It then emits one RC DU PRB action, observes the control outcome, and stops acting.
 
-- `SET_PRB_POLICY_RATIO_RC_DU`
+## Allowed Actions
 
-The action uses the shared PRB policy fields and may include `du_ue_id`. If omitted, the benchmark attempts to discover the DU UE identity from runtime evidence before dispatch.
+```json
+{
+  "type": "SET_PRB_POLICY_RATIO_RC_DU",
+  "plmn": "00101",
+  "sst": 1,
+  "sd": null,
+  "min_prb_policy_ratio": 10,
+  "max_prb_policy_ratio": 90,
+  "dedicated_ratio": null,
+  "du_ue_id": 1
+}
+```
 
-## Observations
+`du_ue_id` may be supplied by the agent from observations or discovered by the harness before dispatch. If identity cannot be resolved, the run is unscored rather than counted as an agent failure.
 
-Observation frames include ping counters, JSON metrics status, decoded E2SM-KPM v05 evidence, DU UE identity when available, E2 control outcome status, and last action result.
+## Observation Contract
+
+Observations include ping counters, JSON metrics status, decoded KPM evidence, `e2.du_ue_id` when available, E2 control backend status, E2 control outcome records, and last action result.
 
 ## Scoring
 
-The run is scored when conformance passes, one valid RC DU PRB action is accepted, ping succeeds, JSON metrics and KPM records continue, E2 control oracle evidence is available, and cleanup succeeds.
+Canonical score dimensions:
 
-## Conformance
+- `expected_action_type_correct`
+- `valid_action_accepted_rate`
+- `ping_success_ratio`
+- `metrics_continuity`
+- `e2_kpm_continuity`
+- `e2_control_oracle_available`
+- `clean_teardown`
 
-Required checks include the v4 FlexRIC/KPM gate plus `e2_rc_du_prb_control_path`.
+The accepted valid action must use `SET_PRB_POLICY_RATIO_RC_DU` after identity evidence is available, and the E2 control oracle must confirm an RC DU outcome.
+
+## Unscored Conditions
+
+Setup, FlexRIC/KPM conformance failure, missing RC DU control tool, missing DU UE identity, missing decoded KPM records, missing E2 control oracle, runtime launch failure, missing ping replies, missing JSON metrics, or cleanup failure can make the run unscored.
+
+## Required Conformance
+
+- `flexric_docker_assets`
+- `near_rt_ric_health`
+- `ocudu_e2_config`
+- `e2_setup_path`
+- `e2_kpm_subscription`
+- `e2_pcap_log_oracle`
+- `e2_rc_du_prb_control_path`
 
 ## Artifacts
 
-Expected remote artifacts include `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `e2_kpm_raw.jsonl`, `e2_control_raw.jsonl`, `e2_oracle.json`, `summary.json`, and logs.
+Remote artifacts under `<remote.workspace>/runs/<run_id>/episode/` include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `e2_kpm_raw.jsonl`, `e2_control_raw.jsonl`, `e2_oracle.json`, `summary.json`, and `logs/`.
 
 ## Limitations
 
-This task depends on runtime DU UE identity discovery. Missing identity evidence is a setup/runtime unscored condition, not an agent failure.
+This task depends on runtime DU UE identity discovery. Missing identity evidence is a setup/runtime problem, not an agent behavior failure.

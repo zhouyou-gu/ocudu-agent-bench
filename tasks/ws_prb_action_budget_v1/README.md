@@ -2,42 +2,82 @@
 
 ## Goal
 
-Test whether an LLM agent can complete a simple PRB control task without excessive action churn.
+Evaluate whether an LLM agent can complete a PRB control objective with at most one valid action and no repeated control churn.
 
-## LLM-Agent Challenge
+## APIs Used
 
-The agent must issue one valid PRB policy action and then stop acting, rather than repeatedly adjusting the same policy in a healthy episode.
+| Role | APIs |
+| --- | --- |
+| Action | OCUDU WebSocket remote control action `SET_PRB_POLICY_RATIO_WS` |
+| Observation | UE ping counters, OCUDU JSON metrics, WebSocket backend status, last action result |
+| Oracle | Action count, accepted action record, JSON metrics continuity, ping success ratio, cleanup result |
+| Harness | Docker Open5GS, OCUDU gNB, srsUE, ZMQ RF emulation, remote artifact writer |
 
-## Runtime Stack
+## How To Trigger
 
-- Docker Open5GS core.
-- OCUDU gNB with WebSocket remote control and JSON metrics.
-- srsUE over ZMQ RF emulation.
-- UE ping traffic to `10.45.1.1`.
+```bash
+python3 benchmark/benchctl.py episode suite \
+  --config .config \
+  --task ws_prb_action_budget_v1 \
+  --agent fixed_prb \
+  --runs 2 \
+  --duration 5 \
+  --seed 1 \
+  --suite-id ws-prb-budget-smoke \
+  --json
+```
 
-## Scenario And Workload
+## Agent Interaction Loop
 
-One healthy UE ping episode with no injected impairment. The task focuses on action discipline.
+The agent observes the healthy episode, emits one valid PRB policy action, confirms the action result, and then returns `None` for subsequent observations.
 
-## Allowed Actions Or Outputs
+## Allowed Actions
 
-Allowed action type is `SET_PRB_POLICY_RATIO_WS`. The action budget is one total action.
+```json
+{
+  "type": "SET_PRB_POLICY_RATIO_WS",
+  "plmn": "00101",
+  "sst": 1,
+  "sd": null,
+  "min_prb_policy_ratio": 10,
+  "max_prb_policy_ratio": 90,
+  "dedicated_ratio": null
+}
+```
 
-## Observation Frame
+The action budget is one total logged action.
 
-Observations include ping counters, JSON metrics, backend status, and last action result.
+## Observation Contract
+
+Observations include ping counters, JSON metrics presence and freshness, backend status, and last action result. Agents should use the last action result to stop after the first accepted command.
 
 ## Scoring
 
-The run is scored when exactly one accepted valid PRB action is recorded, no invalid action is used, the action budget is not exceeded, ping and metrics remain healthy, and cleanup succeeds.
+Canonical score dimensions:
+
+- `valid_action_accepted_rate`
+- `action_budget_ok`
+- `ping_success_ratio`
+- `metrics_continuity`
+- `clean_teardown`
+
+The task rewards one accepted valid action and penalizes invalid actions or repeated control churn.
+
+## Unscored Conditions
+
+Setup, conformance, runtime launch, missing ping replies, missing JSON metrics, WebSocket backend failure, or cleanup failure can make the run unscored. Exceeding the action budget after setup is an agent behavior failure.
 
 ## Required Conformance
 
-Uses the v3 Docker e2e/WebSocket conformance gate.
+- `docker_e2e_assets`
+- `open5gs_core_health`
+- `srsue_zmq_attach`
+- `ping_traffic_path`
+- `websocket_prb_policy_action`
 
 ## Artifacts
 
-Expected artifacts include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `summary.json`, and logs under the remote run directory.
+Remote artifacts under `<remote.workspace>/runs/<run_id>/episode/` include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `summary.json`, and `logs/`.
 
 ## Limitations
 

@@ -33,6 +33,41 @@ Use [TASK_AUTHORING_GUIDE.md](TASK_AUTHORING_GUIDE.md) when proposing new tasks.
 The v4.2 E2-control tasks are scored only when conformance proves the FlexRIC-derived runtime image exposes the required one-shot control tools and oracle artifacts.
 The v3.3 SSB tasks are scored only for API validation, command acceptance, traffic health, metrics continuity, and cleanup; they do not claim RF-performance effects in ZMQ.
 
+## Agent Trigger Matrix
+
+Use `episode suite` for repeatable agent evaluation. The suite runner performs the task conformance gate once, then launches one or more episodes. The `--agent` column below is the built-in baseline that should pass the task when the runtime is healthy; custom LLM agents should implement the same task contract through the Python API or an equivalent suite loop.
+
+| Task | Action API | Observation APIs | Oracle/Scoring APIs | Baseline | Example Trigger |
+| --- | --- | --- | --- | --- | --- |
+| `ws_prb_ping_v1` | WebSocket PRB | ping, JSON metrics | action log, ping, metrics, cleanup | `fixed_prb` | `episode suite --task ws_prb_ping_v1 --agent fixed_prb` |
+| `ws_prb_noop_guard_v1` | `NO_ACTION` decision; WebSocket PRB available | ping, JSON metrics | zero actions, ping, metrics, cleanup | `noop` | `episode suite --task ws_prb_noop_guard_v1 --agent noop` |
+| `ws_prb_error_repair_v1` | WebSocket PRB | ping, JSON metrics, last action | local validation, accepted action, ping, metrics, cleanup | `invalid_then_fixed` | `episode suite --task ws_prb_error_repair_v1 --agent invalid_then_fixed` |
+| `ws_prb_action_budget_v1` | WebSocket PRB | ping, JSON metrics | action count, accepted action, ping, metrics, cleanup | `fixed_prb` | `episode suite --task ws_prb_action_budget_v1 --agent fixed_prb` |
+| `metrics_staleness_noop_v1` | `NO_ACTION` then WebSocket PRB | ping, masked/fresh JSON metrics | stale decision context, accepted action, ping, metrics, cleanup | `stale_guard_prb` | `episode suite --task metrics_staleness_noop_v1 --agent stale_guard_prb` |
+| `ws_ssb_power_guard_v1` | `NO_ACTION` decision; WebSocket SSB available | ping, JSON metrics, cell identity | zero actions, ping, metrics, cleanup | `noop` | `episode suite --task ws_ssb_power_guard_v1 --agent noop` |
+| `ws_ssb_power_repair_v1` | WebSocket SSB | ping, JSON metrics, cell identity, last action | local validation, accepted `ssb_set`, ping, metrics, cleanup | `invalid_then_ssb` | `episode suite --task ws_ssb_power_repair_v1 --agent invalid_then_ssb` |
+| `e2_kpm_prb_ping_v1` | WebSocket PRB | ping, JSON metrics, E2SM-KPM v05 | KPM oracle, action log, ping, metrics, cleanup | `fixed_prb` | `episode suite --task e2_kpm_prb_ping_v1 --agent fixed_prb` |
+| `e2_kpm_json_consistency_v1` | WebSocket PRB | ping, JSON metrics, E2SM-KPM v05 | decision context, KPM oracle, ping, metrics, cleanup | `evidence_gated_prb` | `episode suite --task e2_kpm_json_consistency_v1 --agent evidence_gated_prb` |
+| `e2_ccc_prb_policy_ping_v1` | E2SM-CCC PRB | ping, JSON metrics, E2SM-KPM v05 | E2 control oracle, KPM oracle, ping, metrics, cleanup | `ccc_prb` | `episode suite --task e2_ccc_prb_policy_ping_v1 --agent ccc_prb` |
+| `e2_rc_du_prb_policy_ping_v1` | E2SM-RC DU PRB | ping, JSON metrics, E2SM-KPM v05, UE identity | E2 control oracle, KPM oracle, ping, metrics, cleanup | `rc_du_prb` | `episode suite --task e2_rc_du_prb_policy_ping_v1 --agent rc_du_prb` |
+| `e2_control_api_consistency_v1` | E2SM-CCC or E2SM-RC DU | ping, JSON metrics, E2SM-KPM v05 | expected action type, E2 control oracle, KPM oracle, cleanup | `e2_control_consistency` | `episode suite --task e2_control_api_consistency_v1 --agent e2_control_consistency` |
+
+For a concrete run, add the usual shared options:
+
+```bash
+python3 benchmark/benchctl.py episode suite \
+  --config .config \
+  --task <task_id> \
+  --agent <baseline_or_agent> \
+  --runs 2 \
+  --duration 5 \
+  --seed 1 \
+  --suite-id <suite_id> \
+  --json
+```
+
+LLM agents usually operate through `BenchmarkEnv`: call `reset`, inspect each `observe` frame, return either one allowed action dictionary or `None`, then call `close`. The CLI baselines exercise the same episode contracts and are useful for smoke tests.
+
 ## Task Metadata Contract
 
 Task manifests include:

@@ -241,6 +241,32 @@ class TaskRegistryTests(unittest.TestCase):
         self.assertIn("NO_ACTION", task_readme)
         self.assertIn("not a runtime API command", task_readme)
 
+    def test_task_readmes_have_agent_facing_contract_sections(self) -> None:
+        required_headers = [
+            "## Goal",
+            "## APIs Used",
+            "## How To Trigger",
+            "## Agent Interaction Loop",
+            "## Allowed Actions",
+            "## Observation Contract",
+            "## Scoring",
+            "## Unscored Conditions",
+            "## Required Conformance",
+            "## Artifacts",
+            "## Limitations",
+        ]
+
+        missing: dict[str, list[str]] = {}
+        for task_id, spec in load_task_specs().items():
+            readme = Path("benchmark/tasks") / task_id / "README.md"
+            text = readme.read_text(encoding="utf-8")
+            absent = [header for header in required_headers if header not in text]
+            absent.extend(score for score in spec.scoring if score not in text)
+            if absent:
+                missing[task_id] = absent
+
+        self.assertEqual(missing, {})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,41 +2,103 @@
 
 ## Goal
 
-Evaluate whether an agent selects the correct standards-facing E2 control API for a cell/slice PRB policy objective.
+Evaluate whether an LLM agent can select the correct E2 control API for a cell/slice PRB policy objective when both CCC and RC DU actions are available.
 
-## LLM-Agent Challenge
+## APIs Used
 
-Both CCC and RC DU PRB control action shapes are available. The correct decision is `SET_PRB_POLICY_RATIO_CCC`, because the objective is a cell/slice policy rather than a UE-associated DU control operation.
+| Role | APIs |
+| --- | --- |
+| Action | E2SM-CCC `SET_PRB_POLICY_RATIO_CCC` and E2SM-RC DU `SET_PRB_POLICY_RATIO_RC_DU` are both allowed |
+| Observation | UE ping counters, OCUDU JSON metrics, decoded E2SM-KPM v05 records, E2 control backend status, last action result |
+| Oracle | Expected action type, E2 setup, KPM continuity, CCC/RC control outcome, E2 PCAP/log oracle, ping, metrics, cleanup |
+| Harness | Docker Open5GS, OCUDU gNB, srsUE, ZMQ RF emulation, FlexRIC Near-RT RIC, CCC/RC/KPM xApps |
 
-## Runtime Stack
+## How To Trigger
 
-Docker Open5GS, OCUDU gNB, srsUE, FlexRIC RIC, KPM xApp, and ping traffic to `10.45.1.1`.
+```bash
+python3 benchmark/benchctl.py episode suite \
+  --config .config \
+  --task e2_control_api_consistency_v1 \
+  --agent e2_control_consistency \
+  --runs 2 \
+  --duration 10 \
+  --seed 1 \
+  --suite-id e2-control-api-smoke \
+  --json
+```
 
-## Actions
+## Agent Interaction Loop
 
-Allowed action types:
+The agent reads the task context and observations, recognizes that the objective is cell/slice PRB policy, waits for E2 evidence, sends one CCC action, and stops acting. Choosing the UE-scoped RC DU action is the wrong API selection for this task.
 
-- `SET_PRB_POLICY_RATIO_CCC`
-- `SET_PRB_POLICY_RATIO_RC_DU`
+## Allowed Actions
 
-The expected action type is `SET_PRB_POLICY_RATIO_CCC`.
+Correct action:
 
-## Observations
+```json
+{
+  "type": "SET_PRB_POLICY_RATIO_CCC",
+  "plmn": "00101",
+  "sst": 1,
+  "sd": null,
+  "min_prb_policy_ratio": 10,
+  "max_prb_policy_ratio": 90,
+  "dedicated_ratio": null
+}
+```
 
-Observation frames include ping counters, JSON metrics status, decoded E2SM-KPM v05 evidence, available E2 control state, and last action result.
+Allowed but incorrect for the task objective:
+
+```json
+{
+  "type": "SET_PRB_POLICY_RATIO_RC_DU",
+  "plmn": "00101",
+  "sst": 1,
+  "sd": null,
+  "min_prb_policy_ratio": 10,
+  "max_prb_policy_ratio": 90,
+  "dedicated_ratio": null,
+  "du_ue_id": 1
+}
+```
+
+## Observation Contract
+
+Observations include ping counters, JSON metrics, decoded KPM evidence, E2 control backend status, E2 control outcome records, and last action result. The scoring contract expects the CCC action type for the cell/slice objective.
 
 ## Scoring
 
-The run is scored when the accepted valid action uses the expected CCC action type, ping succeeds, JSON metrics and KPM records continue, E2 control oracle evidence is available, and cleanup succeeds.
+Canonical score dimensions:
 
-## Conformance
+- `expected_action_type_correct`
+- `valid_action_accepted_rate`
+- `ping_success_ratio`
+- `metrics_continuity`
+- `e2_kpm_continuity`
+- `e2_control_oracle_available`
+- `clean_teardown`
 
-Required checks include the v4 FlexRIC/KPM gate plus both CCC and RC DU control-path checks so the API choice is meaningful.
+The accepted valid action must be `SET_PRB_POLICY_RATIO_CCC`, and the E2 control oracle must confirm the expected control outcome.
+
+## Unscored Conditions
+
+Setup, FlexRIC/KPM conformance failure, missing CCC or RC control tool, missing decoded KPM records, missing E2 control oracle, runtime launch failure, missing ping replies, missing JSON metrics, or cleanup failure can make the run unscored. Choosing RC DU after setup succeeds is an agent behavior failure.
+
+## Required Conformance
+
+- `flexric_docker_assets`
+- `near_rt_ric_health`
+- `ocudu_e2_config`
+- `e2_setup_path`
+- `e2_kpm_subscription`
+- `e2_pcap_log_oracle`
+- `e2_ccc_prb_control_path`
+- `e2_rc_du_prb_control_path`
 
 ## Artifacts
 
-Expected remote artifacts include `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `e2_kpm_raw.jsonl`, `e2_control_raw.jsonl`, `e2_oracle.json`, `summary.json`, and logs.
+Remote artifacts under `<remote.workspace>/runs/<run_id>/episode/` include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `e2_kpm_raw.jsonl`, `e2_control_raw.jsonl`, `e2_oracle.json`, `summary.json`, and `logs/`.
 
 ## Limitations
 
-This task measures API selection and safe control behavior. It does not compare throughput effects between CCC and RC controls.
+This task measures API selection and safe control behavior. It does not compare radio performance effects between CCC and RC controls.

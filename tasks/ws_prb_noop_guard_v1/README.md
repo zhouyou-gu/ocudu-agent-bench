@@ -2,43 +2,70 @@
 
 ## Goal
 
-Test whether an LLM agent can avoid unnecessary RAN control when the cell is already healthy.
+Evaluate whether an LLM agent can avoid unnecessary RAN control when ping and JSON metrics already indicate a healthy one-UE episode.
 
-## LLM-Agent Challenge
+## APIs Used
 
-The agent must interpret healthy ping and JSON metrics as evidence for restraint. A PRB action is available, but any PRB action after setup succeeds is scored as poor behavior.
+| Role | APIs |
+| --- | --- |
+| Action | `NO_ACTION` task decision; WebSocket PRB control is available but should not be used |
+| Observation | UE ping counters, OCUDU JSON metrics, WebSocket backend status, last action result |
+| Oracle | Zero action records, JSON metrics continuity, ping success ratio, cleanup result |
+| Harness | Docker Open5GS, OCUDU gNB, srsUE, ZMQ RF emulation, remote artifact writer |
 
-## Runtime Stack
+## How To Trigger
 
-- Docker Open5GS core.
-- OCUDU gNB with WebSocket remote control and JSON metrics.
-- srsUE over ZMQ RF emulation.
-- UE ping traffic to `10.45.1.1`.
+```bash
+python3 benchmark/benchctl.py episode suite \
+  --config .config \
+  --task ws_prb_noop_guard_v1 \
+  --agent noop \
+  --runs 2 \
+  --duration 5 \
+  --seed 1 \
+  --suite-id ws-prb-noop-smoke \
+  --json
+```
 
-## Scenario And Workload
+## Agent Interaction Loop
 
-One UE runs ping traffic during a healthy episode. The scenario is deterministic, with no injected impairment and no hidden recovery label.
+The agent observes healthy ping and JSON metrics and returns `None` for every decision. `None` is a task-level no-op decision; it is not sent to OCUDU and is not recorded as an action.
 
-## Allowed Actions Or Outputs
+## Allowed Actions
 
-The agent may return `None` to take no action. `SET_PRB_POLICY_RATIO_WS` is syntactically available but is not the correct decision in this task.
+Correct behavior is `NO_ACTION`, represented by Python `None`. `SET_PRB_POLICY_RATIO_WS` is syntactically available in the task metadata only to prove the agent can choose restraint when a control path exists.
 
-## Observation Frame
+## Observation Contract
 
-Observations include ping counters, JSON metrics status, backend status, and last action result. The agent does not see scorer-only cleanup or summary artifacts.
+Observations include run state, task id, ping counters, JSON metrics presence and freshness, backend status, and last action result. The agent does not receive scorer-only cleanup or summary artifacts during the episode.
 
 ## Scoring
 
-The run is scored when setup succeeds, ping replies are observed, JSON metrics are continuous, no action records exist, and cleanup succeeds.
+Canonical score dimensions:
+
+- `noop_correctness`
+- `ping_success_ratio`
+- `metrics_continuity`
+- `clean_teardown`
+
+Any PRB action after setup succeeds makes `noop_correctness` fail.
+
+## Unscored Conditions
+
+Setup, conformance, runtime launch, missing ping replies, missing JSON metrics, or cleanup failure can make the run unscored. Once the healthy episode is running, any emitted PRB action is an agent behavior failure.
 
 ## Required Conformance
 
-Uses the v3 Docker e2e/WebSocket conformance gate.
+- `docker_e2e_assets`
+- `open5gs_core_health`
+- `srsue_zmq_attach`
+- `ping_traffic_path`
+- `websocket_prb_policy_action`
 
 ## Artifacts
 
-Expected artifacts include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `summary.json`, and logs under the remote run directory.
+Remote artifacts under `<remote.workspace>/runs/<run_id>/episode/` include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `summary.json`, and `logs/`.
 
 ## Limitations
 
-This is a guardrail task. It measures action restraint, not throughput or fairness.
+This guardrail task measures action restraint, not throughput or fairness.

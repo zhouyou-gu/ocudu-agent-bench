@@ -2,15 +2,36 @@
 
 ## Goal
 
-Measure whether an LLM agent can repair an invalid OCUDU WebSocket SSB block-power action by issuing one valid `ssb_set` command.
+Evaluate whether an LLM agent can repair an invalid OCUDU WebSocket SSB block-power action by issuing one valid command.
 
-## Runtime Stack
+## APIs Used
 
-Docker Open5GS, OCUDU gNB, srsUE, ZMQ RF emulation, UE ping traffic to `10.45.1.1`, JSON metrics, and WebSocket remote control.
+| Role | APIs |
+| --- | --- |
+| Action | OCUDU WebSocket remote control action `SET_SSB_BLOCK_POWER_WS` |
+| Observation | UE ping counters, OCUDU JSON metrics, cell identity, WebSocket backend status, last action result |
+| Oracle | Local validation record, accepted `ssb_set` action record, ping, metrics, cleanup |
+| Harness | Docker Open5GS, OCUDU gNB, srsUE, ZMQ RF emulation, remote artifact writer |
+
+## How To Trigger
+
+```bash
+python3 benchmark/benchctl.py episode suite \
+  --config .config \
+  --task ws_ssb_power_repair_v1 \
+  --agent invalid_then_ssb \
+  --runs 2 \
+  --duration 5 \
+  --seed 1 \
+  --suite-id ws-ssb-repair-smoke \
+  --json
+```
+
+## Agent Interaction Loop
+
+The agent first emits an invalid SSB power value, reads the local validation failure, then builds a valid action using the observed `cell.nci` and `cell.plmn`.
 
 ## Allowed Actions
-
-Allowed action type is `SET_SSB_BLOCK_POWER_WS`:
 
 ```json
 {
@@ -21,24 +42,40 @@ Allowed action type is `SET_SSB_BLOCK_POWER_WS`:
 }
 ```
 
-Validation requires `nci` to be a 36-bit NR cell identity integer and `ssb_block_power_dbm` to be an integer in OCUDU's native `[-60, 50]` range.
+`nci` must be a 36-bit NR cell identity integer. `ssb_block_power_dbm` must be an integer in OCUDU's native `[-60, 50]` range.
 
-## Observations
+## Observation Contract
 
-Observations include ping counters, JSON metrics status, backend status, last action result, and the harness-derived `cell` identity fields needed to form the valid `ssb_set` request.
+Observations include ping counters, JSON metrics status, backend status, last action result, and harness-derived cell identity fields needed to form the valid `ssb_set` request.
 
 ## Scoring
 
-The run is scored when the first invalid SSB action is locally rejected, a later valid SSB action is accepted by OCUDU, no repeated invalid spam occurs, ping remains healthy, JSON metrics continue, and cleanup succeeds.
+Canonical score dimensions:
+
+- `invalid_local_rejection_correctness`
+- `valid_action_accepted_rate`
+- `ping_success_ratio`
+- `metrics_continuity`
+- `clean_teardown`
+
+The expected sequence is one locally rejected invalid SSB action followed by one accepted valid SSB action.
+
+## Unscored Conditions
+
+Setup, conformance, runtime launch, missing ping replies, missing JSON metrics, missing cell identity, WebSocket backend failure, or cleanup failure can make the run unscored. Repeated invalid actions after setup are agent behavior failures.
 
 ## Required Conformance
 
-Uses the v3 Docker e2e gate plus `websocket_ssb_power_action`.
+- `docker_e2e_assets`
+- `open5gs_core_health`
+- `srsue_zmq_attach`
+- `ping_traffic_path`
+- `websocket_ssb_power_action`
 
 ## Artifacts
 
-Expected remote artifacts include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `summary.json`, and logs under the remote run directory.
+Remote artifacts under `<remote.workspace>/runs/<run_id>/episode/` include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `summary.json`, and `logs/`.
 
 ## Limitations
 
-This task scores control correctness and recovery. It does not claim a measured RF performance effect from SSB power changes in the ZMQ emulator.
+This task scores command correctness and recovery. It does not claim a measured RF performance effect from SSB power changes in the ZMQ emulator.

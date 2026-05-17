@@ -2,44 +2,84 @@
 
 ## Goal
 
-Test whether an LLM agent can wait for consistent multi-source evidence before controlling PRB policy.
+Evaluate whether an LLM agent can wait for both OCUDU JSON metrics and decoded E2SM-KPM v05 PRB evidence before controlling PRB policy.
 
-## LLM-Agent Challenge
+## APIs Used
 
-The agent observes JSON metrics and decoded E2SM-KPM v05 records. It should issue a WebSocket PRB action only after both sources show usable evidence, not immediately after the first partial observation.
+| Role | APIs |
+| --- | --- |
+| Action | OCUDU WebSocket remote control action `SET_PRB_POLICY_RATIO_WS` |
+| Observation | UE ping counters, OCUDU JSON metrics, decoded E2SM-KPM v05 records, WebSocket backend status, last action result |
+| Oracle | Action decision context, KPM indication count, E2 PCAP/log oracle, ping, metrics, cleanup |
+| Harness | Docker Open5GS, OCUDU gNB, srsUE, ZMQ RF emulation, FlexRIC Near-RT RIC, KPM xApp |
 
-## Runtime Stack
+## How To Trigger
 
-- Docker Open5GS core.
-- OCUDU gNB with WebSocket remote control, JSON metrics, and E2 KPM enabled.
-- srsUE over ZMQ RF emulation.
-- Dockerized FlexRIC Near-RT RIC and KPM monitor xApp.
-- UE ping traffic to `10.45.1.1`.
+```bash
+python3 benchmark/benchctl.py episode suite \
+  --config .config \
+  --task e2_kpm_json_consistency_v1 \
+  --agent evidence_gated_prb \
+  --runs 2 \
+  --duration 10 \
+  --seed 1 \
+  --suite-id e2-json-consistency-smoke \
+  --json
+```
 
-## Scenario And Workload
+## Agent Interaction Loop
 
-One healthy UE ping episode with decoded E2SM-KPM v05 PRB evidence. The scenario is deterministic; setup or KPM decode failures make the run unscored.
+The agent returns `None` until an observation contains fresh JSON metrics and E2 PRB evidence. It then sends one valid WebSocket PRB action and stops acting. The action log snapshots the observation used for the decision.
 
-## Allowed Actions Or Outputs
+## Allowed Actions
 
-Allowed action type is `SET_PRB_POLICY_RATIO_WS`. The expected action is one valid PRB policy action after JSON metrics and E2 PRB evidence are both available.
+```json
+{
+  "type": "SET_PRB_POLICY_RATIO_WS",
+  "plmn": "00101",
+  "sst": 1,
+  "sd": null,
+  "min_prb_policy_ratio": 10,
+  "max_prb_policy_ratio": 90,
+  "dedicated_ratio": null
+}
+```
 
-## Observation Frame
+## Observation Contract
 
-Observations include ping counters, JSON metrics, backend status, last action result, E2 KPM indication count, last KPM record, PRB measurement evidence, and oracle availability status.
+Observations include ping counters, JSON metrics presence and freshness, backend status, last action result, E2 KPM indication count, last KPM record, PRB measurement evidence, and E2 oracle availability.
 
 ## Scoring
 
-The run is scored when the accepted valid action is decision-context gated by fresh JSON metrics and E2 PRB evidence, ping succeeds, JSON metrics and KPM records continue, the E2 oracle is available, and cleanup succeeds.
+Canonical score dimensions:
+
+- `evidence_gated_action`
+- `valid_action_accepted_rate`
+- `ping_success_ratio`
+- `metrics_continuity`
+- `e2_kpm_continuity`
+- `e2_oracle_available`
+- `clean_teardown`
+
+The first accepted valid action must be associated with an observation containing both fresh JSON metrics and E2 PRB evidence.
+
+## Unscored Conditions
+
+Setup, FlexRIC/KPM conformance failure, missing decoded KPM records, missing E2 oracle artifacts, missing JSON metrics, runtime launch failure, or cleanup failure can make the run unscored. Acting before both evidence sources are available is an agent behavior failure.
 
 ## Required Conformance
 
-Uses the v4 FlexRIC/E2SM-KPM v05 conformance gate.
+- `flexric_docker_assets`
+- `near_rt_ric_health`
+- `ocudu_e2_config`
+- `e2_setup_path`
+- `e2_kpm_subscription`
+- `e2_pcap_log_oracle`
 
 ## Artifacts
 
-Expected artifacts include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `e2_kpm_raw.jsonl`, `e2_oracle.json`, `summary.json`, and logs under the remote run directory.
+Remote artifacts under `<remote.workspace>/runs/<run_id>/episode/` include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `e2_kpm_raw.jsonl`, `e2_oracle.json`, `summary.json`, and `logs/`.
 
 ## Limitations
 
-The action path remains WebSocket PRB control. E2 RC and CCC actions are out of scope.
+The task measures evidence-gated control timing. It does not ask the agent to reconcile throughput or fairness effects.
