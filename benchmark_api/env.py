@@ -16,6 +16,8 @@ from benchmark.benchmark_api.episode import (
     DEFAULT_WS_PORT,
     EpisodeOptions,
     EpisodeRuntime,
+    default_triage_hidden_scenario,
+    is_triage_task,
 )
 from benchmark.benchmark_api.remote import RemoteManager
 from benchmark.benchmark_api.tasks import (
@@ -24,6 +26,7 @@ from benchmark.benchmark_api.tasks import (
     conformance_checks_for_task,
     episode_stage_for_task,
     implemented_episode_task_ids,
+    TASK_RAN_POLICY_TRIAGE_V1,
 )
 
 
@@ -206,6 +209,19 @@ class BenchmarkEnv:
                 launch_timeout=int(config.get("launch_timeout", DEFAULT_LAUNCH_TIMEOUT)),
                 attach_timeout=int(config.get("attach_timeout", DEFAULT_ATTACH_TIMEOUT)),
                 probe_timeout=int(config.get("probe_timeout", DEFAULT_PROBE_TIMEOUT)),
+                public_task=self.task,
+                hidden_scenario=(
+                    str(config.get("hidden_scenario"))
+                    if config.get("hidden_scenario")
+                    else (
+                        default_triage_hidden_scenario(
+                            seed=int(config.get("seed", 1)),
+                            index=int(config.get("scenario_index", 1)),
+                        )
+                        if self.task == TASK_RAN_POLICY_TRIAGE_V1
+                        else None
+                    )
+                ),
             )
             try:
                 start = self.episode_runtime.start(options)
@@ -340,6 +356,17 @@ class BenchmarkEnv:
             }
         if action is None and self._is_episode_task() and self.episode_runtime is not None:
             self._record_episode_decision(action, telemetry)
+            if is_triage_task(self.task):
+                result = self.episode_runtime.act(None)
+                self.actions.append(
+                    {
+                        "action": None,
+                        "accepted": bool(result.get("accepted")),
+                        "reason": result.get("reason", ""),
+                        "timestamp": time.time(),
+                    }
+                )
+                return result
             return {
                 "status": "ok",
                 "stage": self._episode_stage(),

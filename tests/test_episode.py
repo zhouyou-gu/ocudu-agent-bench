@@ -4,6 +4,7 @@ from benchmark.benchmark_api.config import RemoteConfig, RuntimeConfig
 from benchmark.benchmark_api.episode import (
     EpisodeOptions,
     EpisodeRuntime,
+    ACTION_NO_ACTION,
     ACTION_SET_SSB_BLOCK_POWER_WS,
     ACTION_SET_PRB_POLICY_RATIO_CCC,
     ACTION_SET_PRB_POLICY_RATIO_RC_DU,
@@ -13,6 +14,7 @@ from benchmark.benchmark_api.episode import (
     TASK_E2_CONTROL_API_CONSISTENCY_V1,
     TASK_E2_KPM_JSON_CONSISTENCY_V1,
     TASK_METRICS_STALENESS_NOOP_V1,
+    TASK_RAN_POLICY_TRIAGE_V1,
     TASK_WS_SSB_POWER_GUARD_V1,
     TASK_WS_SSB_POWER_REPAIR_V1,
     TASK_WS_PRB_PING_V1,
@@ -21,6 +23,7 @@ from benchmark.benchmark_api.episode import (
     TASK_WS_PRB_NOOP_GUARD_V1,
     build_prb_request,
     build_ssb_request,
+    default_triage_hidden_scenario,
     episode_paths,
     episode_exit_code,
     fixed_prb_action_for_type,
@@ -35,6 +38,7 @@ from benchmark.benchmark_api.episode import (
     scenario_metadata,
     score_episode,
     task_policy,
+    triage_management_context,
     validate_prb_action,
     validate_ssb_action,
     validate_episode_action,
@@ -252,6 +256,79 @@ class EpisodeTests(unittest.TestCase):
         self.assertEqual(agent_summary["failure_reason"], "no accepted valid expected action")
         self.assertFalse(oracle_summary["scored"])
         self.assertEqual(oracle_summary["failure_category"], "oracle")
+
+    def test_triage_no_action_scenario_scores_noop_record(self) -> None:
+        summary = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[
+                {
+                    "validation": {"valid": True, "normalized": {"type": ACTION_NO_ACTION}},
+                    "action": {"type": ACTION_NO_ACTION},
+                    "dispatched": False,
+                    "accepted": True,
+                }
+            ],
+            observations=[{"observation": {"metrics": {"present": True, "stale": False}}}],
+            cleanup_success=True,
+            task=TASK_RAN_POLICY_TRIAGE_V1,
+            hidden_scenario=TASK_WS_PRB_NOOP_GUARD_V1,
+            decisions=[
+                {
+                    "rationale": {
+                        "complete": True,
+                        "diagnosis": "service is healthy",
+                        "evidence_used": ["ping", "metrics"],
+                        "chosen_strategy": "NO_ACTION",
+                    }
+                }
+            ],
+        )
+
+        self.assertTrue(summary["scored"])
+        self.assertEqual(summary["episode_success"], 1.0)
+        self.assertEqual(summary["counts"]["runtime_actions"], 0)
+        self.assertEqual(summary["counts"]["no_action_decisions"], 1)
+        self.assertTrue(summary["scores"]["triage_success"])
+        self.assertEqual(summary["scores"]["rationale_complete"], 1.0)
+
+    def test_triage_missing_rationale_penalizes_evidence_use_without_blocking_dispatch(self) -> None:
+        summary = score_episode(
+            ping={"packets_received": 3, "success_ratio": 1.0},
+            actions=[
+                {
+                    "validation": {
+                        "valid": True,
+                        "normalized": {"type": "SET_PRB_POLICY_RATIO_WS"},
+                    },
+                    "decision_context": {"metrics": {"present": True, "stale": False}},
+                    "dispatched": True,
+                    "accepted": True,
+                }
+            ],
+            observations=[{"observation": {"metrics": {"present": True, "stale": False}}}],
+            cleanup_success=True,
+            task=TASK_RAN_POLICY_TRIAGE_V1,
+            hidden_scenario=TASK_WS_PRB_PING_V1,
+            decisions=[{}],
+        )
+
+        self.assertTrue(summary["scored"])
+        self.assertEqual(summary["episode_success"], 1.0)
+        self.assertEqual(summary["scores"]["rationale_complete"], 0.0)
+        self.assertLess(summary["score_components"]["evidence_use"], 1.0)
+
+    def test_triage_metadata_and_context_hide_expected_action_type(self) -> None:
+        hidden = TASK_E2_CCC_PRB_POLICY_PING_V1
+        metadata = scenario_metadata(hidden, duration=10, public_task=TASK_RAN_POLICY_TRIAGE_V1)
+        context = triage_management_context(hidden)
+
+        self.assertEqual(metadata["task"], TASK_RAN_POLICY_TRIAGE_V1)
+        self.assertEqual(metadata["hidden_scenario"], hidden)
+        self.assertEqual(context["control_requirement"], "standards_e2_control")
+        self.assertIn("desired_state", context)
+        self.assertNotIn("expected_action_type", context)
+        self.assertNotIn("scenario_name", context)
+        self.assertEqual(default_triage_hidden_scenario(seed=1, index=1), TASK_WS_PRB_PING_V1)
 
     def test_normalize_decision_telemetry_computes_token_total(self) -> None:
         telemetry = normalize_decision_telemetry(

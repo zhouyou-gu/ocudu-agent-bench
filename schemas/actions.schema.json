@@ -8,6 +8,16 @@
       "description": "Only accepted action in the v1 skeleton. Runtime OCUDU actions are added in later stages."
     },
     {
+      "type": "NO_ACTION",
+      "stage": "triage",
+      "tasks": [
+        "ran_policy_triage_v1"
+      ],
+      "description": "Task-level no-op decision represented by Python None. It is recorded for triage accounting but is not sent to OCUDU.",
+      "required_fields": [],
+      "wire_command": null
+    },
+    {
       "type": "SET_PRB_POLICY_RATIO_WS",
       "stage": "v3",
       "tasks": [
@@ -17,7 +27,8 @@
         "ws_prb_error_repair_v1",
         "ws_prb_action_budget_v1",
         "e2_kpm_json_consistency_v1",
-        "metrics_staleness_noop_v1"
+        "metrics_staleness_noop_v1",
+        "ran_policy_triage_v1"
       ],
       "description": "WebSocket PRB policy action used by PRB-control tasks. Min/max ratios are scored; dedicated ratio is validity-only.",
       "required_fields": [
@@ -42,7 +53,8 @@
       "stage": "v4.2",
       "tasks": [
         "e2_ccc_prb_policy_ping_v1",
-        "e2_control_api_consistency_v1"
+        "e2_control_api_consistency_v1",
+        "ran_policy_triage_v1"
       ],
       "description": "E2SM-CCC cell/slice PRB policy action using OCUDU's O-RRMPolicyRatio control payload. Min/max ratios are scored; dedicated ratio is validity-only.",
       "required_fields": [
@@ -67,7 +79,8 @@
       "stage": "v4.2",
       "tasks": [
         "e2_rc_du_prb_policy_ping_v1",
-        "e2_control_api_consistency_v1"
+        "e2_control_api_consistency_v1",
+        "ran_policy_triage_v1"
       ],
       "description": "E2SM-RC DU control style 2 action 6 PRB quota action. The benchmark discovers DU UE identity when the action omits du_ue_id.",
       "required_fields": [
@@ -94,7 +107,8 @@
       "stage": "v3.3",
       "tasks": [
         "ws_ssb_power_guard_v1",
-        "ws_ssb_power_repair_v1"
+        "ws_ssb_power_repair_v1",
+        "ran_policy_triage_v1"
       ],
       "description": "OCUDU WebSocket SSB block-power action using the native ssb_set command. This is scored for validation and command-path correctness, not RF effect in ZMQ.",
       "required_fields": [

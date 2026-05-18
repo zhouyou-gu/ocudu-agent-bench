@@ -110,9 +110,9 @@ class RepoGenericityTests(unittest.TestCase):
     def test_standalone_benchmark_markdown_does_not_link_to_parent_research_docs(self) -> None:
         bad_tokens = [
             "../skillful-" + "ran-research",
-            "skillful-" + "ran-research/benchmark/benchmark_" + "design.md",
-            "skillful-" + "ran-research/benchmark/benchmark_" + "architecture.md",
-            "skillful-" + "ran-research/benchmark/remote_" + "ocudu_api_setup.md",
+            "skillful-" + "ran-research/benchmark_design/benchmark_" + "design.md",
+            "skillful-" + "ran-research/benchmark_design/benchmark_" + "architecture.md",
+            "skillful-" + "ran-research/benchmark_design/remote_" + "ocudu_api_setup.md",
         ]
         offenders = []
         for path in Path("benchmark").rglob("*.md"):

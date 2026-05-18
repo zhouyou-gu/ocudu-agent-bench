@@ -20,6 +20,23 @@
 
 The benchmark owns orchestration, local action validation, conformance gating, the LLM-agent execution loop, scoring, and summaries. The remote workspace owns OCUDU source/build/install trees, runtime processes, raw logs, PCAPs, metrics, and run artifacts. [API_REFERENCE.md](API_REFERENCE.md) is the standalone source of truth for implemented benchmark APIs and the boundary between reusable APIs and scored tasks.
 
+## Task Model
+
+The benchmark uses one task definition:
+
+```text
+Task = Goal + RAN Dynamics + Agent Interface + Scoring
+```
+
+A task is a full scored RAN-management episode. An `L/D` pair is one transition unit inside a task's RAN Dynamics; it is not a task.
+
+| Part | Meaning |
+| --- | --- |
+| Goal | What the agent is supposed to manage or decide. |
+| RAN Dynamics | How the benchmark makes the RAN change over time, including `L/D` transition units. |
+| Agent Interface | What the agent observes, what actions/no-actions it may choose, and what feedback it receives. |
+| Scoring | How the benchmark decides whether the agent succeeded. |
+
 ## LLM-Agent Execution Model
 
 The benchmark uses this locked loop for LLM-agent evaluation:
@@ -104,7 +121,7 @@ python3 benchmark/benchctl.py episode suite \
 
 ## Choosing A Task
 
-Benchmark tasks are explicit episode contracts. A task defines the runtime stack, allowed actions, observation sources, required conformance checks, scoring dimensions, and expected artifacts.
+Benchmark tasks are explicit episode contracts. A task defines Goal, RAN Dynamics, Agent Interface, and Scoring.
 
 Tasks consume APIs; they do not define APIs. A task manifest may reference action types such as `SET_PRB_POLICY_RATIO_WS` or observation sources such as `json_metrics`, but wire commands such as `rrm_policy_ratio_set` and `ssb_set` belong to the API reference. `NO_ACTION` in a task manifest means the agent should return Python `None`; it is not sent as a runtime command.
 
@@ -122,6 +139,7 @@ Current tasks:
 - `e2_control_api_consistency_v1`: E2 control selection episode where the agent must choose CCC for a cell/slice PRB policy objective.
 - `ws_ssb_power_guard_v1`: healthy episode where the SSB block-power API is available but the correct behavior is no action.
 - `ws_ssb_power_repair_v1`: WebSocket SSB block-power episode that scores invalid local rejection followed by one valid `ssb_set` repair.
+- `ran_policy_triage_v1`: LLM-facing triage episode that exposes one stable task contract and scores diagnosis, API selection, restraint, repair, stale-evidence waiting, rationale shape, RAN health, and cleanup across multiple internal task conditions.
 
 Each task has a machine-readable manifest under `tasks/<task_id>/task.json` and a human task card under `tasks/<task_id>/README.md`.
 
@@ -136,7 +154,7 @@ The benchmark reports component scores rather than one headline agent score. Eac
 - `score_components`: normalized `task_correctness`, `action_correctness`, `evidence_use`, `ran_health`, `safety`, and `cleanup`.
 - `efficiency`: timing, token, and optional cost telemetry reported separately from correctness.
 
-LLM agents can pass token usage through `BenchmarkEnv.act(action, telemetry=...)`. No-op decisions use `BenchmarkEnv.act(None, telemetry=...)`; they are recorded in `decisions.jsonl` but not in `actions.jsonl`.
+LLM agents can pass token usage through `BenchmarkEnv.act(action, telemetry=...)`. No-op decisions use `BenchmarkEnv.act(None, telemetry=...)`; they are recorded in `decisions.jsonl`. For `ran_policy_triage_v1`, no-op decisions are also written to `actions.jsonl` as `NO_ACTION` records with `dispatched=false` so restraint is counted in the trace.
 
 ## Provision And Conformance Workflow
 
@@ -180,7 +198,7 @@ Conformance is the pre-scoring validation step. Task manifests list the required
 - `e2_ccc_prb_policy_ping_v1`: the v4 E2/KPM gate plus the E2SM-CCC PRB control path.
 - `e2_rc_du_prb_policy_ping_v1`: the v4 E2/KPM gate plus the E2SM-RC DU PRB control path.
 - `e2_control_api_consistency_v1`: the v4 E2/KPM gate plus both CCC and RC DU control paths.
-- `metrics_staleness_noop_v1`: the v3 WebSocket gate plus a scenario-mask check proving early observation frames are marked stale before scoring.
+- `metrics_staleness_noop_v1`: the v3 WebSocket gate plus a task-controlled evidence-mask check proving early observation frames are marked stale before scoring.
 - `ws_ssb_power_guard_v1` and `ws_ssb_power_repair_v1`: the v3 WebSocket gate plus `websocket_ssb_power_action`, which verifies the native OCUDU `ssb_set` path.
 
 Run conformance manually after provisioning, after changing config/source pins, or when debugging a failed suite. `episode suite` runs the required gate automatically unless `--skip-conformance` is used; skipped conformance marks the suite unscored.

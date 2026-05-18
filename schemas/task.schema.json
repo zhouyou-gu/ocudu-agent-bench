@@ -32,7 +32,8 @@
   "allowed_values": {
     "runtime": [
       "docker_e2e",
-      "docker_e2e_flexric"
+      "docker_e2e_flexric",
+      "hidden_triage"
     ],
     "readiness": [
       "idea",
@@ -58,7 +59,9 @@
       "e2_kpm_v05",
       "e2_control_outcome",
       "ue_identity",
-      "pcap_log_oracle"
+      "pcap_log_oracle",
+      "management_context",
+      "stable_action_catalog"
     ],
     "scoring": [
       "valid_action_accepted_rate",
@@ -76,7 +79,13 @@
       "action_budget_ok",
       "noop_correctness",
       "evidence_gated_action",
-      "stale_action_avoidance"
+      "stale_action_avoidance",
+      "triage_success",
+      "rationale_complete",
+      "correct_api_selection",
+      "unnecessary_action_avoidance",
+      "repair_success",
+      "stale_wait_success"
     ]
   },
   "boundary_rules": {

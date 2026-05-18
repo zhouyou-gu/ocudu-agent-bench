@@ -81,7 +81,7 @@ Setup, FlexRIC/KPM conformance failure, missing CCC control tool, missing decode
 
 ## Artifacts
 
-Remote artifacts under `<remote.workspace>/runs/<run_id>/episode/` include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `e2_kpm_raw.jsonl`, `e2_control_raw.jsonl`, `e2_oracle.json`, `summary.json`, and `logs/`.
+Remote artifacts under `<remote.workspace>/runs/<run_id>/episode/` include episode metadata JSON, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `e2_kpm_raw.jsonl`, `e2_control_raw.jsonl`, `e2_oracle.json`, `summary.json`, and `logs/`.
 
 ## Limitations
 

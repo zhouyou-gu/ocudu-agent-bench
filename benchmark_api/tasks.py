@@ -21,6 +21,22 @@ TASK_E2_RC_DU_PRB_POLICY_PING_V1 = "e2_rc_du_prb_policy_ping_v1"
 TASK_E2_CONTROL_API_CONSISTENCY_V1 = "e2_control_api_consistency_v1"
 TASK_WS_SSB_POWER_GUARD_V1 = "ws_ssb_power_guard_v1"
 TASK_WS_SSB_POWER_REPAIR_V1 = "ws_ssb_power_repair_v1"
+TASK_RAN_POLICY_TRIAGE_V1 = "ran_policy_triage_v1"
+
+TRIAGE_HIDDEN_SCENARIOS = (
+    TASK_WS_PRB_PING_V1,
+    TASK_WS_PRB_NOOP_GUARD_V1,
+    TASK_WS_PRB_ERROR_REPAIR_V1,
+    TASK_WS_PRB_ACTION_BUDGET_V1,
+    TASK_METRICS_STALENESS_NOOP_V1,
+    TASK_WS_SSB_POWER_GUARD_V1,
+    TASK_WS_SSB_POWER_REPAIR_V1,
+    TASK_E2_KPM_PRB_PING_V1,
+    TASK_E2_KPM_JSON_CONSISTENCY_V1,
+    TASK_E2_CCC_PRB_POLICY_PING_V1,
+    TASK_E2_RC_DU_PRB_POLICY_PING_V1,
+    TASK_E2_CONTROL_API_CONSISTENCY_V1,
+)
 
 IMPLEMENTED_EPISODE_TASKS = {
     TASK_WS_PRB_PING_V1,
@@ -35,6 +51,7 @@ IMPLEMENTED_EPISODE_TASKS = {
     TASK_E2_CONTROL_API_CONSISTENCY_V1,
     TASK_WS_SSB_POWER_GUARD_V1,
     TASK_WS_SSB_POWER_REPAIR_V1,
+    TASK_RAN_POLICY_TRIAGE_V1,
 }
 DEFAULT_TASKS_DIR = Path(__file__).resolve().parents[1] / "tasks"
 _TASK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_]*_v[0-9]+$")
@@ -49,6 +66,7 @@ ACTION_TYPES = {
 RUNTIME_FAMILIES = {
     "docker_e2e",
     "docker_e2e_flexric",
+    "hidden_triage",
 }
 READINESS_LEVELS = {
     "idea",
@@ -68,6 +86,8 @@ OBSERVATION_SOURCES = {
     "e2_control_outcome",
     "ue_identity",
     "pcap_log_oracle",
+    "management_context",
+    "stable_action_catalog",
 }
 SCORE_DIMENSIONS = {
     "valid_action_accepted_rate",
@@ -86,6 +106,12 @@ SCORE_DIMENSIONS = {
     "noop_correctness",
     "evidence_gated_action",
     "stale_action_avoidance",
+    "triage_success",
+    "rationale_complete",
+    "correct_api_selection",
+    "unnecessary_action_avoidance",
+    "repair_success",
+    "stale_wait_success",
 }
 WIRE_COMMAND_NAMES = {
     "rrm_policy_ratio_set",

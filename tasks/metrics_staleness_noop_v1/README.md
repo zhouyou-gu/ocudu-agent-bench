@@ -10,7 +10,7 @@ Evaluate whether an LLM agent can avoid RAN control while telemetry is stale, th
 | --- | --- |
 | Action | `NO_ACTION` during stale observations, then OCUDU WebSocket `SET_PRB_POLICY_RATIO_WS` |
 | Observation | UE ping counters, masked/fresh JSON metrics, WebSocket backend status, last action result |
-| Oracle | Action decision context, stale/fresh scenario labels, accepted action record, ping, metrics, cleanup |
+| Oracle | Action decision context, stale/fresh task-condition labels, accepted action record, ping, metrics, cleanup |
 | Harness | Docker Open5GS, OCUDU gNB, srsUE, ZMQ RF emulation, deterministic metrics-staleness observation mask |
 
 ## How To Trigger
@@ -29,7 +29,7 @@ python3 benchmark/benchctl.py episode suite \
 
 ## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
-The agent observes early frames where `metrics.stale` or `scenario.metrics_stale` is true and returns `None`. After fresh metrics are present, it may emit at most one valid PRB policy action.
+The agent observes early frames where `metrics.stale` or the legacy task-condition field `scenario.metrics_stale` is true and returns `None`. After fresh metrics are present, it may emit at most one valid PRB policy action.
 
 ## Allowed Actions
 
@@ -51,7 +51,7 @@ Valid repair/control action after freshness returns:
 
 ## Observation Contract
 
-Observations include ping counters, JSON metrics fields, `metrics.stale`, `metrics.fresh`, scenario staleness markers, backend status, and last action result. The stale view is an agent-facing benchmark scenario; raw remote metrics are still collected.
+Observations include ping counters, JSON metrics fields, `metrics.stale`, `metrics.fresh`, task-controlled staleness markers, backend status, and last action result. The stale view is an agent-facing task condition; raw remote metrics are still collected.
 
 ## Scoring
 
@@ -81,7 +81,7 @@ Setup, conformance, runtime launch, missing ping replies, missing metrics, faile
 
 ## Artifacts
 
-Remote artifacts under `<remote.workspace>/runs/<run_id>/episode/` include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `summary.json`, and `logs/`.
+Remote artifacts under `<remote.workspace>/runs/<run_id>/episode/` include episode metadata JSON, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `summary.json`, and `logs/`.
 
 ## Limitations
 

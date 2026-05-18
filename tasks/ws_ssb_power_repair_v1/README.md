@@ -74,7 +74,7 @@ Setup, conformance, runtime launch, missing ping replies, missing JSON metrics, 
 
 ## Artifacts
 
-Remote artifacts under `<remote.workspace>/runs/<run_id>/episode/` include `scenario.json`, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `summary.json`, and `logs/`.
+Remote artifacts under `<remote.workspace>/runs/<run_id>/episode/` include episode metadata JSON, `actions.jsonl`, `observations.jsonl`, `metrics_raw.jsonl`, `summary.json`, and `logs/`.
 
 ## Limitations
 

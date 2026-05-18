@@ -3,6 +3,7 @@ from pathlib import Path
 
 import benchmark.benchmark_api.suite as suite_module
 from benchmark.benchmark_api.config import RemoteConfig, RuntimeConfig
+from benchmark.benchmark_api.tasks import TASK_RAN_POLICY_TRIAGE_V1, TRIAGE_HIDDEN_SCENARIOS
 from benchmark.benchmark_api.suite import (
     BaselineAgent,
     BaselineController,
@@ -12,6 +13,7 @@ from benchmark.benchmark_api.suite import (
     SuiteRunner,
     V4_SUITE_CONFORMANCE_CHECKS,
     aggregate_suite,
+    default_triage_hidden_scenario,
     default_suite_id,
     suite_run_id,
 )
@@ -125,6 +127,32 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(invalid_ssb.next_action(ssb_frame)["ssb_block_power_dbm"], 99)
         self.assertEqual(invalid_ssb.next_action(ssb_frame)["ssb_block_power_dbm"], -16)
 
+        triage = BaselineController("triage_reference", seed=1)
+        triage_decision = triage.next_decision(
+            {
+                "observation": {
+                    "metrics": {"present": True, "stale": False},
+                    "ping": {"success_ratio": 1.0},
+                    "management_context": {
+                        "management_need": "desired_prb_policy_not_applied",
+                        "control_requirement": "native_remote_control",
+                        "target_scope": "cell_slice_policy",
+                        "desired_state": {
+                            "resource": "PRB",
+                            "plmn": "00101",
+                            "sst": 1,
+                            "sd": None,
+                            "min_prb_policy_ratio": 10,
+                            "max_prb_policy_ratio": 90,
+                            "dedicated_ratio": None,
+                        },
+                    },
+                }
+            }
+        )
+        self.assertEqual(triage_decision["action"]["type"], "SET_PRB_POLICY_RATIO_WS")
+        self.assertTrue(triage_decision["telemetry"]["rationale"]["diagnosis"])
+
     def test_builtin_controller_catalog_contains_task_specific_controllers(self) -> None:
         self.assertTrue(
             {
@@ -136,6 +164,7 @@ class SuiteTests(unittest.TestCase):
                 "e2_control_consistency",
                 "ssb_power",
                 "invalid_then_ssb",
+                "triage_reference",
             }.issubset(
                 BUILTIN_CONTROLLERS
             )
@@ -526,6 +555,98 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(FakeRuntime.actions, [])
         self.assertEqual(len(FakeRuntime.decisions), 1)
         self.assertIsNone(FakeRuntime.decisions[0]["action"])
+
+    def test_triage_suite_assigns_balanced_hidden_scenarios_and_logs_noop_actions(self) -> None:
+        original_runtime = suite_module.EpisodeRuntime
+        original_conformance = suite_module.run_conformance
+
+        class FakeRuntime:
+            starts = []
+            actions = []
+            decisions = []
+
+            def __init__(self, remote, repo_root=None):
+                self.options = None
+
+            def start(self, options):
+                self.options = options
+                type(self).starts.append((options.task, options.hidden_scenario))
+                return {"status": "ok", "stage": "triage_episode"}
+
+            def observe(self):
+                return {
+                    "status": "ok",
+                    "observation": {
+                        "type": TASK_RAN_POLICY_TRIAGE_V1,
+                        "metrics": {"present": True, "stale": False},
+                        "ping": {"packets_received": 1},
+                        "management_context": {
+                            "management_need": "monitor",
+                            "control_requirement": "none",
+                            "desired_state": None,
+                        },
+                    },
+                }
+
+            def record_decision(self, action, telemetry=None, decision_latency_s=None, observation=None):
+                type(self).decisions.append({"action": action, "telemetry": telemetry})
+                return {"status": "ok", "decision_logged": True}
+
+            def act(self, action):
+                type(self).actions.append(action)
+                return {"status": "ok", "accepted": True, "reason": "no-op decision"}
+
+            def _cleanup_after_error(self, run_id):
+                return {"status": "ok", "leftover_containers": [], "ws_port_open": False, "errors": []}
+
+            def _finalize_after_error(self, reason, cleanup_success):
+                return {
+                    "status": "ok",
+                    "hidden_scenario": self.options.hidden_scenario,
+                    "scored": True,
+                    "episode_success": 1.0,
+                    "scores": {"triage_success": True},
+                    "score_components": {"task_correctness": 1.0},
+                    "efficiency": {"timing": {}, "tokens": {"telemetry_available": False}},
+                    "counts": {"actions": len(type(self).actions)},
+                    "artifacts": {"summary": f"/tmp/{self.options.run_id}.json"},
+                }
+
+        def fake_run_conformance(**kwargs):
+            return {"status": "pass", "remote": {}, "checks": []}
+
+        suite_module.EpisodeRuntime = FakeRuntime
+        suite_module.run_conformance = fake_run_conformance
+        try:
+            runner = SuiteRunner(FakeRemote(), Path(".").resolve(), Path("benchmark/conformance/tests.json"))
+            result = runner.run(
+                SuiteOptions(
+                    suite_id="unit-triage",
+                    task=TASK_RAN_POLICY_TRIAGE_V1,
+                    controller="triage_reference",
+                    runs=12,
+                    duration=0,
+                    seed=1,
+                )
+            )
+        finally:
+            suite_module.EpisodeRuntime = original_runtime
+            suite_module.run_conformance = original_conformance
+
+        self.assertEqual([item[0] for item in FakeRuntime.starts], [TASK_RAN_POLICY_TRIAGE_V1] * 12)
+        self.assertEqual([item[1] for item in FakeRuntime.starts], list(TRIAGE_HIDDEN_SCENARIOS))
+        self.assertIn("scenario_success", result)
+        self.assertEqual(set(result["hidden_scenarios"]), set(TRIAGE_HIDDEN_SCENARIOS))
+        self.assertTrue(FakeRuntime.actions)
+        self.assertIsNone(FakeRuntime.actions[0])
+        self.assertTrue(FakeRuntime.decisions[0]["telemetry"]["rationale"]["diagnosis"])
+
+    def test_triage_default_run_count_is_balanced(self) -> None:
+        options = SuiteOptions(suite_id="unit-triage", task=TASK_RAN_POLICY_TRIAGE_V1, runs=None)
+
+        self.assertEqual(options.runs, len(TRIAGE_HIDDEN_SCENARIOS))
+        self.assertEqual(options.controller, "triage_reference")
+        self.assertEqual(default_triage_hidden_scenario(seed=1, index=12), TRIAGE_HIDDEN_SCENARIOS[-1])
 
 
 if __name__ == "__main__":

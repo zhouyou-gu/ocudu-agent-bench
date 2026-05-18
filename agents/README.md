@@ -136,8 +136,9 @@ Recommended built-in controller by task:
 | `e2_control_api_consistency_v1` | `e2_control_consistency` |
 | `ws_ssb_power_guard_v1` | `noop` |
 | `ws_ssb_power_repair_v1` | `invalid_then_ssb` |
+| `ran_policy_triage_v1` | `triage_reference` |
 
-LLM agents may return `None` when they do not want to act on an observation. Suite loops skip `None` actions, and `BenchmarkEnv.act(None, telemetry=...)` records a no-op decision in `decisions.jsonl` without adding an action to `actions.jsonl`.
+LLM agents may return `None` when they do not want to act on an observation. Suite loops skip `None` actions for API-specific tasks, and `BenchmarkEnv.act(None, telemetry=...)` records a no-op decision in `decisions.jsonl`. For `ran_policy_triage_v1`, `None` is also recorded as a `NO_ACTION` item in `actions.jsonl` so no-op management decisions are measurable.
 
 ## Action Contract
 

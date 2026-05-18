@@ -16,6 +16,7 @@ from benchmark.benchmark_api.tasks import (
     TASK_E2_KPM_JSON_CONSISTENCY_V1,
     TASK_E2_RC_DU_PRB_POLICY_PING_V1,
     TASK_METRICS_STALENESS_NOOP_V1,
+    TASK_RAN_POLICY_TRIAGE_V1,
     TASK_WS_SSB_POWER_GUARD_V1,
     TASK_WS_SSB_POWER_REPAIR_V1,
     TASK_WS_PRB_ACTION_BUDGET_V1,
@@ -67,6 +68,7 @@ class TaskRegistryTests(unittest.TestCase):
             TASK_E2_CONTROL_API_CONSISTENCY_V1,
             TASK_WS_SSB_POWER_GUARD_V1,
             TASK_WS_SSB_POWER_REPAIR_V1,
+            TASK_RAN_POLICY_TRIAGE_V1,
         }
         self.assertEqual(set(specs), expected)
         self.assertEqual(implemented_episode_task_ids(), expected)
@@ -80,6 +82,7 @@ class TaskRegistryTests(unittest.TestCase):
         self.assertEqual(episode_stage_for_task(TASK_E2_CCC_PRB_POLICY_PING_V1), "v4_2_episode")
         self.assertEqual(suite_stage_for_task(TASK_E2_CONTROL_API_CONSISTENCY_V1), "v4_2_suite")
         self.assertEqual(episode_stage_for_task(TASK_WS_SSB_POWER_REPAIR_V1), "v3_3_episode")
+        self.assertEqual(episode_stage_for_task(TASK_RAN_POLICY_TRIAGE_V1), "triage_episode")
 
     def test_task_conformance_checks_match_manifest_contract(self) -> None:
         v3 = conformance_checks_for_task(TASK_WS_PRB_PING_V1)

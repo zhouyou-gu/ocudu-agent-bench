@@ -27,17 +27,25 @@ The project keeps task definitions and API definitions separate:
 
 - **Harness API**: local Python/CLI surface owned by `benchmark/`, including provisioning, conformance, task registry, suites, scoring, artifact summaries, and cleanup.
 - **Runtime RAN API**: OCUDU or O-RAN interface exercised during an episode, such as WebSocket PRB control, WebSocket SSB control, JSON metrics, E2SM-KPM, E2SM-CCC, or E2SM-RC.
-- **Task contract**: scored episode definition that selects runtime APIs, observation sources, allowed action types, conformance checks, score dimensions, and artifact groups.
+- **Task contract**: scored episode definition written as `Goal + RAN Dynamics + Agent Interface + Scoring`.
 - **Provisioning API**: setup interface that installs or builds workspace-owned remote assets from pinned sources. It is not a scored agent-performance API.
 - **Conformance API**: setup validation interface that proves runtime APIs and oracles work before a scored run. It is not a scored agent-performance API.
 - **Oracle API**: artifact and summary interface that proves success, failure, or ground truth, such as decoded KPM records, E2 control outcomes, PCAP/log summaries, cleanup postconditions, and action logs.
-- **Scenario/environment API**: harness-controlled workload or condition source, such as Docker/ZMQ runtime launch, UE ping traffic, metrics staleness masking, and future impairment injection.
+- **Task dynamics/environment API**: harness-controlled workload or condition source used by RAN Dynamics, such as Docker/ZMQ runtime launch, UE ping traffic, metrics staleness masking, and future impairment injection.
+
+The task definition is:
+
+```text
+Task = Goal + RAN Dynamics + Agent Interface + Scoring
+```
+
+Runtime APIs are reusable capabilities. They usually belong inside the Agent Interface or RAN Runtime binding for a task; they are not task definitions.
 
 Task manifests consume APIs; they do not define wire protocols, runtime behavior, or new OCUDU commands. `action_types` must use benchmark action names such as `SET_PRB_POLICY_RATIO_WS`, not raw wire commands such as `rrm_policy_ratio_set` or `ssb_set`.
 
 `NO_ACTION` is a task-level decision represented by Python `None`. It is not sent to OCUDU and is not a runtime API command.
 
-Ping, cleanup, artifact collection, PCAP/log parsing, and ZMQ scenario control are harness/environment/oracle mechanisms. They are useful for scoring and repeatability, but they are not OCUDU-native RAN control APIs.
+Ping, cleanup, artifact collection, PCAP/log parsing, and ZMQ task-dynamics control are harness/environment/oracle mechanisms. They are useful for scoring and repeatability, but they are not OCUDU-native RAN control APIs.
 
 ## Agent-Facing Harness APIs
 
@@ -71,7 +79,7 @@ Important `reset` fields:
 - `duration`: episode duration in seconds.
 - `ws_port`: OCUDU remote-control WebSocket port, default `8001`.
 
-`act(None)` is a no-op decision for episode tasks. It is accepted by the Python API and is not written as an action record. It is written to `decisions.jsonl` so no-op LLM decisions can still be timed and associated with token telemetry.
+`act(None)` is a no-op decision for episode tasks. It is accepted by the Python API and is written to `decisions.jsonl` so no-op LLM decisions can still be timed and associated with token telemetry. API-specific tasks do not write `None` to `actions.jsonl`; `ran_policy_triage_v1` does write a `NO_ACTION` record with `dispatched=false` so no-op triage decisions are counted.
 
 The benchmark does not call a provider SDK. External LLM agents or wrappers may pass telemetry such as `decision_latency_s`, `prompt_tokens`, `completion_tokens`, `reasoning_tokens`, `total_tokens`, `provider`, `model`, and `estimated_cost_usd`.
 
@@ -227,7 +235,7 @@ Observation fields:
 
 - `metrics.present`: at least one parseable metrics frame is available.
 - `metrics.fresh`: metrics are usable for agent decisions.
-- `metrics.stale`: benchmark scenario marks metrics as stale.
+- `metrics.stale`: task-controlled evidence mask marks metrics as stale.
 - `metrics.error`: parsing or subscription error when present.
 - `backend.json_metrics`: backend availability status.
 
@@ -414,6 +422,7 @@ Conformance checks:
 | `e2_ccc_prb_policy_ping_v1` | E2SM-CCC PRB | ping, JSON metrics, E2 KPM | E2 control oracle has CCC record |
 | `e2_rc_du_prb_policy_ping_v1` | E2SM-RC DU PRB | ping, JSON metrics, E2 KPM, DU UE identity | E2 control oracle has RC DU record |
 | `e2_control_api_consistency_v1` | E2SM-CCC or E2SM-RC DU | ping, JSON metrics, E2 KPM | selected action type matches task objective |
+| `ran_policy_triage_v1` | stable catalog: `NO_ACTION`, WebSocket PRB/SSB, E2SM-CCC, E2SM-RC DU | structured RAN evidence and management context | task-condition success, correct API selection, rationale shape, RAN health, cleanup |
 
 ## Action Record Semantics
 
@@ -428,7 +437,7 @@ Valid dispatched actions are appended to `actions.jsonl` with:
 
 Invalid local actions are also appended to `actions.jsonl`, but `dispatched` remains `false`.
 
-`None` no-op decisions are not appended to `actions.jsonl`.
+`None` no-op decisions are not appended to `actions.jsonl` for API-specific tasks. For `ran_policy_triage_v1`, a no-op decision is appended as `{"type": "NO_ACTION", "dispatched": false}` so restraint can be scored.
 
 ## Decision Record Semantics
 
@@ -453,7 +462,7 @@ Every observation is a JSON object with:
 Task-specific fields:
 
 - `cell`: PLMN, NCI, gNB id, gNB id bit length, sector id, and source for SSB actions.
-- `scenario`: labels such as stale metrics windows.
+- task-specific condition fields such as stale metrics windows.
 - `e2`: RIC, KPM, oracle, control availability, and DU UE identity fields for E2 tasks.
 
 Agents should tolerate missing optional fields and branch on backend/task status rather than assuming every field exists for every task.
@@ -494,7 +503,7 @@ Remote artifact layout:
 
 ```text
 <remote.workspace>/runs/<run_id>/episode/
-  scenario.json
+  episode metadata
   actions.jsonl
   decisions.jsonl
   observations.jsonl
@@ -524,7 +533,7 @@ Next API work:
 Later API work:
 
 - Add E2SM-RC CU-CP mobility or handover control only after the benchmark has a multi-cell mobility runtime and an objective handover oracle.
-- Add ZMQ impairment controls as benchmark scenario APIs, not OCUDU-native RAN APIs, once they can be reproducibly injected and scored.
+- Add ZMQ impairment controls as benchmark task-dynamics APIs, not OCUDU-native RAN APIs, once they can be reproducibly injected and scored.
 
 Deferred API work:
 

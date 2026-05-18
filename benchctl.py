@@ -36,6 +36,7 @@ from benchmark.benchmark_api.remote import RemoteCommandError, RemoteManager
 from benchmark.benchmark_api.provision import PROVISION_STAGE_CHOICES
 from benchmark.benchmark_api.suite import BUILTIN_CONTROLLERS, run_suite, suite_exit_code
 from benchmark.benchmark_api.tasks import (
+    TASK_RAN_POLICY_TRIAGE_V1,
     TASK_WS_PRB_PING_V1,
     V3_EPISODE_GATE_CHECKS,
     V4_EPISODE_GATE_CHECKS,
@@ -212,13 +213,14 @@ def cmd_episode_cleanup(args: argparse.Namespace) -> int:
 
 def cmd_episode_suite(args: argparse.Namespace) -> int:
     manager = remote_manager(args)
+    controller = args.controller or ("triage_reference" if args.task == TASK_RAN_POLICY_TRIAGE_V1 else "fixed_prb")
     result = run_suite(
         remote=manager,
         repo_root=ROOT,
         specs_path=ROOT / "benchmark" / "conformance" / "tests.json",
         suite_id=args.suite_id,
         task=args.task,
-        controller=args.controller,
+        controller=controller,
         runs=args.runs,
         duration=args.duration,
         seed=args.seed,
@@ -367,10 +369,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--agent",
         dest="controller",
         choices=sorted(BUILTIN_CONTROLLERS),
-        default="fixed_prb",
+        default=None,
         help="Built-in deterministic baseline controller; --agent is a compatibility alias",
     )
-    episode_suite.add_argument("--runs", type=int, default=3, help="Number of suite episodes")
+    episode_suite.add_argument("--runs", type=int, default=None, help="Number of suite episodes; triage defaults to 12")
     episode_suite.add_argument("--duration", type=int, default=DEFAULT_EPISODE_DURATION, help="Episode duration in seconds")
     episode_suite.add_argument("--seed", type=int, default=1, help="Deterministic baseline seed")
     episode_suite.add_argument("--suite-id", default=None, help="Suite id; run ids use <suite-id>-rNNN")

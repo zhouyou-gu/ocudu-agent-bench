@@ -214,6 +214,8 @@ export OCUDU_ROOT BENCHMARK_WORKSPACE OPEN5GS_COMPOSE E2E_CONFIG_DIR RIC_PROVIDE
             "tasks/ws_ssb_power_guard_v1/task.json",
             "tasks/ws_ssb_power_repair_v1/README.md",
             "tasks/ws_ssb_power_repair_v1/task.json",
+            "tasks/ran_policy_triage_v1/README.md",
+            "tasks/ran_policy_triage_v1/task.json",
         ]
         files = [source_rel / item for item in expected if (repo_root / source_rel / item).is_file()]
         provision_root = repo_root / source_rel / "provision"

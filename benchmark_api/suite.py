@@ -15,6 +15,7 @@ from typing import Any
 
 from benchmark.benchmark_api.conformance import run_conformance
 from benchmark.benchmark_api.episode import (
+    ACTION_NO_ACTION,
     ACTION_SET_PRB_POLICY_RATIO_CCC,
     ACTION_SET_PRB_POLICY_RATIO_RC_DU,
     ACTION_SET_PRB_POLICY_RATIO_WS,
@@ -24,11 +25,15 @@ from benchmark.benchmark_api.episode import (
     DEFAULT_LAUNCH_TIMEOUT,
     DEFAULT_PROBE_TIMEOUT,
     DEFAULT_WS_PORT,
+    TASK_RAN_POLICY_TRIAGE_V1,
     TASK_WS_PRB_PING_V1,
     EpisodeOptions,
     EpisodeRuntime,
+    default_triage_hidden_scenario,
     episode_paths,
     fixed_prb_action_for_type,
+    fixed_ssb_action,
+    is_triage_task,
     ssb_action_from_observation,
     safe_run_id,
 )
@@ -55,6 +60,7 @@ BUILTIN_CONTROLLERS = {
     "e2_control_consistency",
     "invalid_then_ssb",
     "ssb_power",
+    "triage_reference",
 }
 # Compatibility alias for older callers and tests that used "agent" to mean
 # the built-in suite controller.
@@ -83,7 +89,7 @@ class SuiteOptions:
         suite_id: str,
         task: str = TASK_WS_PRB_PING_V1,
         agent: str | None = None,
-        runs: int = 3,
+        runs: int | None = 3,
         duration: int = DEFAULT_EPISODE_DURATION,
         seed: int = 1,
         ws_port: int = DEFAULT_WS_PORT,
@@ -95,10 +101,13 @@ class SuiteOptions:
         controller: str | None = None,
     ) -> None:
         selected_controller = _select_controller(controller=controller, legacy_agent=agent)
+        if controller is None and agent is None and task == TASK_RAN_POLICY_TRIAGE_V1:
+            selected_controller = "triage_reference"
         object.__setattr__(self, "suite_id", suite_id)
         object.__setattr__(self, "task", task)
         object.__setattr__(self, "controller", selected_controller)
-        object.__setattr__(self, "runs", runs)
+        selected_runs = 12 if runs is None and task == TASK_RAN_POLICY_TRIAGE_V1 else (runs if runs is not None else 3)
+        object.__setattr__(self, "runs", selected_runs)
         object.__setattr__(self, "duration", duration)
         object.__setattr__(self, "seed", seed)
         object.__setattr__(self, "ws_port", ws_port)
@@ -163,7 +172,14 @@ class BaselineController:
         self.step = 0
         self.sent_fixed = False
 
+    def next_decision(self, observation: dict[str, Any]) -> dict[str, Any]:
+        if self.name == "triage_reference":
+            return self._triage_decision(observation)
+        return {"action": self.next_action(observation), "telemetry": None}
+
     def next_action(self, observation: dict[str, Any]) -> dict[str, Any] | None:
+        if self.name == "triage_reference":
+            return self._triage_decision(observation)["action"]
         frame = observation.get("observation", observation)
         if self.name == "noop":
             return None
@@ -250,6 +266,88 @@ class BaselineController:
             "max_prb_policy_ratio": max_ratio,
             "dedicated_ratio": 0,
         }
+
+    def _triage_decision(self, observation: dict[str, Any]) -> dict[str, Any]:
+        frame = observation.get("observation", observation)
+        if not isinstance(frame, dict):
+            frame = {}
+        context = frame.get("management_context", {})
+        if not isinstance(context, dict):
+            context = {}
+        metrics = frame.get("metrics", {}) if isinstance(frame.get("metrics"), dict) else {}
+        e2 = frame.get("e2", {}) if isinstance(frame.get("e2"), dict) else {}
+        desired = context.get("desired_state") if isinstance(context.get("desired_state"), dict) else None
+        evidence_used = ["management_context", "backend_status", "ping_health", "metrics_freshness"]
+        action: dict[str, Any] | None = None
+        diagnosis = str(context.get("management_need") or "monitor")
+        chosen_strategy = "NO_ACTION"
+
+        metrics_stale = bool(metrics.get("stale")) or not bool(metrics.get("present"))
+        control_requirement = context.get("control_requirement")
+        requires_e2_evidence = (
+            context.get("evidence_status") == "require_json_and_e2_kpm"
+            or control_requirement == "standards_e2_control"
+        )
+        if context.get("evidence_status") == "wait_for_fresh_metrics" and metrics_stale:
+            action = None
+            chosen_strategy = "wait_for_fresh_metrics"
+        elif requires_e2_evidence and not has_e2_evidence(frame):
+            action = None
+            chosen_strategy = "wait_for_e2_evidence"
+            evidence_used.extend(["json_metrics", "e2_kpm"])
+        elif desired is None or context.get("control_requirement") == "none":
+            action = None
+            chosen_strategy = "monitor_without_ran_change"
+        elif self.sent_fixed:
+            action = None
+            chosen_strategy = "avoid_repeated_control"
+        elif desired.get("resource") == "SSB_BLOCK_POWER":
+            cell = frame.get("cell", {}) if isinstance(frame.get("cell"), dict) else {}
+            action = fixed_ssb_action(
+                nci=(cell.get("nci") or 0) if isinstance(cell, dict) else 0,
+                ssb_block_power_dbm=int(desired.get("ssb_block_power_dbm", -16)),
+            )
+            if isinstance(cell, dict) and cell.get("plmn"):
+                action["plmn"] = str(cell["plmn"])
+            self.sent_fixed = True
+            chosen_strategy = ACTION_SET_SSB_BLOCK_POWER_WS
+            evidence_used.append("cell_identity")
+        elif desired.get("resource") == "PRB":
+            target_scope = context.get("target_scope")
+            action_type = ACTION_SET_PRB_POLICY_RATIO_WS
+            if control_requirement == "standards_e2_control" and target_scope == "du_ue_slice_quota":
+                if e2.get("du_ue_id") is None:
+                    action = None
+                    chosen_strategy = "wait_for_du_ue_identity"
+                    evidence_used.extend(["e2_kpm", "ue_identity"])
+                else:
+                    action_type = ACTION_SET_PRB_POLICY_RATIO_RC_DU
+            elif control_requirement == "standards_e2_control":
+                action_type = ACTION_SET_PRB_POLICY_RATIO_CCC
+            if action is None and chosen_strategy not in {"wait_for_du_ue_identity"}:
+                action = fixed_prb_action_for_type(action_type)
+                action["plmn"] = str(desired.get("plmn", "00101"))
+                action["sst"] = int(desired.get("sst", 1))
+                action["sd"] = desired.get("sd")
+                action["min_prb_policy_ratio"] = int(desired.get("min_prb_policy_ratio", 10))
+                action["max_prb_policy_ratio"] = int(desired.get("max_prb_policy_ratio", 90))
+                action["dedicated_ratio"] = desired.get("dedicated_ratio")
+                if action_type == ACTION_SET_PRB_POLICY_RATIO_RC_DU:
+                    action["du_ue_id"] = e2.get("du_ue_id")
+                self.sent_fixed = True
+                chosen_strategy = action_type
+                evidence_used.append("json_metrics")
+                if control_requirement == "standards_e2_control":
+                    evidence_used.extend(["e2_kpm", "e2_control_status"])
+
+        telemetry = {
+            "rationale": {
+                "diagnosis": diagnosis,
+                "evidence_used": evidence_used,
+                "chosen_strategy": chosen_strategy,
+            }
+        }
+        return {"action": action, "telemetry": telemetry}
 
 
 def fixed_prb_action() -> dict[str, Any]:
@@ -354,6 +452,26 @@ def aggregate_suite(
     aggregate_components = aggregate_map(component_summaries, "score_components")
     aggregate_efficiency_data = aggregate_efficiency(summaries)
     episode_success_values = [episode_success_value(summary) for summary in summaries]
+    hidden_scenarios = sorted(
+        {
+            str(summary.get("hidden_scenario"))
+            for summary in summaries
+            if summary.get("hidden_scenario")
+        }
+    )
+    scenario_success = {
+        scenario: {
+            "runs": sum(1 for summary in summaries if summary.get("hidden_scenario") == scenario),
+            "success_rate": aggregate_numeric_values(
+                [
+                    episode_success_value(summary)
+                    for summary in summaries
+                    if summary.get("hidden_scenario") == scenario
+                ]
+            )["mean"],
+        }
+        for scenario in hidden_scenarios
+    }
 
     cleanup_failures = [
         result.get("run_id")
@@ -379,6 +497,8 @@ def aggregate_suite(
         "duration": options.duration,
         "requested_runs": options.runs,
         "run_ids": [result.get("run_id") for result in run_results],
+        "hidden_scenarios": hidden_scenarios,
+        "scenario_success": scenario_success,
         "scored_runs": len(scored),
         "unscored_runs": len(unscored),
         "success": {
@@ -395,6 +515,7 @@ def aggregate_suite(
             {
                 "run_id": result.get("run_id"),
                 "status": result.get("status"),
+                "hidden_scenario": result.get("summary", {}).get("hidden_scenario"),
                 "scored": result.get("summary", {}).get("scored"),
                 "unscored_reason": result.get("summary", {}).get("unscored_reason"),
                 "episode_success": result.get("summary", {}).get("episode_success"),
@@ -488,6 +609,7 @@ class SuiteRunner:
     def _run_single(self, options: SuiteOptions, index: int) -> dict[str, Any]:
         run_id = suite_run_id(options.suite_id, index)
         runtime = EpisodeRuntime(self.remote, repo_root=self.repo_root)
+        hidden_scenario = default_triage_hidden_scenario(options.seed, index) if is_triage_task(options.task) else None
         episode_options = EpisodeOptions(
             run_id=run_id,
             task=options.task,
@@ -496,6 +618,8 @@ class SuiteRunner:
             launch_timeout=options.launch_timeout,
             attach_timeout=options.attach_timeout,
             probe_timeout=options.probe_timeout,
+            public_task=options.task,
+            hidden_scenario=hidden_scenario,
         )
         controller = BaselineController(options.controller, seed=options.seed + index - 1)
         observations: list[dict[str, Any]] = []
@@ -514,11 +638,21 @@ class SuiteRunner:
                     observation = runtime.observe()
                     observations.append(observation)
                     decision_started = time.monotonic()
-                    action = controller.next_action(observation)
+                    decision = controller.next_decision(observation)
+                    action = decision.get("action")
+                    telemetry = decision.get("telemetry")
                     decision_latency = time.monotonic() - decision_started
                     if hasattr(runtime, "record_decision"):
-                        runtime.record_decision(action, decision_latency_s=decision_latency, observation=observation)
-                    if action is not None:
+                        try:
+                            runtime.record_decision(
+                                action,
+                                telemetry=telemetry,
+                                decision_latency_s=decision_latency,
+                                observation=observation,
+                            )
+                        except TypeError:
+                            runtime.record_decision(action, decision_latency_s=decision_latency, observation=observation)
+                    if action is not None or is_triage_task(options.task):
                         actions.append(runtime.act(action))
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -568,6 +702,7 @@ class SuiteRunner:
                 "status": "ok",
                 "stage": episode_stage(options.task),
                 "task": options.task,
+                "hidden_scenario": default_triage_hidden_scenario(options.seed, index) if is_triage_task(options.task) else None,
                 "run_id": run_id,
                 "scoring_version": "v2",
                 "scored": False,
@@ -648,7 +783,7 @@ def run_suite(
     suite_id: str | None = None,
     task: str = TASK_WS_PRB_PING_V1,
     agent: str | None = None,
-    runs: int = 3,
+    runs: int | None = None,
     duration: int = DEFAULT_EPISODE_DURATION,
     seed: int = 1,
     ws_port: int = DEFAULT_WS_PORT,
@@ -660,6 +795,8 @@ def run_suite(
     controller: str | None = None,
 ) -> dict[str, Any]:
     selected_controller = _select_controller(controller=controller, legacy_agent=agent)
+    if controller is None and agent is None and task == TASK_RAN_POLICY_TRIAGE_V1:
+        selected_controller = "triage_reference"
     options = SuiteOptions(
         suite_id=safe_run_id(suite_id or default_suite_id()),
         task=task,

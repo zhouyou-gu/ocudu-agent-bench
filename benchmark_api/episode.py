@@ -26,6 +26,8 @@ from benchmark.benchmark_api.tasks import (
     TASK_E2_KPM_PRB_PING_V1,
     TASK_E2_KPM_JSON_CONSISTENCY_V1,
     TASK_METRICS_STALENESS_NOOP_V1,
+    TASK_RAN_POLICY_TRIAGE_V1,
+    TRIAGE_HIDDEN_SCENARIOS,
     TASK_WS_SSB_POWER_GUARD_V1,
     TASK_WS_SSB_POWER_REPAIR_V1,
     TASK_WS_PRB_ACTION_BUDGET_V1,
@@ -50,6 +52,7 @@ ACTION_SET_PRB_POLICY_RATIO_WS = "SET_PRB_POLICY_RATIO_WS"
 ACTION_SET_PRB_POLICY_RATIO_CCC = "SET_PRB_POLICY_RATIO_CCC"
 ACTION_SET_PRB_POLICY_RATIO_RC_DU = "SET_PRB_POLICY_RATIO_RC_DU"
 ACTION_SET_SSB_BLOCK_POWER_WS = "SET_SSB_BLOCK_POWER_WS"
+ACTION_NO_ACTION = "NO_ACTION"
 DEFAULT_PLMN = "00101"
 DEFAULT_GNB_ID = 411
 DEFAULT_GNB_ID_BIT_LENGTH = 22
@@ -204,6 +207,22 @@ TASK_POLICIES: dict[str, EpisodeTaskPolicy] = {
         require_evidence_before_action=True,
         stale_metrics_observations=STALE_METRICS_OBSERVATIONS,
     ),
+    TASK_RAN_POLICY_TRIAGE_V1: EpisodeTaskPolicy(
+        task_id=TASK_RAN_POLICY_TRIAGE_V1,
+        scenario_name="hidden_policy_triage",
+        runtime_family="hidden_triage",
+        default_smoke_agent="triage_reference",
+        expected_behavior="diagnose the hidden RAN management scenario and choose the minimum safe action",
+        requires_valid_action=False,
+        allowed_action_types=(
+            ACTION_SET_PRB_POLICY_RATIO_WS,
+            ACTION_SET_SSB_BLOCK_POWER_WS,
+            ACTION_SET_PRB_POLICY_RATIO_CCC,
+            ACTION_SET_PRB_POLICY_RATIO_RC_DU,
+            ACTION_NO_ACTION,
+        ),
+        expected_action_type=None,
+    ),
 }
 
 
@@ -216,6 +235,8 @@ class EpisodeOptions:
     launch_timeout: int = DEFAULT_LAUNCH_TIMEOUT
     attach_timeout: int = DEFAULT_ATTACH_TIMEOUT
     probe_timeout: int = DEFAULT_PROBE_TIMEOUT
+    public_task: str | None = None
+    hidden_scenario: str | None = None
 
 
 def task_policy(task_id: str) -> EpisodeTaskPolicy:
@@ -223,6 +244,27 @@ def task_policy(task_id: str) -> EpisodeTaskPolicy:
         return TASK_POLICIES[task_id]
     except KeyError as exc:
         raise ValueError(f"Unsupported episode task: {task_id}") from exc
+
+
+def is_triage_task(task_id: str | None) -> bool:
+    return task_id == TASK_RAN_POLICY_TRIAGE_V1
+
+
+def default_triage_hidden_scenario(seed: int = 1, index: int = 1) -> str:
+    if index <= 0:
+        raise ValueError("triage scenario index must be positive")
+    offset = (seed - 1) % len(TRIAGE_HIDDEN_SCENARIOS)
+    return TRIAGE_HIDDEN_SCENARIOS[(offset + index - 1) % len(TRIAGE_HIDDEN_SCENARIOS)]
+
+
+def runtime_task_for_options(options: EpisodeOptions) -> str:
+    if is_triage_task(options.task):
+        return options.hidden_scenario or default_triage_hidden_scenario()
+    return options.task
+
+
+def public_task_for_options(options: EpisodeOptions) -> str:
+    return options.public_task or options.task
 
 
 def default_smoke_agent_for_task(task_id: str) -> str:
@@ -421,10 +463,12 @@ def normalize_metrics_frame(frame: Any) -> dict[str, Any]:
     }
 
 
-def scenario_metadata(task_id: str, duration: int) -> dict[str, Any]:
+def scenario_metadata(task_id: str, duration: int, public_task: str | None = None) -> dict[str, Any]:
     policy = task_policy(task_id)
+    public = public_task or task_id
     return {
-        "task": task_id,
+        "task": public,
+        "hidden_scenario": task_id if public != task_id else None,
         "scenario_name": policy.scenario_name,
         "runtime_family": policy.runtime_family,
         "duration": duration,
@@ -455,6 +499,149 @@ def scenario_metadata(task_id: str, duration: int) -> dict[str, Any]:
     }
 
 
+def triage_management_context(hidden_scenario: str) -> dict[str, Any]:
+    objective = "Maintain UE service health with the minimum safe RAN control action."
+    base: dict[str, Any] = {
+        "objective": objective,
+        "service_health": "healthy",
+        "evidence_status": "fresh_required",
+        "safety_constraints": [
+            "do not act on stale metrics",
+            "do not make unnecessary RAN changes",
+            "use one minimum-scope action when control is needed",
+            "repair prior failed actions with a valid bounded action",
+        ],
+        "allowed_action_types": [
+            ACTION_NO_ACTION,
+            ACTION_SET_PRB_POLICY_RATIO_WS,
+            ACTION_SET_SSB_BLOCK_POWER_WS,
+            ACTION_SET_PRB_POLICY_RATIO_CCC,
+            ACTION_SET_PRB_POLICY_RATIO_RC_DU,
+        ],
+        "desired_state": None,
+        "target_scope": "none",
+        "control_requirement": "none",
+        "repair_context": None,
+        "management_need": "monitor",
+    }
+
+    prb_state = {
+        "resource": "PRB",
+        "plmn": DEFAULT_PLMN,
+        "sst": 1,
+        "sd": None,
+        "min_prb_policy_ratio": 10,
+        "max_prb_policy_ratio": 90,
+        "dedicated_ratio": None,
+    }
+    e2_prb_state = dict(prb_state)
+    e2_prb_state["dedicated_ratio"] = 1
+    ssb_state = {
+        "resource": "SSB_BLOCK_POWER",
+        "plmn": DEFAULT_PLMN,
+        "ssb_block_power_dbm": DEFAULT_SSB_BLOCK_POWER_DBM,
+    }
+
+    if hidden_scenario in {
+        TASK_WS_PRB_PING_V1,
+        TASK_WS_PRB_ACTION_BUDGET_V1,
+        TASK_E2_KPM_PRB_PING_V1,
+    }:
+        base.update(
+            {
+                "desired_state": prb_state,
+                "target_scope": "cell_slice_policy",
+                "control_requirement": "native_remote_control",
+                "management_need": "desired_prb_policy_not_applied",
+            }
+        )
+    elif hidden_scenario == TASK_E2_KPM_JSON_CONSISTENCY_V1:
+        base.update(
+            {
+                "desired_state": prb_state,
+                "target_scope": "cell_slice_policy",
+                "control_requirement": "native_remote_control",
+                "evidence_status": "require_json_and_e2_kpm",
+                "management_need": "desired_prb_policy_pending_multi_source_evidence",
+            }
+        )
+    elif hidden_scenario == TASK_METRICS_STALENESS_NOOP_V1:
+        base.update(
+            {
+                "desired_state": prb_state,
+                "target_scope": "cell_slice_policy",
+                "control_requirement": "native_remote_control",
+                "evidence_status": "wait_for_fresh_metrics",
+                "management_need": "desired_prb_policy_pending_fresh_evidence",
+            }
+        )
+    elif hidden_scenario == TASK_WS_PRB_ERROR_REPAIR_V1:
+        base.update(
+            {
+                "desired_state": prb_state,
+                "target_scope": "cell_slice_policy",
+                "control_requirement": "native_remote_control",
+                "repair_context": {
+                    "prior_action_failed": True,
+                    "failed_action_type": ACTION_SET_PRB_POLICY_RATIO_WS,
+                    "failure_reason": "min_prb_policy_ratio must be <= max_prb_policy_ratio",
+                },
+                "management_need": "repair_prior_prb_policy_failure",
+            }
+        )
+    elif hidden_scenario == TASK_WS_SSB_POWER_REPAIR_V1:
+        base.update(
+            {
+                "desired_state": ssb_state,
+                "target_scope": "cell_power",
+                "control_requirement": "native_remote_control",
+                "repair_context": {
+                    "prior_action_failed": True,
+                    "failed_action_type": ACTION_SET_SSB_BLOCK_POWER_WS,
+                    "failure_reason": "ssb_block_power_dbm must be in [-60, 50]",
+                },
+                "management_need": "repair_prior_ssb_power_failure",
+            }
+        )
+    elif hidden_scenario == TASK_WS_SSB_POWER_GUARD_V1:
+        base.update(
+            {
+                "desired_state": None,
+                "target_scope": "cell_power",
+                "control_requirement": "none",
+                "management_need": "monitor",
+            }
+        )
+    elif hidden_scenario == TASK_E2_CCC_PRB_POLICY_PING_V1:
+        base.update(
+            {
+                "desired_state": e2_prb_state,
+                "target_scope": "cell_slice_policy",
+                "control_requirement": "standards_e2_control",
+                "management_need": "desired_prb_policy_not_applied",
+            }
+        )
+    elif hidden_scenario == TASK_E2_RC_DU_PRB_POLICY_PING_V1:
+        base.update(
+            {
+                "desired_state": e2_prb_state,
+                "target_scope": "du_ue_slice_quota",
+                "control_requirement": "standards_e2_control",
+                "management_need": "desired_du_ue_prb_quota_not_applied",
+            }
+        )
+    elif hidden_scenario == TASK_E2_CONTROL_API_CONSISTENCY_V1:
+        base.update(
+            {
+                "desired_state": e2_prb_state,
+                "target_scope": "cell_slice_policy",
+                "control_requirement": "standards_e2_control",
+                "management_need": "desired_prb_policy_not_applied",
+            }
+        )
+    return base
+
+
 def validate_action(
     action: Any,
     allowed_types: tuple[str, ...] | None = None,
@@ -470,6 +657,14 @@ def validate_action(
             "normalized": None,
             "request": None,
             "dispatch": None,
+        }
+    if action_type == ACTION_NO_ACTION:
+        return {
+            "valid": True,
+            "reason": "no-op decision",
+            "normalized": {"type": ACTION_NO_ACTION},
+            "request": None,
+            "dispatch": "none",
         }
     if action_type == ACTION_SET_SSB_BLOCK_POWER_WS:
         return validate_ssb_action(action, allowed_types=allowed)
@@ -768,6 +963,32 @@ def normalize_token_usage(token_usage: Any) -> dict[str, Any]:
     return normalized
 
 
+def normalize_rationale(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {"complete": False, "errors": ["rationale must be an object"]}
+    diagnosis = value.get("diagnosis")
+    evidence_used = value.get("evidence_used")
+    chosen_strategy = value.get("chosen_strategy")
+    errors = []
+    if not isinstance(diagnosis, str) or not diagnosis.strip():
+        errors.append("diagnosis must be a non-empty string")
+    if (
+        not isinstance(evidence_used, list)
+        or not evidence_used
+        or any(not isinstance(item, str) or not item.strip() for item in evidence_used)
+    ):
+        errors.append("evidence_used must be a non-empty list of strings")
+    if not isinstance(chosen_strategy, str) or not chosen_strategy.strip():
+        errors.append("chosen_strategy must be a non-empty string")
+    return {
+        "complete": not errors,
+        "errors": errors,
+        "diagnosis": diagnosis if isinstance(diagnosis, str) else None,
+        "evidence_used": evidence_used if isinstance(evidence_used, list) else None,
+        "chosen_strategy": chosen_strategy if isinstance(chosen_strategy, str) else None,
+    }
+
+
 def normalize_decision_telemetry(telemetry: Any, decision_latency_s: float | None = None) -> dict[str, Any]:
     if telemetry is None:
         telemetry_dict: dict[str, Any] = {}
@@ -786,6 +1007,10 @@ def normalize_decision_telemetry(telemetry: Any, decision_latency_s: float | Non
     for key in ["provider", "model"]:
         if key not in normalized.get("token_usage", {}) and isinstance(telemetry_dict.get(key), str):
             normalized.setdefault("token_usage", {})[key] = telemetry_dict[key]
+    if "rationale" in telemetry_dict:
+        normalized["rationale"] = normalize_rationale(telemetry_dict.get("rationale"))
+    else:
+        normalized["rationale"] = {"complete": False, "errors": ["rationale missing"]}
     return normalized
 
 
@@ -908,6 +1133,23 @@ def build_score_components(
     return components, details
 
 
+def is_no_action_record(item: dict[str, Any]) -> bool:
+    return item.get("validation", {}).get("normalized", {}).get("type") == ACTION_NO_ACTION or item.get("action", {}).get("type") == ACTION_NO_ACTION
+
+
+def rationale_completeness(decisions: list[dict[str, Any]]) -> float:
+    if not decisions:
+        return 0.0
+    complete = [
+        item.get("rationale", {}).get("complete")
+        for item in decisions
+        if isinstance(item, dict)
+    ]
+    if len(complete) != len(decisions):
+        return 0.0
+    return 1.0 if all(bool(item) for item in complete) else 0.0
+
+
 def summarize_efficiency(
     *,
     actions: list[dict[str, Any]],
@@ -990,12 +1232,17 @@ def score_episode(
     require_e2: bool = False,
     e2_oracle: dict[str, Any] | None = None,
     task: str = TASK_WS_PRB_PING_V1,
+    hidden_scenario: str | None = None,
     decisions: list[dict[str, Any]] | None = None,
     episode_started_at: float | None = None,
 ) -> dict[str, Any]:
-    policy = task_policy(task)
+    is_triage = task == TASK_RAN_POLICY_TRIAGE_V1
+    runtime_task = hidden_scenario if is_triage and hidden_scenario else task
+    policy = task_policy(runtime_task)
     decisions = decisions or []
-    valid_actions = [item for item in actions if item.get("validation", {}).get("valid")]
+    no_action_records = [item for item in actions if is_no_action_record(item)]
+    runtime_actions = [item for item in actions if not is_no_action_record(item)] if is_triage else actions
+    valid_actions = [item for item in runtime_actions if item.get("validation", {}).get("valid")]
     accepted_valid = [item for item in valid_actions if item.get("accepted")]
     def action_record_type(item: dict[str, Any]) -> str | None:
         value = item.get("validation", {}).get("normalized", {}).get("type") or item.get("action", {}).get("type")
@@ -1013,7 +1260,7 @@ def score_episode(
         for item in accepted_valid
         if item.get("validation", {}).get("dispatch") in {"e2_ccc", "e2_rc_du"}
     ]
-    invalid_actions = [item for item in actions if not item.get("validation", {}).get("valid")]
+    invalid_actions = [item for item in runtime_actions if not item.get("validation", {}).get("valid")]
     rejected_invalid = [item for item in invalid_actions if not item.get("dispatched")]
     metrics_frames = [
         item
@@ -1055,11 +1302,11 @@ def score_episode(
     ]
     actions_during_stale = [
         item
-        for item in actions
+        for item in runtime_actions
         if item.get("decision_context", {}).get("metrics", {}).get("stale")
         or item.get("decision_context", {}).get("scenario", {}).get("metrics_stale")
     ]
-    decision_context_errors = [item for item in actions if item.get("decision_context_error")]
+    decision_context_errors = [item for item in runtime_actions if item.get("decision_context_error")]
     decision_context_required = policy.require_evidence_before_action or bool(policy.stale_metrics_observations)
     evidence_gated_actions = [
         item
@@ -1076,20 +1323,34 @@ def score_episode(
 
     task_success = True
     task_failure_reason: str | None = None
-    if policy.require_no_actions and actions:
+    if is_triage and policy.require_no_actions:
+        if runtime_actions:
+            task_success = False
+            task_failure_reason = "agent acted during no-op triage scenario"
+        elif not no_action_records:
+            task_success = False
+            task_failure_reason = "no no-op decision recorded for triage scenario"
+    elif policy.require_no_actions and runtime_actions:
         task_success = False
         task_failure_reason = "agent acted during no-op task"
+    elif policy.require_first_invalid_then_valid and is_triage:
+        if invalid_actions:
+            task_success = False
+            task_failure_reason = "agent repeated an invalid action instead of repairing"
+        elif not accepted_expected:
+            task_success = False
+            task_failure_reason = "no accepted valid repair action"
     elif policy.require_first_invalid_then_valid:
-        if len(actions) < 2:
+        if len(runtime_actions) < 2:
             task_success = False
             task_failure_reason = "expected invalid action followed by valid repair action"
-        elif actions[0].get("validation", {}).get("valid"):
+        elif runtime_actions[0].get("validation", {}).get("valid"):
             task_success = False
             task_failure_reason = "first action was not locally invalid"
-        elif actions[0].get("dispatched"):
+        elif runtime_actions[0].get("dispatched"):
             task_success = False
             task_failure_reason = "invalid action was dispatched"
-        elif not any(item.get("validation", {}).get("valid") and item.get("accepted") for item in actions[1:]):
+        elif not any(item.get("validation", {}).get("valid") and item.get("accepted") for item in runtime_actions[1:]):
             task_success = False
             task_failure_reason = "no later accepted valid repair action"
         elif len(invalid_actions) > 1:
@@ -1098,10 +1359,10 @@ def score_episode(
     elif policy.requires_valid_action and not accepted_expected:
         task_success = False
         task_failure_reason = "no accepted valid expected action"
-    if task_success and policy.max_actions is not None and len(actions) > policy.max_actions:
+    if task_success and policy.max_actions is not None and len(runtime_actions) > policy.max_actions:
         task_success = False
         task_failure_reason = "action budget exceeded"
-    if task_success and task == TASK_WS_PRB_ACTION_BUDGET_V1 and invalid_actions:
+    if task_success and runtime_task == TASK_WS_PRB_ACTION_BUDGET_V1 and invalid_actions:
         task_success = False
         task_failure_reason = "invalid action used in action-budget task"
     if task_success and decision_context_required and decision_context_errors:
@@ -1149,10 +1410,14 @@ def score_episode(
     valid_action_accepted_rate = (len(accepted_valid) / len(valid_actions)) if valid_actions else 0.0
     invalid_local_rejection_correctness = (len(rejected_invalid) / len(invalid_actions)) if invalid_actions else 1.0
     expected_action_type_correct = bool(accepted_expected) if policy.requires_valid_action else True
-    action_budget_ok = policy.max_actions is None or len(actions) <= policy.max_actions
-    noop_correctness = 1.0 if (not policy.require_no_actions or not actions) else 0.0
+    action_budget_ok = policy.max_actions is None or len(runtime_actions) <= policy.max_actions
+    noop_correctness = 1.0 if (not policy.require_no_actions or not runtime_actions) else 0.0
     evidence_gated_action = bool(evidence_gated_actions) if policy.require_evidence_before_action else True
     stale_action_avoidance = 1.0 if not actions_during_stale else 0.0
+    rationale_complete = rationale_completeness(decisions) if is_triage else 1.0
+    if is_triage and task_success and no_action_records and not runtime_actions and not policy.require_no_actions:
+        task_success = False
+        task_failure_reason = "agent chose no action when control was required"
     failure_category = classify_failure_category(scored, unscored_reason, cleanup_success, task_failure_reason)
     score_components, component_details = build_score_components(
         policy=policy,
@@ -1172,8 +1437,13 @@ def score_episode(
         evidence_gated_action=evidence_gated_action,
         stale_action_avoidance=stale_action_avoidance,
     )
+    if is_triage:
+        original_evidence_use = score_components["evidence_use"]
+        score_components["evidence_use"] = _mean([original_evidence_use, rationale_complete]) or 0.0
+        component_details.setdefault("evidence_use", {})["rationale_complete"] = rationale_complete
+        component_details.setdefault("evidence_use", {})["pre_rationale_evidence_use"] = original_evidence_use
     efficiency = summarize_efficiency(
-        actions=actions,
+        actions=runtime_actions,
         observations=observations,
         decisions=decisions,
         episode_started_at=episode_started_at,
@@ -1182,6 +1452,8 @@ def score_episode(
     )
     return {
         "scoring_version": SCORING_VERSION,
+        "runtime_task": runtime_task,
+        "hidden_scenario": hidden_scenario if is_triage else None,
         "scored": scored,
         "unscored_reason": None if scored else unscored_reason,
         "episode_success": 1.0 if scored and task_success and cleanup_success else 0.0,
@@ -1207,10 +1479,18 @@ def score_episode(
             "noop_correctness": noop_correctness,
             "evidence_gated_action": evidence_gated_action,
             "stale_action_avoidance": stale_action_avoidance,
+            "triage_success": task_success if is_triage else None,
+            "rationale_complete": rationale_complete if is_triage else None,
+            "correct_api_selection": expected_action_type_correct if is_triage else None,
+            "unnecessary_action_avoidance": noop_correctness if is_triage else None,
+            "repair_success": bool(accepted_expected and not invalid_actions) if is_triage and policy.require_first_invalid_then_valid else None,
+            "stale_wait_success": stale_action_avoidance if is_triage and policy.stale_metrics_observations else None,
         },
         "counts": {
             "decisions": len(decisions),
             "actions": len(actions),
+            "runtime_actions": len(runtime_actions),
+            "no_action_decisions": len(no_action_records),
             "valid_actions": len(valid_actions),
             "accepted_valid_actions": len(accepted_valid),
             "accepted_expected_actions": len(accepted_expected),
@@ -1325,20 +1605,29 @@ print(json.dumps({{
         }
 
     def start(self, options: EpisodeOptions) -> dict[str, Any]:
-        if not is_implemented_episode_task(options.task):
-            raise ValueError(f"Unsupported episode task: {options.task}")
+        runtime_task = runtime_task_for_options(options)
+        public_task = public_task_for_options(options)
+        if not is_implemented_episode_task(public_task):
+            raise ValueError(f"Unsupported episode task: {public_task}")
+        if not is_implemented_episode_task(runtime_task):
+            raise ValueError(f"Unsupported internal task condition: {runtime_task}")
+        if is_triage_task(public_task) and runtime_task not in TRIAGE_HIDDEN_SCENARIOS:
+            raise ValueError(f"Unsupported triage task condition: {runtime_task}")
         safe_run_id(options.run_id)
         self.options = options
         self.paths = episode_paths(self.remote.config.workspace, options.run_id)
         suffix = container_suffix(options.run_id)
-        policy = task_policy(options.task)
+        policy = task_policy(runtime_task)
         is_v4 = policy.requires_e2
-        stage = episode_stage_for_task(options.task)
+        stage = episode_stage_for_task(public_task)
         provider = self.remote.config.ric_provider
         overlay = generate_v4_e2_gnb_overlay_for_policy(options.ws_port, policy) if is_v4 else generate_v3_gnb_overlay(options.ws_port)
         payload = {
             "run_id": options.run_id,
-            "task": options.task,
+            "task": public_task,
+            "runtime_task": runtime_task,
+            "hidden_scenario": runtime_task if is_triage_task(public_task) else None,
+            "is_triage": is_triage_task(public_task),
             "stage": stage,
             "is_v4": is_v4,
             "policy": {
@@ -1351,7 +1640,7 @@ print(json.dumps({{
                 "expected_action_type": policy.expected_action_type,
                 "stale_metrics_observations": policy.stale_metrics_observations,
             },
-            "scenario": scenario_metadata(options.task, options.duration),
+            "scenario": scenario_metadata(runtime_task, options.duration, public_task=public_task),
             "ric_provider": provider,
             "paths": self.paths,
             "compose": self.remote.config.runtime.open5gs_compose,
@@ -1761,11 +2050,17 @@ print(json.dumps({{
 
     def observe(self) -> dict[str, Any]:
         options = self._require_options()
-        policy = task_policy(options.task)
+        runtime_task = runtime_task_for_options(options)
+        public_task = public_task_for_options(options)
+        policy = task_policy(runtime_task)
         payload = {
             "run_id": options.run_id,
-            "task": options.task,
-            "stage": episode_stage_for_task(options.task),
+            "task": public_task,
+            "runtime_task": runtime_task,
+            "hidden_scenario": runtime_task if is_triage_task(public_task) else None,
+            "is_triage": is_triage_task(public_task),
+            "management_context": triage_management_context(runtime_task) if is_triage_task(public_task) else None,
+            "stage": episode_stage_for_task(public_task),
             "requires_e2": policy.requires_e2,
             "requires_e2_control": policy.requires_e2_control,
             "requires_ue_identity": policy.requires_ue_identity,
@@ -1924,6 +2219,35 @@ if actions_path.exists():
             last_action = json.loads(lines[-1])
         except json.JSONDecodeError:
             last_action = {{"decode_error": lines[-1]}}
+if last_action is None and payload.get("is_triage") and isinstance(payload.get("management_context"), dict):
+    repair_context = payload["management_context"].get("repair_context")
+    if isinstance(repair_context, dict) and repair_context.get("prior_action_failed"):
+        last_action = {{
+            "injected": True,
+            "accepted": False,
+            "dispatched": False,
+            "reason": repair_context.get("failure_reason"),
+            "action": {{"type": repair_context.get("failed_action_type")}},
+        }}
+
+def sanitize_last_action(item):
+    if not isinstance(item, dict):
+        return item
+    validation = item.get("validation") if isinstance(item.get("validation"), dict) else {{}}
+    normalized = validation.get("normalized") if isinstance(validation.get("normalized"), dict) else {{}}
+    action = item.get("action") if isinstance(item.get("action"), dict) else {{}}
+    return {{
+        "injected": bool(item.get("injected")),
+        "accepted": bool(item.get("accepted")),
+        "dispatched": bool(item.get("dispatched")),
+        "reason": item.get("reason"),
+        "action": {{"type": action.get("type")}},
+        "validation": {{
+            "valid": validation.get("valid"),
+            "reason": validation.get("reason"),
+            "normalized": {{"type": normalized.get("type")}},
+        }},
+    }}
 
 metrics = {{
     "present": isinstance(metric, dict),
@@ -1965,10 +2289,6 @@ observation = {{
     "type": payload["task"],
     "timestamp": time.time(),
     "observation_index": observation_index,
-    "scenario": {{
-        "metrics_stale": metrics_stale,
-        "stale_metrics_window": int(payload.get("stale_metrics_observations", 0) or 0),
-    }},
     "ping": parse_ping(ping_text),
     "cell": discover_cell_identity(),
     "metrics": metrics,
@@ -1998,6 +2318,41 @@ observation = {{
         "e2_control": bool(e2_oracle.get("control_oracle_available")),
     }},
 }}
+if payload.get("is_triage"):
+    observation["metrics"] = {{
+        key: value
+        for key, value in observation["metrics"].items()
+        if key in {{
+            "present",
+            "component_keys",
+            "timestamp",
+            "error",
+            "stale",
+            "fresh",
+            "stale_reason",
+            "masked_raw_present",
+        }}
+    }}
+    observation["e2"] = {{
+        "enabled": bool(payload.get("requires_e2")),
+        "kpm_available": bool(e2_oracle.get("oracle_available")),
+        "kpm_indications": int(e2_oracle.get("kpm_indications", len(e2_records)) or 0),
+        "has_prb_measurement": bool(e2_oracle.get("has_prb_measurement")),
+        "pcap_available": bool(e2_oracle.get("pcap_available")),
+        "log_available": bool(e2_oracle.get("log_available")),
+        "e2_control_available": bool(payload.get("requires_e2_control")),
+        "accepted_control_records": int(e2_oracle.get("accepted_control_records", 0) or 0),
+        "control_types": e2_oracle.get("control_types", []),
+        "du_ue_id": discover_du_ue_id() if payload.get("requires_ue_identity") else None,
+    }}
+    observation["last_action"] = sanitize_last_action(last_action)
+    observation["management_context"] = payload.get("management_context")
+    observation["action_catalog"] = list((payload.get("management_context") or {{}}).get("allowed_action_types", []))
+else:
+    observation["scenario"] = {{
+        "metrics_stale": metrics_stale,
+        "stale_metrics_window": int(payload.get("stale_metrics_observations", 0) or 0),
+    }}
 record = {{"run_id": payload["run_id"], "state": "running", "observation": observation}}
 with open(paths["observations"], "a", encoding="utf-8") as handle:
     handle.write(json.dumps(record, sort_keys=True) + "\\n")
@@ -2039,7 +2394,14 @@ print(json.dumps({{"status": "ok", "stage": stage, "run_id": payload["run_id"], 
 
     def act(self, action: Any, allowed_types: tuple[str, ...] | None = None) -> dict[str, Any]:
         options = self._require_options()
-        validation = validate_action(action, allowed_types=allowed_types or task_policy(options.task).allowed_action_types)
+        runtime_task = runtime_task_for_options(options)
+        public_task = public_task_for_options(options)
+        if is_triage_task(public_task) and action is None:
+            action = {"type": ACTION_NO_ACTION}
+        allowed = allowed_types or (
+            task_policy(public_task).allowed_action_types if is_triage_task(public_task) else task_policy(runtime_task).allowed_action_types
+        )
+        validation = validate_action(action, allowed_types=allowed)
         decision_context = self._latest_decision_context()
         decision_context_error = decision_context.pop("_decision_context_error", None)
         record = {
@@ -2065,6 +2427,19 @@ print(json.dumps({{"status": "ok", "stage": stage, "run_id": payload["run_id"], 
                 "reason": validation["reason"],
                 "validation": validation,
                 "decision_context_error": decision_context_error,
+            }
+        if validation.get("dispatch") == "none":
+            record["dispatched"] = False
+            record["accepted"] = True
+            record["completed_at"] = time.time()
+            self._append_jsonl(self.paths["actions"], record)
+            return {
+                "status": "ok",
+                "stage": episode_stage_for_task(public_task),
+                "run_id": options.run_id,
+                "accepted": True,
+                "reason": "no-op decision",
+                "record": record,
             }
         if validation.get("dispatch") in {"e2_ccc", "e2_rc_du"}:
             return self._dispatch_e2_control_action(record, validation.get("dispatch") or "e2_control")
@@ -2325,7 +2700,7 @@ print(json.dumps({{"status": "ok", "context": context, "context_error": context_
         run_id = safe_run_id(run_id or self._require_options().run_id)
         paths = self.paths or episode_paths(self.remote.config.workspace, run_id)
         suffix = container_suffix(run_id)
-        cleanup_task = self.options.task if self.options is not None else TASK_WS_PRB_PING_V1
+        cleanup_task = runtime_task_for_options(self.options) if self.options is not None else TASK_WS_PRB_PING_V1
         cleanup_policy = task_policy(cleanup_task)
         payload = {
             "run_id": run_id,
@@ -2444,12 +2819,17 @@ print(json.dumps(result))
 
     def finalize(self, unscored_reason: str | None = None, cleanup_success: bool = True) -> dict[str, Any]:
         options = self._require_options()
-        policy = task_policy(options.task)
+        runtime_task = runtime_task_for_options(options)
+        public_task = public_task_for_options(options)
+        policy = task_policy(runtime_task)
         scoring_source = self._episode_scoring_remote_source()
         payload = {
             "run_id": options.run_id,
-            "task": options.task,
-            "stage": episode_stage_for_task(options.task),
+            "task": public_task,
+            "runtime_task": runtime_task,
+            "hidden_scenario": runtime_task if is_triage_task(public_task) else None,
+            "is_triage": is_triage_task(public_task),
+            "stage": episode_stage_for_task(public_task),
             "policy": {
                 "requires_e2": policy.requires_e2,
                 "requires_valid_action": policy.requires_valid_action,
@@ -2692,6 +3072,7 @@ scoring = score_episode(
     require_e2=bool(policy.get("requires_e2")),
     e2_oracle=e2_oracle,
     task=payload["task"],
+    hidden_scenario=payload.get("hidden_scenario"),
     decisions=decisions,
     episode_started_at=containers.get("started_at"),
 )
@@ -2699,6 +3080,7 @@ summary = {{
     "status": "ok",
     "stage": payload["stage"],
     "task": payload["task"],
+    "hidden_scenario": payload.get("hidden_scenario"),
     "run_id": payload["run_id"],
     **scoring,
     "artifacts": paths,
@@ -2715,6 +3097,8 @@ print(json.dumps(summary))
             "ACTION_SET_PRB_POLICY_RATIO_CCC",
             "ACTION_SET_PRB_POLICY_RATIO_RC_DU",
             "ACTION_SET_SSB_BLOCK_POWER_WS",
+            "ACTION_NO_ACTION",
+            "TASK_RAN_POLICY_TRIAGE_V1",
             "TASK_WS_PRB_PING_V1",
             "TASK_E2_KPM_PRB_PING_V1",
             "TASK_E2_CCC_PRB_POLICY_PING_V1",
@@ -2751,12 +3135,15 @@ print(json.dumps(summary))
                 inspect.getsource(_percentile),
                 inspect.getsource(_non_negative_int),
                 inspect.getsource(normalize_token_usage),
+                inspect.getsource(normalize_rationale),
                 inspect.getsource(normalize_decision_telemetry),
                 inspect.getsource(_timestamp_from_observation),
                 inspect.getsource(_first_timestamp),
                 inspect.getsource(task_failure_is_runtime),
                 inspect.getsource(classify_failure_category),
                 inspect.getsource(build_score_components),
+                inspect.getsource(is_no_action_record),
+                inspect.getsource(rationale_completeness),
                 inspect.getsource(summarize_efficiency),
                 inspect.getsource(score_episode),
             ]
@@ -2768,7 +3155,8 @@ print(json.dumps(summary))
         action: dict[str, Any] | None = None,
         unscored_reason: str | None = None,
     ) -> dict[str, Any]:
-        policy = task_policy(options.task)
+        runtime_task = runtime_task_for_options(options)
+        policy = task_policy(runtime_task)
         expected_action_type = policy.expected_action_type or policy.allowed_action_types[0]
         fixed_action = action or (
             fixed_ssb_action() if expected_action_type == ACTION_SET_SSB_BLOCK_POWER_WS else fixed_prb_action_for_type(expected_action_type)
@@ -2830,6 +3218,8 @@ print(json.dumps(summary))
                 sent_fixed = True
             elif policy.require_no_actions:
                 self.record_decision(None, decision_latency_s=0.0, observation=observation)
+                if is_triage_task(options.task):
+                    actions.append(self.act(None))
                 sent_fixed = False
             elif not policy.require_evidence_before_action:
                 actions.append(record_and_act(current_fixed_action(observation), observation))
@@ -2849,6 +3239,8 @@ print(json.dumps(summary))
                     sent_fixed = True
                 elif policy.require_no_actions:
                     self.record_decision(None, decision_latency_s=0.0, observation=observation)
+                    if is_triage_task(options.task):
+                        actions.append(self.act(None))
                 time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
         except Exception as exc:
             episode_error = str(exc)
@@ -2983,6 +3375,8 @@ def run_episode(
     options = EpisodeOptions(
         run_id=safe_run_id(run_id or default_episode_run_id()),
         task=task,
+        public_task=task,
+        hidden_scenario=default_triage_hidden_scenario() if is_triage_task(task) else None,
         duration=duration,
         ws_port=ws_port,
         launch_timeout=launch_timeout,
