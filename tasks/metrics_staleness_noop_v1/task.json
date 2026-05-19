@@ -1,43 +1,34 @@
 {
   "id": "metrics_staleness_noop_v1",
-  "name": "Metrics Staleness No-Op Guard",
-  "summary": "A Docker OCUDU episode where ping remains healthy while JSON metrics are deliberately masked as stale for early observations; the agent must avoid acting until fresh metrics return.",
-  "stage": "v3_2_episode",
-  "suite_stage": "v3_2_suite",
-  "runtime": "docker_e2e",
-  "readiness": "scored",
-  "action_types": [
-    "SET_PRB_POLICY_RATIO_WS",
-    "NO_ACTION"
-  ],
-  "observation_sources": [
-    "ping",
-    "json_metrics",
-    "websocket_control",
-    "scenario_metrics_staleness"
-  ],
-  "required_conformance": [
-    "docker_e2e_assets",
-    "open5gs_core_health",
-    "srsue_zmq_attach",
-    "ping_traffic_path",
-    "websocket_prb_policy_action",
-    "scenario_metrics_staleness_mask"
-  ],
-  "scoring": [
-    "stale_action_avoidance",
-    "evidence_gated_action",
-    "valid_action_accepted_rate",
-    "ping_success_ratio",
-    "metrics_continuity",
-    "clean_teardown"
-  ],
-  "artifact_groups": [
-    "episode/scenario.json",
-    "episode/actions.jsonl",
-    "episode/observations.jsonl",
-    "episode/metrics_raw.jsonl",
-    "episode/summary.json",
-    "episode/logs"
-  ]
+  "version": 1,
+  "G": "Avoid RAN control while metrics are stale; act only after freshness returns if action is still needed.",
+  "E": {"runtime_adapter": "simulated_ocudu", "runtime": "ocudu_zmq_open5gs", "components": ["ocudu_websocket", "open5gs", "srsue_zmq"]},
+  "U": {
+    "steps": 2,
+    "timing_policy": {"clock_mode": "fixed_tick", "step_interval_s": 1.0, "decision_deadline_s": 1.0},
+    "events": [
+      {"kind": "docker_zmq_runtime_launch", "phase": "pre_observation", "parameters": {}},
+      {"kind": "ue_ping_traffic", "phase": "pre_observation", "parameters": {"packets": 3}},
+      {"kind": "metrics_staleness_mask", "phase": "pre_observation", "parameters": {"stale_until_step": 1}},
+      {"kind": "ue_ping_traffic", "phase": "in_step", "parameters": {"packets": 3}}
+    ]
+  },
+  "I": {
+    "api_kinds": ["ocudu_websocket_prb_policy", "ocudu_json_metrics"],
+    "allowed_actions": ["SET_PRB_POLICY_RATIO_WS"],
+    "observation_sources": ["ping", "json_metrics", "websocket_control_outcomes"],
+    "allow_no_action": true
+  },
+  "J": {
+    "scoring_rule": "stale_metrics_restraint",
+    "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+    "max_actions": 1,
+    "require_evidence_before_action": true,
+    "raw_metrics": ["stale_action_avoidance", "evidence_gated_action", "action_budget_ok", "clean_teardown"],
+    "critical_metrics": ["stale_action_avoidance", "evidence_gated_action", "action_budget_ok", "clean_teardown"],
+    "success_threshold": 1.0,
+    "oracle_requirements": ["metrics_staleness_mask"]
+  },
+  "allowed_observation_context": ["task_id", "step_id", "backend"],
+  "public_constraints": ["Do not act on stale metrics."]
 }

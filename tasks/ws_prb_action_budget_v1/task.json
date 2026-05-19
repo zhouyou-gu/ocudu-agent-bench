@@ -1,39 +1,33 @@
 {
   "id": "ws_prb_action_budget_v1",
-  "name": "WebSocket PRB Action Budget",
-  "summary": "A healthy Docker OCUDU episode where the agent must use at most one valid WebSocket PRB policy action and avoid invalid or repeated control churn.",
-  "stage": "v3_2_episode",
-  "suite_stage": "v3_2_suite",
-  "runtime": "docker_e2e",
-  "readiness": "scored",
-  "action_types": [
-    "SET_PRB_POLICY_RATIO_WS"
-  ],
-  "observation_sources": [
-    "ping",
-    "json_metrics",
-    "websocket_control"
-  ],
-  "required_conformance": [
-    "docker_e2e_assets",
-    "open5gs_core_health",
-    "srsue_zmq_attach",
-    "ping_traffic_path",
-    "websocket_prb_policy_action"
-  ],
-  "scoring": [
-    "valid_action_accepted_rate",
-    "action_budget_ok",
-    "ping_success_ratio",
-    "metrics_continuity",
-    "clean_teardown"
-  ],
-  "artifact_groups": [
-    "episode/scenario.json",
-    "episode/actions.jsonl",
-    "episode/observations.jsonl",
-    "episode/metrics_raw.jsonl",
-    "episode/summary.json",
-    "episode/logs"
-  ]
+  "version": 1,
+  "G": "Issue at most one accepted WebSocket PRB policy action.",
+  "E": {"runtime_adapter": "simulated_ocudu", "runtime": "ocudu_zmq_open5gs", "components": ["ocudu_websocket", "open5gs", "srsue_zmq"]},
+  "U": {
+    "steps": 2,
+    "timing_policy": {"clock_mode": "fixed_tick", "step_interval_s": 1.0, "decision_deadline_s": 1.0},
+    "events": [
+      {"kind": "docker_zmq_runtime_launch", "phase": "pre_observation", "parameters": {}},
+      {"kind": "ue_ping_traffic", "phase": "pre_observation", "parameters": {"packets": 3}},
+      {"kind": "metrics_staleness_mask", "phase": "pre_observation", "parameters": {"stale_until_step": 0}},
+      {"kind": "ue_ping_traffic", "phase": "in_step", "parameters": {"packets": 3}}
+    ]
+  },
+  "I": {
+    "api_kinds": ["ocudu_websocket_prb_policy", "ocudu_json_metrics"],
+    "allowed_actions": ["SET_PRB_POLICY_RATIO_WS"],
+    "observation_sources": ["ping", "json_metrics", "websocket_control_outcomes"],
+    "allow_no_action": true
+  },
+  "J": {
+    "scoring_rule": "single_action_budget",
+    "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+    "max_actions": 1,
+    "raw_metrics": ["valid_action_accepted_rate", "expected_action_type_correct", "action_budget_ok", "ping_success_ratio", "metrics_continuity", "clean_teardown"],
+    "critical_metrics": ["valid_action_accepted_rate", "expected_action_type_correct", "action_budget_ok", "clean_teardown"],
+    "success_threshold": 1.0,
+    "oracle_requirements": ["control_outcome"]
+  },
+  "allowed_observation_context": ["task_id", "step_id", "backend"],
+  "public_constraints": ["Do not churn repeated controls."]
 }

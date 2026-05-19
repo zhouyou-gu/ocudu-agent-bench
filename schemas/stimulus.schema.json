@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "required": ["steps", "timing_policy", "events"],
+  "properties": {
+    "steps": {"type": "integer"},
+    "timing_policy": {"type": "object"},
+    "events": {"type": "array"}
+  }
+}

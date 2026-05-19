@@ -1,9 +1,10 @@
-FROM ubuntu:24.04
+FROM ubuntu:22.04
 
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    ca-certificates ccache cmake gcc g++ git iproute2 iputils-ping libboost-program-options-dev \
-    libfftw3-dev libgtest-dev libmbedtls-dev libsctp-dev libyaml-cpp-dev libzmq3-dev make ninja-build \
-    pkg-config python3 && \
-    rm -rf /var/lib/apt/lists/*
+LABEL org.opencontainers.image.title="OCUDUAgentBench OCUDU build placeholder"
 
-WORKDIR /work
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    build-essential \
+    cmake \
+    git \
+    && rm -rf /var/lib/apt/lists/*

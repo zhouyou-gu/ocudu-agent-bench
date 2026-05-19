@@ -1,95 +1,13 @@
 {
-  "version": 1,
-  "description": "Documentation schema for benchmark task manifests. The Python task registry performs lightweight stdlib validation against this shape.",
-  "required": [
-    "id",
-    "name",
-    "summary",
-    "stage",
-    "suite_stage",
-    "runtime",
-    "readiness",
-    "action_types",
-    "observation_sources",
-    "required_conformance",
-    "scoring",
-    "artifact_groups"
-  ],
-  "fields": {
-    "id": "Stable task id. Must match the containing directory name.",
-    "name": "Human-readable task name.",
-    "summary": "One-paragraph description of the task contract.",
-    "stage": "Episode stage label returned by runtime APIs.",
-    "suite_stage": "Suite stage label returned by suite APIs.",
-    "runtime": "Runtime family used by the task.",
-    "readiness": "Task readiness, such as scored or experimental.",
-    "action_types": "Allowed local action type names.",
-    "observation_sources": "Normalized observation sources expected by the task.",
-    "required_conformance": "Conformance check ids that must pass before scored runs.",
-    "scoring": "Score dimensions used by summaries and suite aggregation.",
-    "artifact_groups": "Expected remote artifact files or directories under the run episode directory."
-  },
-  "allowed_values": {
-    "runtime": [
-      "docker_e2e",
-      "docker_e2e_flexric",
-      "hidden_triage"
-    ],
-    "readiness": [
-      "idea",
-      "designed",
-      "conformance_needed",
-      "implemented_unscored",
-      "scored"
-    ],
-    "action_types": [
-      "NO_ACTION",
-      "SET_PRB_POLICY_RATIO_WS",
-      "SET_SSB_BLOCK_POWER_WS",
-      "SET_PRB_POLICY_RATIO_CCC",
-      "SET_PRB_POLICY_RATIO_RC_DU"
-    ],
-    "observation_sources": [
-      "ping",
-      "json_metrics",
-      "websocket_control",
-      "websocket_control_outcomes",
-      "cell_identity",
-      "scenario_metrics_staleness",
-      "e2_kpm_v05",
-      "e2_control_outcome",
-      "ue_identity",
-      "pcap_log_oracle",
-      "management_context",
-      "stable_action_catalog"
-    ],
-    "scoring": [
-      "valid_action_accepted_rate",
-      "invalid_local_rejection_correctness",
-      "ping_success_ratio",
-      "metrics_continuity",
-      "e2_kpm_continuity",
-      "e2_oracle_available",
-      "e2_control_oracle_available",
-      "expected_e2_control_oracle_available",
-      "expected_action_type_correct",
-      "accepted_e2_control_actions",
-      "clean_teardown",
-      "task_success",
-      "action_budget_ok",
-      "noop_correctness",
-      "evidence_gated_action",
-      "stale_action_avoidance",
-      "triage_success",
-      "rationale_complete",
-      "correct_api_selection",
-      "unnecessary_action_avoidance",
-      "repair_success",
-      "stale_wait_success"
-    ]
-  },
-  "boundary_rules": {
-    "action_types": "Use benchmark action type names only. Raw OCUDU wire commands such as rrm_policy_ratio_set, ssb_set, and metrics_subscribe are not task action types.",
-    "artifact_groups": "Use relative episode artifact paths only, such as episode/summary.json or episode/logs."
+  "type": "object",
+  "required": ["id", "version", "G", "E", "U", "I", "J"],
+  "properties": {
+    "id": {"type": "string"},
+    "version": {"type": "integer"},
+    "G": {"type": "string"},
+    "E": {"type": "object"},
+    "U": {"type": "object"},
+    "I": {"type": "object"},
+    "J": {"type": "object"}
   }
 }

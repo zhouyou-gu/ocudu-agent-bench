@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["step_id", "action_id", "status", "safe_message"],
+  "properties": {
+    "step_id": {"type": "integer"},
+    "action_id": {"type": "string"},
+    "status": {"type": "string"},
+    "safe_error_class": {"type": ["string", "null"]},
+    "safe_message": {"type": "string"}
+  }
+}

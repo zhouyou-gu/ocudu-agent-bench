@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "required": ["api_id", "kind", "roles", "backend", "status"],
+  "properties": {
+    "api_id": {"type": "string"},
+    "kind": {"type": "string"},
+    "roles": {"type": "array", "items": {"type": "string"}},
+    "backend": {"type": "string"},
+    "status": {"type": "string"},
+    "request_fields": {"type": "array", "items": {"type": "string"}},
+    "response_fields": {"type": "array", "items": {"type": "string"}}
+  }
+}

@@ -1,40 +1,33 @@
 {
   "id": "ws_ssb_power_repair_v1",
-  "name": "WebSocket SSB Power Error Repair",
-  "summary": "A healthy Docker Open5GS, OCUDU gNB, and srsUE episode where the agent must recover from one locally rejected SSB block-power action by issuing one valid OCUDU WebSocket ssb_set command.",
-  "stage": "v3_3_episode",
-  "suite_stage": "v3_3_suite",
-  "runtime": "docker_e2e",
-  "readiness": "scored",
-  "action_types": [
-    "SET_SSB_BLOCK_POWER_WS"
-  ],
-  "observation_sources": [
-    "ping",
-    "json_metrics",
-    "cell_identity",
-    "websocket_control_outcomes"
-  ],
-  "required_conformance": [
-    "docker_e2e_assets",
-    "open5gs_core_health",
-    "srsue_zmq_attach",
-    "ping_traffic_path",
-    "websocket_ssb_power_action"
-  ],
-  "scoring": [
-    "invalid_local_rejection_correctness",
-    "valid_action_accepted_rate",
-    "ping_success_ratio",
-    "metrics_continuity",
-    "clean_teardown"
-  ],
-  "artifact_groups": [
-    "episode/scenario.json",
-    "episode/actions.jsonl",
-    "episode/observations.jsonl",
-    "episode/metrics_raw.jsonl",
-    "episode/summary.json",
-    "episode/logs/"
-  ]
+  "version": 1,
+  "G": "Recover from an invalid SSB power action with one valid SSB power repair.",
+  "E": {"runtime_adapter": "simulated_ocudu", "runtime": "ocudu_zmq_open5gs", "components": ["ocudu_websocket", "open5gs", "srsue_zmq"]},
+  "U": {
+    "steps": 2,
+    "timing_policy": {"clock_mode": "fixed_tick", "step_interval_s": 1.0, "decision_deadline_s": 1.0},
+    "events": [
+      {"kind": "docker_zmq_runtime_launch", "phase": "pre_observation", "parameters": {}},
+      {"kind": "ue_ping_traffic", "phase": "pre_observation", "parameters": {"packets": 3}},
+      {"kind": "metrics_staleness_mask", "phase": "pre_observation", "parameters": {"stale_until_step": 0}},
+      {"kind": "ue_ping_traffic", "phase": "in_step", "parameters": {"packets": 3}}
+    ]
+  },
+  "I": {
+    "api_kinds": ["ocudu_websocket_ssb_power", "ocudu_json_metrics"],
+    "allowed_actions": ["SET_SSB_BLOCK_POWER_WS"],
+    "observation_sources": ["ping", "json_metrics", "cell_identity", "websocket_control_outcomes"],
+    "allow_no_action": true
+  },
+  "J": {
+    "scoring_rule": "ssb_power_repair",
+    "expected_action_type": "SET_SSB_BLOCK_POWER_WS",
+    "max_actions": 2,
+    "raw_metrics": ["repair_success", "valid_action_accepted_rate", "expected_action_type_correct", "ping_success_ratio", "metrics_continuity", "clean_teardown"],
+    "critical_metrics": ["valid_action_accepted_rate", "expected_action_type_correct", "ping_success_ratio", "metrics_continuity", "clean_teardown"],
+    "success_threshold": 1.0,
+    "oracle_requirements": ["control_outcome"]
+  },
+  "allowed_observation_context": ["task_id", "step_id", "backend"],
+  "public_constraints": ["Use only the SSB power API for repair."]
 }

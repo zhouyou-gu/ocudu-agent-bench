@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {"type": "string"},
+    "min_prb_policy_ratio": {"type": "integer"},
+    "max_prb_policy_ratio": {"type": "integer"},
+    "nci": {"type": "integer"},
+    "ssb_block_power_dbm": {"type": "integer"},
+    "du_ue_id": {"type": "integer"}
+  }
+}

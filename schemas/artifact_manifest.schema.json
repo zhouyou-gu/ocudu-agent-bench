@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["run_id", "artifact_id", "artifact_type", "producer_module", "visibility_class"],
+  "properties": {
+    "run_id": {"type": "string"},
+    "artifact_id": {"type": "string"},
+    "artifact_type": {"type": "string"},
+    "producer_module": {"type": "string"},
+    "visibility_class": {"type": "string"}
+  }
+}

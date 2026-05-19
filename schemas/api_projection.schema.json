@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["evidence_apis", "action_apis", "feedback_apis"],
+  "properties": {
+    "evidence_apis": {"type": "array"},
+    "action_apis": {"type": "array"},
+    "feedback_apis": {"type": "array"},
+    "action_types": {"type": "array", "items": {"type": "string"}},
+    "observation_sources": {"type": "array", "items": {"type": "string"}}
+  }
+}
