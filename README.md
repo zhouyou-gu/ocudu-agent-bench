@@ -1,6 +1,6 @@
 # OCUDU Agent Benchmark
 
-`benchmark/` is the executable testbed for measuring autonomous agent performance on OCUDU-based RAN management episodes. The benchmark is the intermediate layer between the LLM agent and the RAN. The local repo runs that layer; the remote Linux host is the OCUDU system under test.
+`benchmark/` is the executable testbed for measuring autonomous agent performance on OCUDU-based RAN management episodes. The benchmark manages OCUDU runtime setup, controlled stimulus, conformance gates, traces, artifacts, and scoring; the LLM agent interacts with OCUDU through task-selected RAN APIs. The local repo runs the benchmark controller; the remote Linux host runs the OCUDU system under test.
 
 ```text
 +---------------- Local repo ----------------+
@@ -18,7 +18,7 @@
 +--------------------------------------------+
 ```
 
-The benchmark owns orchestration, local action validation, conformance gating, execution traces, task scoring, and summaries. The remote workspace owns OCUDU source/build/install trees, runtime processes, raw logs, PCAPs, metrics, and run artifacts. [API_REFERENCE.md](API_REFERENCE.md) is the standalone source of truth for implemented benchmark APIs and the boundary between reusable APIs and scored tasks.
+The benchmark owns orchestration, local action validation, conformance gating, execution traces, task scoring, and summaries. The remote workspace owns OCUDU source/build/install trees, runtime processes, raw logs, PCAPs, metrics, and run artifacts. [API_REFERENCE.md](API_REFERENCE.md) is the standalone source of truth for implemented benchmark APIs and the boundary between reusable APIs and scored tasks. [ocudu_api_list.md](ocudu_api_list.md) tracks OCUDU runtime API status and future implementable APIs; [remote_ocudu_api_setup.md](remote_ocudu_api_setup.md) is the remote setup and API-readiness runbook.
 
 During a scored episode, the agent does not talk to the raw remote runtime directly. It talks to the benchmark layer, and the benchmark layer mediates all RAN evidence and RAN actions:
 
@@ -35,7 +35,7 @@ The benchmark layer is not another reasoning agent. It is the controlled evaluat
 The benchmark uses one task definition:
 
 ```text
-Task = Agent Goal + Benchmark Stimulus + RAN APIs + Task Scoring
+Task = Agent Goal + OCUDU Runtime Setup + Benchmark Stimulus + RAN APIs + Task Scoring
 ```
 
 A task is a full scored RAN-management episode. An `L/D` pair is one transition unit inside a task's Benchmark Stimulus; it is not a task. The agent does not need to know the benchmark internals; it uses benchmark-mediated RAN APIs to read evidence, execute a management action or no-action, and receive feedback.
@@ -43,6 +43,7 @@ A task is a full scored RAN-management episode. An `L/D` pair is one transition 
 | Part | Meaning |
 | --- | --- |
 | Agent Goal | What the agent is supposed to manage or decide. |
+| OCUDU Runtime Setup | The source, build, image, topology, port, and component requirements needed to instantiate the live runtime. |
 | Benchmark Stimulus | The controlled input or event sequence injected by the benchmark into the RAN to create the management condition used for evaluation. |
 | RAN APIs | The RAN observation/control APIs the agent uses. |
 | Task Scoring | How the benchmark decides whether the agent succeeded. |
@@ -131,7 +132,7 @@ python3 benchmark/benchctl.py episode suite \
 
 ## Choosing A Task
 
-Benchmark tasks are explicit episode contracts. A task defines Agent Goal, Benchmark Stimulus, RAN APIs, and Task Scoring.
+Benchmark tasks are explicit episode contracts. A task defines Agent Goal, OCUDU Runtime Setup, Benchmark Stimulus, RAN APIs, and Task Scoring.
 
 Tasks consume APIs; they do not define APIs. A task manifest may reference action types such as `SET_PRB_POLICY_RATIO_WS` or observation sources such as `json_metrics`, but wire commands such as `rrm_policy_ratio_set` and `ssb_set` belong to the API reference. `NO_ACTION` in a task manifest means the agent should return Python `None`; it is not sent as a runtime command.
 
