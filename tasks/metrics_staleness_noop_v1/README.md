@@ -1,6 +1,6 @@
 # `metrics_staleness_noop_v1`
 
-## Goal
+## Agent Goal
 
 Evaluate whether an LLM agent can avoid RAN control while telemetry is stale, then act once fresh metrics return.
 
@@ -53,7 +53,7 @@ Valid repair/control action after freshness returns:
 
 Observations include ping counters, JSON metrics fields, `metrics.stale`, `metrics.fresh`, task-controlled staleness markers, backend status, and last action result. The stale view is an agent-facing task condition; raw remote metrics are still collected.
 
-## Scoring
+## Task Scoring
 
 Canonical score dimensions:
 

@@ -1,6 +1,6 @@
 # `e2_control_api_consistency_v1`
 
-## Goal
+## Agent Goal
 
 Evaluate whether an LLM agent can select the correct E2 control API for a cell/slice PRB policy objective when both CCC and RC DU actions are available.
 
@@ -66,7 +66,7 @@ Allowed but incorrect for the task objective:
 
 Observations include ping counters, JSON metrics, decoded KPM evidence, E2 control backend status, E2 control outcome records, and last action result. The scoring contract expects the CCC action type for the cell/slice objective.
 
-## Scoring
+## Task Scoring
 
 Canonical score dimensions:
 

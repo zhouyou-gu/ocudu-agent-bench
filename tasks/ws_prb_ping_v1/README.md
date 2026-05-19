@@ -1,6 +1,6 @@
 # `ws_prb_ping_v1`
 
-## Goal
+## Agent Goal
 
 Evaluate whether an LLM agent can issue a valid OCUDU WebSocket PRB policy action while a one-UE Docker/ZMQ episode remains healthy.
 
@@ -53,7 +53,7 @@ The action is translated to OCUDU's WebSocket `rrm_policy_ratio_set` command. `m
 
 Observations include run state, task id, ping counters, JSON metrics presence and freshness, backend status, and the most recent local validation or WebSocket dispatch result. Agents should tolerate missing raw metric subfields and use backend status before acting.
 
-## Scoring
+## Task Scoring
 
 Canonical score dimensions:
 

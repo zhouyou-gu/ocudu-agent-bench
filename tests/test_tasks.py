@@ -250,13 +250,13 @@ class TaskRegistryTests(unittest.TestCase):
 
     def test_task_readmes_have_agent_facing_contract_sections(self) -> None:
         required_headers = [
-            "## Goal",
+            "## Agent Goal",
             "## APIs Used",
             "## How To Trigger",
             "## Perceive -> Reason -> Execute -> Feedback -> Repeat",
             "## Allowed Actions",
             "## Observation Contract",
-            "## Scoring",
+            "## Task Scoring",
             "## Unscored Conditions",
             "## Required Conformance",
             "## Artifacts",

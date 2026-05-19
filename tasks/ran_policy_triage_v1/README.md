@@ -1,6 +1,6 @@
 # `ran_policy_triage_v1`
 
-## Goal
+## Agent Goal
 Evaluate an LLM agent as a RAN management operator. The agent sees one stable task id, structured RAN evidence, and structured management context. It must diagnose the task condition and choose the minimum safe action without seeing internal episode labels.
 
 ## APIs Used
@@ -47,7 +47,7 @@ SET_PRB_POLICY_RATIO_RC_DU
 ## Observation Contract
 The agent-facing observation type is always `ran_policy_triage_v1`. Observations include structured evidence only and do not expose internal task-condition labels, expected action type, scoring contract, or oracle summaries. The `management_context` provides the broad objective, safety constraints, desired values when control is needed, target scope, and repair context when a prior failed action is injected.
 
-## Scoring
+## Task Scoring
 The task records `triage_success`, `rationale_complete`, `correct_api_selection`, `unnecessary_action_avoidance`, `repair_success`, `stale_wait_success`, `valid_action_accepted_rate`, `invalid_local_rejection_correctness`, `ping_success_ratio`, `metrics_continuity`, `e2_kpm_continuity`, `e2_oracle_available`, `e2_control_oracle_available`, and `clean_teardown`. Rationale is shape-checked through decision telemetry; missing rationale does not block dispatch but lowers `evidence_use`.
 
 ## Unscored Conditions

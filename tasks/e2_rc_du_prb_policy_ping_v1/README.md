@@ -1,6 +1,6 @@
 # `e2_rc_du_prb_policy_ping_v1`
 
-## Goal
+## Agent Goal
 
 Evaluate whether an LLM agent can wait for DU UE identity evidence and then control OCUDU DU PRB quota through E2SM-RC.
 
@@ -52,7 +52,7 @@ The agent returns `None` until fresh metrics, E2 PRB evidence, and DU UE identit
 
 Observations include ping counters, JSON metrics status, decoded KPM evidence, `e2.du_ue_id` when available, E2 control backend status, E2 control outcome records, and last action result.
 
-## Scoring
+## Task Scoring
 
 Canonical score dimensions:
 

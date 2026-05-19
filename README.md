@@ -1,6 +1,6 @@
 # OCUDU Agent Benchmark
 
-`benchmark/` is the executable testbed for measuring autonomous agent performance on OCUDU-based RAN management episodes. The local repo is the orchestrator; the remote Linux host is the OCUDU system under test.
+`benchmark/` is the executable testbed for measuring autonomous agent performance on OCUDU-based RAN management episodes. The benchmark is the intermediate layer between the LLM agent and the RAN. The local repo runs that layer; the remote Linux host is the OCUDU system under test.
 
 ```text
 +---------------- Local repo ----------------+
@@ -18,24 +18,34 @@
 +--------------------------------------------+
 ```
 
-The benchmark owns orchestration, local action validation, conformance gating, the LLM-agent execution loop, scoring, and summaries. The remote workspace owns OCUDU source/build/install trees, runtime processes, raw logs, PCAPs, metrics, and run artifacts. [API_REFERENCE.md](API_REFERENCE.md) is the standalone source of truth for implemented benchmark APIs and the boundary between reusable APIs and scored tasks.
+The benchmark owns orchestration, local action validation, conformance gating, execution traces, task scoring, and summaries. The remote workspace owns OCUDU source/build/install trees, runtime processes, raw logs, PCAPs, metrics, and run artifacts. [API_REFERENCE.md](API_REFERENCE.md) is the standalone source of truth for implemented benchmark APIs and the boundary between reusable APIs and scored tasks.
+
+During a scored episode, the agent does not talk to the raw remote runtime directly. It talks to the benchmark layer, and the benchmark layer mediates all RAN evidence and RAN actions:
+
+```text
+-----------+       evidence / action       +-----------------+       RAN API calls       +-------------+
+| LLM agent | <---------------------------> | Benchmark layer | <-----------------------> | RAN runtime |
++-----------+                              +-----------------+                          +-------------+
+```
+
+The benchmark layer is not another reasoning agent. It is the controlled evaluation mediator: it filters evidence, validates action shape and ranges, dispatches valid actions to RAN APIs, records feedback, and scores the trace.
 
 ## Task Model
 
 The benchmark uses one task definition:
 
 ```text
-Task = Goal + RAN Dynamics + Agent Interface + Scoring
+Task = Agent Goal + Benchmark Stimulus + RAN APIs + Task Scoring
 ```
 
-A task is a full scored RAN-management episode. An `L/D` pair is one transition unit inside a task's RAN Dynamics; it is not a task.
+A task is a full scored RAN-management episode. An `L/D` pair is one transition unit inside a task's Benchmark Stimulus; it is not a task. The agent does not need to know the benchmark internals; it uses benchmark-mediated RAN APIs to read evidence, execute a management action or no-action, and receive feedback.
 
 | Part | Meaning |
 | --- | --- |
-| Goal | What the agent is supposed to manage or decide. |
-| RAN Dynamics | How the benchmark makes the RAN change over time, including `L/D` transition units. |
-| Agent Interface | What the agent observes, what actions/no-actions it may choose, and what feedback it receives. |
-| Scoring | How the benchmark decides whether the agent succeeded. |
+| Agent Goal | What the agent is supposed to manage or decide. |
+| Benchmark Stimulus | The controlled input or event sequence injected by the benchmark into the RAN to create the management condition used for evaluation. |
+| RAN APIs | The RAN observation/control APIs the agent uses. |
+| Task Scoring | How the benchmark decides whether the agent succeeded. |
 
 ## LLM-Agent Execution Model
 
@@ -45,9 +55,9 @@ The benchmark uses this locked loop for LLM-agent evaluation:
 Perceive -> Reason -> Execute -> Feedback -> Repeat
 ```
 
-- **Perceive**: the LLM agent receives a structured observation from `BenchmarkEnv`, such as ping health, JSON metrics, E2 evidence, backend status, task context, and the previous action result.
+- **Perceive**: the LLM agent receives structured RAN evidence from the benchmark layer, such as ping health, JSON metrics, E2 evidence, backend status, task context, and the previous action result.
 - **Reason**: the LLM agent uses the task objective and its history to decide whether to wait, take no RAN action, repair a previous invalid action, or choose a specific RAN-management API.
-- **Execute**: the LLM agent returns a structured action or `None`. `BenchmarkEnv` validates the decision, records decision telemetry when supplied, and executes valid actions through OCUDU WebSocket or FlexRIC/E2 control paths.
+- **Execute**: the LLM agent returns a structured RAN API action or `None` to the benchmark layer. The benchmark validates the decision, records decision telemetry when supplied, and executes valid actions through OCUDU WebSocket or FlexRIC/E2 control paths.
 - **Feedback**: the next observation reports validation results, API responses, and updated RAN state.
 - **Repeat**: the loop continues until the episode ends; `close()` then cleans up the runtime and scores the trace.
 
@@ -71,9 +81,9 @@ python3 benchmark/benchctl.py remote provision --config .config --json
 python3 benchmark/benchctl.py remote ric-prepare --config .config --json
 ```
 
-The setup commands have two different jobs:
+Conformance has two setup jobs:
 
-- **Provision** installs or builds the benchmark-owned remote runtime assets under `remote.workspace`. It prepares OCUDU, srsUE, Open5GS assets, Docker images, runtime dependency files, and the FlexRIC/KPM image. Provision answers: "is the remote testbed installed from pinned sources?"
+- **Setup** installs or builds the benchmark-owned remote runtime assets under `remote.workspace`. The CLI command is `remote provision`; it prepares OCUDU, srsUE, Open5GS assets, Docker images, runtime dependency files, and the FlexRIC/KPM image.
 - **Conformance** verifies that the provisioned runtime actually exposes the APIs and episode paths a task needs before an agent is scored. It checks launch paths, WebSocket control, JSON metrics, Docker e2e traffic, FlexRIC/E2 setup, decoded KPM records, E2SM-CCC/RC DU control tools, and oracle artifacts. Conformance answers: "is this setup valid enough to score agent performance?"
 
 For scored suites, the benchmark runs the task's required conformance gate before launching scored episodes. You can also run conformance manually:
@@ -121,7 +131,7 @@ python3 benchmark/benchctl.py episode suite \
 
 ## Choosing A Task
 
-Benchmark tasks are explicit episode contracts. A task defines Goal, RAN Dynamics, Agent Interface, and Scoring.
+Benchmark tasks are explicit episode contracts. A task defines Agent Goal, Benchmark Stimulus, RAN APIs, and Task Scoring.
 
 Tasks consume APIs; they do not define APIs. A task manifest may reference action types such as `SET_PRB_POLICY_RATIO_WS` or observation sources such as `json_metrics`, but wire commands such as `rrm_policy_ratio_set` and `ssb_set` belong to the API reference. `NO_ACTION` in a task manifest means the agent should return Python `None`; it is not sent as a runtime command.
 
@@ -143,7 +153,7 @@ Current tasks:
 
 Each task has a machine-readable manifest under `tasks/<task_id>/task.json` and a human task card under `tasks/<task_id>/README.md`.
 
-## Scoring Model
+## Task Scoring Model
 
 The benchmark reports component scores rather than one headline agent score. Each episode summary keeps the legacy raw `scores` dictionary for debugging and adds:
 
@@ -156,7 +166,7 @@ The benchmark reports component scores rather than one headline agent score. Eac
 
 LLM agents can pass token usage through `BenchmarkEnv.act(action, telemetry=...)`. No-op decisions use `BenchmarkEnv.act(None, telemetry=...)`; they are recorded in `decisions.jsonl`. For `ran_policy_triage_v1`, no-op decisions are also written to `actions.jsonl` as `NO_ACTION` records with `dispatched=false` so restraint is counted in the trace.
 
-## Provision And Conformance Workflow
+## Conformance Workflow
 
 Use this order for a fresh or reset remote host:
 
@@ -191,14 +201,14 @@ python3 benchmark/benchctl.py remote provision --config .config --dry-run --json
 
 `remote ric-prepare` is the FlexRIC-specific provisioning path for the E2SM-KPM v05 task. Run it after OCUDU is provisioned, and rerun it with `--force` when the FlexRIC source ref or OCUDU KPM decoder source changes.
 
-Conformance is the pre-scoring validation step. Task manifests list the required conformance checks:
+Conformance is the pre-task scoring validation step. Task manifests list the required conformance checks:
 
 - `ws_prb_ping_v1`: Docker e2e assets, Open5GS health, srsUE attach, ping traffic, and WebSocket PRB policy action.
 - `e2_kpm_prb_ping_v1`: FlexRIC assets, RIC health, OCUDU E2 config, E2 setup, KPM subscription, and E2 PCAP/log oracle.
 - `e2_ccc_prb_policy_ping_v1`: the v4 E2/KPM gate plus the E2SM-CCC PRB control path.
 - `e2_rc_du_prb_policy_ping_v1`: the v4 E2/KPM gate plus the E2SM-RC DU PRB control path.
 - `e2_control_api_consistency_v1`: the v4 E2/KPM gate plus both CCC and RC DU control paths.
-- `metrics_staleness_noop_v1`: the v3 WebSocket gate plus a task-controlled evidence-mask check proving early observation frames are marked stale before scoring.
+- `metrics_staleness_noop_v1`: the v3 WebSocket gate plus a task-controlled evidence-mask check proving early observation frames are marked stale before task scoring.
 - `ws_ssb_power_guard_v1` and `ws_ssb_power_repair_v1`: the v3 WebSocket gate plus `websocket_ssb_power_action`, which verifies the native OCUDU `ssb_set` path.
 
 Run conformance manually after provisioning, after changing config/source pins, or when debugging a failed suite. `episode suite` runs the required gate automatically unless `--skip-conformance` is used; skipped conformance marks the suite unscored.
@@ -213,8 +223,8 @@ This deletes prior source/build/install state and run artifacts under `remote.wo
 
 ## Main Entry Points
 
-- [Implemented API reference](API_REFERENCE.md): benchmark harness APIs, OCUDU runtime APIs, action contracts, observations, and task/API mapping.
-- [Agent guide](agents/README.md): Python API, CLI suite usage, built-in baselines, scoring rules, and safety rules.
+- [Implemented API reference](API_REFERENCE.md): benchmark harness APIs, RAN APIs, action contracts, observations, and task/API mapping.
+- [Agent guide](agents/README.md): Python API, CLI suite usage, built-in baselines, task scoring rules, and safety rules.
 - [Task catalog](tasks/README.md): task comparison table and task manifest contract.
 - [Action schema](schemas/actions.schema.json): shared action catalog.
 - [Observation schema](schemas/observations.schema.json): shared observation catalog.

@@ -1,6 +1,6 @@
 # `ws_prb_noop_guard_v1`
 
-## Goal
+## Agent Goal
 
 Evaluate whether an LLM agent can avoid unnecessary RAN control when ping and JSON metrics already indicate a healthy one-UE episode.
 
@@ -39,7 +39,7 @@ Correct behavior is `NO_ACTION`, represented by Python `None`. `SET_PRB_POLICY_R
 
 Observations include run state, task id, ping counters, JSON metrics presence and freshness, backend status, and last action result. The agent does not receive scorer-only cleanup or summary artifacts during the episode.
 
-## Scoring
+## Task Scoring
 
 Canonical score dimensions:
 

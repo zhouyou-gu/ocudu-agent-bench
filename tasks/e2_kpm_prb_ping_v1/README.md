@@ -1,6 +1,6 @@
 # `e2_kpm_prb_ping_v1`
 
-## Goal
+## Agent Goal
 
 Evaluate whether an LLM agent can use WebSocket PRB control while the episode also proves standards-facing E2SM-KPM v05 observation through FlexRIC.
 
@@ -51,7 +51,7 @@ E2SM-CCC and E2SM-RC controls are out of scope for this task.
 
 Observations include the WebSocket PRB task fields plus RIC connection state, KPM indication count, last decoded KPM record, PRB measurement evidence, xApp status, and E2 PCAP/log oracle status. Agents should treat E2 fields as meaningful only when the backend reports E2 availability.
 
-## Scoring
+## Task Scoring
 
 Canonical score dimensions:
 

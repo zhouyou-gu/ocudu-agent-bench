@@ -2,15 +2,17 @@
 
 This document describes the APIs implemented by the standalone `benchmark/` project. It is written for LLM agents, built-in baseline controllers, and operators using the benchmark harness. It does not document OCUDU internals or define new OCUDU features.
 
+The benchmark is the intermediate layer between the LLM agent and the RAN. The APIs below describe that mediated surface: agents send decisions to the benchmark layer, and the benchmark layer reads from or writes to the RAN runtime through controlled bindings.
+
 The benchmark exposes two API layers:
 
-- **Benchmark harness APIs**: local Python and CLI interfaces for reset, observation, action dispatch, suites, provisioning, conformance, scoring, and artifacts.
-- **Runtime RAN APIs**: OCUDU and O-RAN interfaces exercised during a running episode on the remote system under test.
+- **Benchmark harness APIs**: local Python and CLI interfaces for reset, observation, action dispatch, suites, provisioning, conformance, task scoring, and artifacts.
+- **RAN APIs**: OCUDU and O-RAN interfaces exercised during a running episode on the remote system under test.
 
 ```text
 +---------------- benchmark/ ----------------+
 | Python API, CLI, validation, task registry  |
-| conformance, suites, scoring, artifacts     |
+| conformance, suites, task scoring, artifacts |
 +----------------------+---------------------+
                        |
                     SSH/rsync
@@ -25,29 +27,38 @@ The benchmark exposes two API layers:
 
 The project keeps task definitions and API definitions separate:
 
-- **Harness API**: local Python/CLI surface owned by `benchmark/`, including provisioning, conformance, task registry, suites, scoring, artifact summaries, and cleanup.
-- **Runtime RAN API**: OCUDU or O-RAN interface exercised during an episode, such as WebSocket PRB control, WebSocket SSB control, JSON metrics, E2SM-KPM, E2SM-CCC, or E2SM-RC.
-- **Task contract**: scored episode definition written as `Goal + RAN Dynamics + Agent Interface + Scoring`.
-- **Provisioning API**: setup interface that installs or builds workspace-owned remote assets from pinned sources. It is not a scored agent-performance API.
-- **Conformance API**: setup validation interface that proves runtime APIs and oracles work before a scored run. It is not a scored agent-performance API.
+- **Harness API**: local Python/CLI surface owned by `benchmark/`, including provisioning, conformance, task registry, suites, task scoring, artifact summaries, and cleanup.
+- **RAN API**: OCUDU or O-RAN interface exercised during an episode, such as WebSocket PRB control, WebSocket SSB control, JSON metrics, E2SM-KPM, E2SM-CCC, or E2SM-RC.
+- **Task contract**: scored episode definition written as `Agent Goal + Benchmark Stimulus + RAN APIs + Task Scoring`.
+- **Conformance API**: setup and validation interface that prepares the remote workspace when needed and proves RAN APIs and oracles work before a scored run. It is not a scored agent-performance API.
 - **Oracle API**: artifact and summary interface that proves success, failure, or ground truth, such as decoded KPM records, E2 control outcomes, PCAP/log summaries, cleanup postconditions, and action logs.
-- **Task dynamics/environment API**: harness-controlled workload or condition source used by RAN Dynamics, such as Docker/ZMQ runtime launch, UE ping traffic, metrics staleness masking, and future impairment injection.
+- **Stimulus mechanism**: harness-controlled workload or condition source used by Benchmark Stimulus, such as Docker/ZMQ runtime launch, UE ping traffic, metrics staleness masking, and future impairment injection.
+
+The agent-facing direction is:
+
+```text
+-----------+       observe / act        +-----------------+       RAN API binding       +-------------+
+| LLM agent | <------------------------> | Benchmark layer | <-------------------------> | RAN runtime |
++-----------+                           +-----------------+                             +-------------+
+```
+
+The benchmark layer mediates the RAN APIs. It may reject malformed or out-of-contract actions before they reach OCUDU/FlexRIC, and it may structure raw runtime evidence before the agent sees it. That mediation is part of the benchmark contract and is applied identically to all agents.
 
 The task definition is:
 
 ```text
-Task = Goal + RAN Dynamics + Agent Interface + Scoring
+Task = Agent Goal + Benchmark Stimulus + RAN APIs + Task Scoring
 ```
 
-Runtime APIs are reusable capabilities. They usually belong inside the Agent Interface or RAN Runtime binding for a task; they are not task definitions.
+RAN APIs are reusable capabilities for observation, control, and feedback; they are not task definitions.
 
 Task manifests consume APIs; they do not define wire protocols, runtime behavior, or new OCUDU commands. `action_types` must use benchmark action names such as `SET_PRB_POLICY_RATIO_WS`, not raw wire commands such as `rrm_policy_ratio_set` or `ssb_set`.
 
 `NO_ACTION` is a task-level decision represented by Python `None`. It is not sent to OCUDU and is not a runtime API command.
 
-Ping, cleanup, artifact collection, PCAP/log parsing, and ZMQ task-dynamics control are harness/environment/oracle mechanisms. They are useful for scoring and repeatability, but they are not OCUDU-native RAN control APIs.
+Ping, cleanup, artifact collection, PCAP/log parsing, and ZMQ stimulus control are harness/oracle mechanisms. They are useful for task scoring and repeatability, but they are not OCUDU-native RAN control APIs.
 
-## Agent-Facing Harness APIs
+## Using RAN APIs
 
 The canonical LLM-agent loop is:
 
@@ -55,7 +66,7 @@ The canonical LLM-agent loop is:
 Perceive -> Reason -> Execute -> Feedback -> Repeat
 ```
 
-`BenchmarkEnv` implements the wrapper side of this loop. The LLM agent perceives normalized observations, reasons outside the benchmark, returns an action or `None` for execution, receives feedback through action results and later observations, and repeats until the episode is closed and scored.
+`BenchmarkEnv` is the Python wrapper used by an LLM agent to access the benchmark-mediated RAN APIs. The LLM agent perceives structured observations, reasons outside the benchmark, returns an action or `None` for execution, receives feedback through action results and later observations, and repeats until the episode is closed and scored.
 
 ### Python API
 
@@ -68,9 +79,9 @@ from benchmark.benchmark_api.env import BenchmarkEnv
 Lifecycle:
 
 - `reset(config)`: loads local config, optionally runs conformance, starts an episode for implemented tasks, and returns the initial observation.
-- `observe()`: returns the latest normalized observation frame.
-- `act(action, telemetry=None)`: validates an action locally, dispatches it through the task's runtime API when valid, and records action context.
-- `close()`: cleans up remote runtime state, finalizes scoring, and returns the run summary.
+- `observe()`: returns the latest structured observation frame.
+- `act(action, telemetry=None)`: validates an action locally in the benchmark layer, dispatches it through the task's RAN API when valid, and records action context.
+- `close()`: cleans up remote runtime state, finalizes task scoring, and returns the run summary.
 
 Important `reset` fields:
 
@@ -96,15 +107,15 @@ Implemented command groups:
 | Group | Commands | Purpose |
 | --- | --- | --- |
 | `remote` | `check`, `init`, `sync`, `provision`, `deps`, `ric-prepare`, `reset-workspace`, `exec` | Prepare and inspect the remote benchmark workspace. |
-| `conformance` | `list`, `run` | Verify that runtime APIs and task prerequisites work before scoring. |
+| `conformance` | `list`, `run` | Verify that RAN APIs and task prerequisites work before task scoring. |
 | `episode` | `run`, `suite`, `cleanup` | Run one episode, run repeated baseline suites, or clean a run id. |
 
-Provisioning and conformance are harness APIs. They are not agent-performance APIs:
+Conformance is a harness API. It is not an agent-performance API:
 
-- **Provisioning** installs or builds workspace-owned runtime assets from pinned config sources.
-- **Conformance** launches focused probes to prove that a task's required runtime APIs are usable before scoring.
+- **Setup commands**, including `remote provision`, install or build workspace-owned runtime assets from pinned config sources.
+- **Conformance** launches focused probes to prove that a task's required RAN APIs are usable before task scoring.
 
-## Implemented Runtime APIs
+## Implemented RAN APIs
 
 ### OCUDU WebSocket Remote Control
 
@@ -151,7 +162,7 @@ Validation:
 - `plmn` defaults to `00101`.
 - `sst` defaults to `1`.
 - `sd` is optional and must be an integer in `[0, 16777215]` when supplied.
-- `dedicated_ratio` is optional and validity-only in current scoring.
+- `dedicated_ratio` is optional and validity-only in current task scoring.
 
 Wire request:
 
@@ -408,7 +419,7 @@ Conformance checks:
 
 ## Task To API Map
 
-| Task | Action API | Observation APIs | Oracle / Scoring APIs |
+| Task | Action API | Observation APIs | Oracle Scorer APIs |
 | --- | --- | --- | --- |
 | `ws_prb_ping_v1` | WebSocket PRB | ping, JSON metrics | action log, metrics continuity, cleanup |
 | `ws_prb_noop_guard_v1` | no action expected; WebSocket PRB available | ping, JSON metrics | zero action count, cleanup |
@@ -467,11 +478,11 @@ Task-specific fields:
 
 Agents should tolerate missing optional fields and branch on backend/task status rather than assuming every field exists for every task.
 
-## Scoring And Failure Boundaries
+## Task Scoring And Failure Boundaries
 
 Setup, provisioning, conformance, runtime launch, oracle, and cleanup failures make runs unscored. They are not counted as agent failures.
 
-Agent behavior is scored only after setup succeeds. Episode summaries keep the legacy raw `scores` object and add scoring v2 fields:
+Agent behavior is scored only after setup succeeds. Episode summaries keep the legacy raw `scores` object and add task scoring v2 fields:
 
 - `episode_success`: `1.0` for a fully successful scored episode, otherwise `0.0`.
 - `scored`: whether the run produced a valid benchmark measurement; a scored run can still have `episode_success = 0.0` when the agent made a wrong decision.
@@ -495,7 +506,7 @@ Raw score dimensions include:
 - E2 control oracle availability,
 - clean teardown.
 
-The task manifest `scoring` field uses exact raw summary score keys, for example `metrics_continuity`, `clean_teardown`, and `e2_oracle_available`. Cross-agent comparisons should start from `score_components`, `episode_success`, and the separate `efficiency` block, then drill into raw `scores` for debugging.
+The task manifest `Task Scoring` field uses exact raw summary score keys, for example `metrics_continuity`, `clean_teardown`, and `e2_oracle_available`. Cross-agent comparisons should start from `score_components`, `episode_success`, and the separate `efficiency` block, then drill into raw `scores` for debugging.
 
 ## Artifact API
 
@@ -533,7 +544,7 @@ Next API work:
 Later API work:
 
 - Add E2SM-RC CU-CP mobility or handover control only after the benchmark has a multi-cell mobility runtime and an objective handover oracle.
-- Add ZMQ impairment controls as benchmark task-dynamics APIs, not OCUDU-native RAN APIs, once they can be reproducibly injected and scored.
+- Add ZMQ impairment controls as Benchmark Stimulus mechanisms, not OCUDU-native RAN APIs, once they can be reproducibly injected and scored.
 
 Deferred API work:
 

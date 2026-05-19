@@ -3,17 +3,19 @@
 A benchmark task is a full scored RAN-management episode.
 
 ```text
-Task = Goal + RAN Dynamics + Agent Interface + Scoring
+Task = Agent Goal + Benchmark Stimulus + RAN APIs + Task Scoring
 ```
 
-An `L/D` pair is one transition unit inside the task's RAN Dynamics. It is not a task.
+An `L/D` pair is one transition unit inside the task's Benchmark Stimulus. It is not a task.
+
+The benchmark is the intermediate layer between the LLM agent and the RAN. Task docs describe the contract implemented by that layer: what evidence reaches the agent, what actions the agent may return, how valid actions are dispatched to RAN APIs, and how the resulting trace is scored.
 
 | Part | Meaning |
 | --- | --- |
-| Goal | What the agent is supposed to manage or decide. |
-| RAN Dynamics | How the benchmark makes the RAN change over time, including workload, timing, evidence freshness, and `L/D` transition units. |
-| Agent Interface | What the agent observes, what actions/no-actions it may choose, and what immediate feedback it receives. |
-| Scoring | How the benchmark decides whether the full episode succeeded. |
+| Agent Goal | What the agent is supposed to manage or decide. |
+| Benchmark Stimulus | The controlled input or event sequence injected by the benchmark into the RAN to create the management condition used for evaluation. |
+| RAN APIs | The RAN APIs the agent uses for evidence, actions/no-actions, and feedback. |
+| Task Scoring | How the benchmark decides whether the full episode succeeded. |
 
 Tasks are not APIs. A task consumes reusable benchmark APIs documented in [../API_REFERENCE.md](../API_REFERENCE.md), such as OCUDU WebSocket PRB control, WebSocket SSB control, JSON metrics, E2SM-KPM, E2SM-CCC, E2SM-RC, conformance, and artifact/oracle APIs. Task manifests reference action types and observation sources from that catalog; they must not define raw wire protocols or new OCUDU commands.
 
@@ -28,7 +30,7 @@ Use [TASK_AUTHORING_GUIDE.md](TASK_AUTHORING_GUIDE.md) when proposing new tasks.
 
 ## Current Task Catalog
 
-| Task | Goal | RAN Dynamics | Agent Interface | Scoring |
+| Task | Agent Goal | Benchmark Stimulus | RAN APIs | Task Scoring |
 | --- | --- | --- | --- | --- |
 | `ws_prb_ping_v1` | Apply one valid PRB policy action while keeping the run healthy. | Docker Open5GS + OCUDU gNB + srsUE with UE ping traffic. | WebSocket PRB action, ping, JSON metrics. | Action validity, ping health, metrics continuity, cleanup. |
 | `e2_kpm_prb_ping_v1` | Operate PRB control while standards-facing KPM evidence remains available. | Docker e2e runtime plus FlexRIC and KPM xApp. | WebSocket PRB action, ping, JSON metrics, decoded E2SM-KPM v05. | v3 scores plus KPM continuity and E2 oracle availability. |
@@ -42,7 +44,7 @@ Use [TASK_AUTHORING_GUIDE.md](TASK_AUTHORING_GUIDE.md) when proposing new tasks.
 | `e2_control_api_consistency_v1` | Select the correct E2 control API for the management objective. | Docker e2e runtime plus both E2 control paths. | E2SM-CCC or E2SM-RC DU action, KPM, control feedback. | Correct API selection for a cell/slice PRB objective. |
 | `ws_ssb_power_guard_v1` | Avoid unnecessary SSB block-power action. | Healthy Docker e2e runtime with SSB API available. | No-action decision, ping, JSON metrics, cell identity. | Correct restraint, traffic health, metrics continuity, cleanup. |
 | `ws_ssb_power_repair_v1` | Repair one rejected SSB action with a valid action. | Healthy Docker e2e runtime with cell identity evidence. | WebSocket SSB action, ping, JSON metrics, last action result. | Invalid local rejection, valid `ssb_set` repair, traffic health. |
-| `ran_policy_triage_v1` | Diagnose the task condition and choose the minimum safe action. | Benchmark selects internal task dynamics from the implemented API families. | Stable action catalog, structured RAN evidence, management context. | Correct API selection, rationale shape, restraint, repair, stale-wait behavior, RAN health, cleanup. |
+| `ran_policy_triage_v1` | Diagnose the task condition and choose the minimum safe action. | Benchmark selects internal benchmark stimulus from the implemented API families. | Stable action catalog, structured RAN evidence, management context. | Correct API selection, rationale shape, restraint, repair, stale-wait behavior, RAN health, cleanup. |
 
 The E2-control tasks are scored only when conformance proves the FlexRIC-derived runtime image exposes the required one-shot control tools and oracle artifacts. The SSB tasks are scored for API validation, command acceptance, traffic health, metrics continuity, and cleanup; they do not claim RF-performance effects in ZMQ.
 
@@ -80,7 +82,7 @@ python3 benchmark/benchctl.py episode suite \
   --json
 ```
 
-LLM agents usually operate through `BenchmarkEnv` using the benchmark loop: **Perceive -> Reason -> Execute -> Feedback -> Repeat**. In code, the agent calls `reset`, perceives each `observe` frame, reasons over task context and history, executes by returning one allowed action dictionary or `None`, receives feedback through `last_action` and later observations, then calls `close`.
+LLM agents usually operate through `BenchmarkEnv` using the benchmark loop: **Perceive -> Reason -> Execute -> Feedback -> Repeat**. In code, the agent calls `reset`, perceives each benchmark-mediated `observe` frame, reasons over task context and history, executes by returning one allowed action dictionary or `None` to the benchmark layer, receives feedback through `last_action` and later observations, then calls `close`.
 
 ## Task Metadata Contract
 
@@ -92,7 +94,7 @@ Task manifests include:
 - allowed action types from the API catalog, not raw wire commands,
 - observation sources from the API catalog,
 - required conformance check ids,
-- canonical scoring dimensions emitted by episode summaries,
+- canonical task scoring dimensions emitted by episode summaries,
 - expected remote artifact groups,
 - readiness status.
 
@@ -102,12 +104,12 @@ The Python registry in `benchmark_api/tasks.py` loads these manifests and expose
 
 Add a new task only when it has:
 
-- Goal, RAN Dynamics, Agent Interface, and Scoring written down,
+- Agent Goal, Benchmark Stimulus, RAN APIs, and Task Scoring written down,
 - a task directory under `tasks/<task_id>/`,
 - a valid `task.json` manifest,
 - a human task README,
 - conformance checks that can block scored runs,
 - local action validation and observation normalization,
-- scoring and artifact rules.
+- task scoring and artifact rules.
 
 Keep OCUDU-native APIs separate from benchmark harness APIs when describing the action or observation path.

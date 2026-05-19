@@ -1,6 +1,6 @@
 # `e2_kpm_json_consistency_v1`
 
-## Goal
+## Agent Goal
 
 Evaluate whether an LLM agent can wait for both OCUDU JSON metrics and decoded E2SM-KPM v05 PRB evidence before controlling PRB policy.
 
@@ -49,7 +49,7 @@ The agent returns `None` until an observation contains fresh JSON metrics and E2
 
 Observations include ping counters, JSON metrics presence and freshness, backend status, last action result, E2 KPM indication count, last KPM record, PRB measurement evidence, and E2 oracle availability.
 
-## Scoring
+## Task Scoring
 
 Canonical score dimensions:
 

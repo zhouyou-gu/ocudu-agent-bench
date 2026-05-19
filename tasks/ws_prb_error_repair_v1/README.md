@@ -1,6 +1,6 @@
 # `ws_prb_error_repair_v1`
 
-## Goal
+## Agent Goal
 
 Evaluate whether an LLM agent can repair an invalid WebSocket PRB policy action after local validation rejects it.
 
@@ -63,7 +63,7 @@ Invalid actions are rejected locally and are not dispatched to OCUDU.
 
 Observations include ping counters, JSON metrics status, backend status, and `last_action` validation details. The validation error is the agent's repair signal.
 
-## Scoring
+## Task Scoring
 
 Canonical score dimensions:
 

@@ -1,6 +1,6 @@
 # `e2_ccc_prb_policy_ping_v1`
 
-## Goal
+## Agent Goal
 
 Evaluate whether an LLM agent can control OCUDU slice PRB policy through the E2SM-CCC path while ping, JSON metrics, and KPM evidence remain healthy.
 
@@ -51,7 +51,7 @@ The benchmark maps the action to the OCUDU E2SM-CCC `O-RRMPolicyRatio` payload t
 
 Observations include ping counters, JSON metrics status, decoded KPM evidence, E2 control backend status, E2 control outcome records, and last action result.
 
-## Scoring
+## Task Scoring
 
 Canonical score dimensions:
 

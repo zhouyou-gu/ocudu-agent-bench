@@ -1,6 +1,6 @@
 # `ws_ssb_power_repair_v1`
 
-## Goal
+## Agent Goal
 
 Evaluate whether an LLM agent can repair an invalid OCUDU WebSocket SSB block-power action by issuing one valid command.
 
@@ -48,7 +48,7 @@ The agent first emits an invalid SSB power value, reads the local validation fai
 
 Observations include ping counters, JSON metrics status, backend status, last action result, and harness-derived cell identity fields needed to form the valid `ssb_set` request.
 
-## Scoring
+## Task Scoring
 
 Canonical score dimensions:
 

@@ -1,6 +1,6 @@
 # `ws_prb_action_budget_v1`
 
-## Goal
+## Agent Goal
 
 Evaluate whether an LLM agent can complete a PRB control objective with at most one valid action and no repeated control churn.
 
@@ -51,7 +51,7 @@ The action budget is one total logged action.
 
 Observations include ping counters, JSON metrics presence and freshness, backend status, and last action result. Agents should use the last action result to stop after the first accepted command.
 
-## Scoring
+## Task Scoring
 
 Canonical score dimensions:
 

@@ -1,4 +1,4 @@
-"""Agent-facing benchmark environment API for the v1 skeleton."""
+"""Benchmark environment API for episode control."""
 
 from __future__ import annotations
 

@@ -9,6 +9,8 @@ Use the Python API for real LLM-agent execution loops. Use the CLI for setup, co
 
 Suite JSON summaries use `controller` as the canonical field. They may also include a legacy `agent` field for older consumers; treat that field as deprecated and equivalent to `controller`.
 
+The benchmark is the intermediate layer between the LLM agent and the RAN. The LLM agent does not call SSH, Docker, raw WebSocket clients, FlexRIC tools, logs, or cleanup commands during a scored episode. It calls the benchmark layer; the benchmark layer mediates structured evidence, validates decisions, dispatches valid RAN API calls, records feedback, and scores the trace.
+
 ## Perceive -> Reason -> Execute -> Feedback -> Repeat
 
 Use this loop to frame every LLM-agent episode:
@@ -17,9 +19,9 @@ Use this loop to frame every LLM-agent episode:
 Perceive -> Reason -> Execute -> Feedback -> Repeat
 ```
 
-- **Perceive**: call `observe()` or read the observation returned by `reset()`. The observation is structured RAN context, not raw remote shell access.
+- **Perceive**: call `observe()` or read the observation returned by `reset()`. The observation is benchmark-mediated structured RAN context, not raw remote shell access.
 - **Reason**: use the task objective, current observation, and prior history to decide whether the safest next decision is no-op, retry, repair, or a RAN-management action.
-- **Execute**: return either `None` or one allowed action dictionary. `BenchmarkEnv` validates it locally and executes valid actions through OCUDU or FlexRIC.
+- **Execute**: return either `None` or one allowed action dictionary to the benchmark layer. `BenchmarkEnv` validates it locally and executes valid actions through OCUDU or FlexRIC.
 - **Feedback**: inspect the next observation and `last_action` result for validation errors, API acceptance, updated metrics, and E2 evidence.
 - **Repeat**: continue until the episode reaches its duration or terminal state, then call `close()` and use the returned summary for evaluation.
 
@@ -199,7 +201,7 @@ Observation frames are normalized dictionaries. Agents should:
 
 Common observation sources are ping counters, JSON metrics status, backend status, and last action result. E2 tasks add RIC, xApp, decoded KPM, and oracle status fields.
 
-## Scoring Rules
+## Task Scoring Rules
 
 Setup, conformance, runtime, and oracle failures make a run unscored. Bad LLM-agent behavior after setup succeeds remains a scored measurement with `episode_success = 0.0`. Each summary reports `failure_category` and `failure_reason` so those failures are separated from setup/runtime failures.
 

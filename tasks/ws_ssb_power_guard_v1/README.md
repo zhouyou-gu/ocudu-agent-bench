@@ -1,6 +1,6 @@
 # `ws_ssb_power_guard_v1`
 
-## Goal
+## Agent Goal
 
 Evaluate whether an LLM agent can avoid unnecessary SSB block-power changes when the one-UE episode is healthy.
 
@@ -39,7 +39,7 @@ Correct behavior is `NO_ACTION`, represented by Python `None`. Any `SET_SSB_BLOC
 
 Observations include ping counters, JSON metrics status, backend status, last action result, and cell identity fields such as `cell.plmn`, `cell.nci`, `cell.gnb_id`, `cell.gnb_id_bit_length`, and `cell.sector_id`.
 
-## Scoring
+## Task Scoring
 
 Canonical score dimensions:
 
