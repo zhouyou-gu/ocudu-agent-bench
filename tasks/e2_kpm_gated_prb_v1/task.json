@@ -106,6 +106,7 @@
     "raw_metrics": [
       "temporal_action_sequence_match",
       "expected_action_payload_match",
+      "post_action_evidence_match",
       "valid_action_accepted_rate",
       "evidence_gated_action",
       "e2_kpm_continuity",
@@ -115,6 +116,7 @@
     "critical_metrics": [
       "temporal_action_sequence_match",
       "expected_action_payload_match",
+      "post_action_evidence_match",
       "valid_action_accepted_rate",
       "evidence_gated_action",
       "e2_kpm_continuity",
@@ -150,6 +152,18 @@
         "fields": {
           "min_prb_policy_ratio": 20,
           "max_prb_policy_ratio": 80
+        }
+      }
+    ],
+    "expected_post_action_evidence": [
+      {
+        "after_step_id": 2,
+        "step_id": 3,
+        "fields": {
+          "slice_runtime.current_prb_policy.min_prb_policy_ratio": 20,
+          "slice_runtime.current_prb_policy.max_prb_policy_ratio": 80,
+          "slice_runtime.current_prb_policy.backend": "e2_control",
+          "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_CCC"
         }
       }
     ]

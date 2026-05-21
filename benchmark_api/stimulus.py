@@ -476,13 +476,16 @@ def _apply_event_to_runtime(event: StimulusEvent, runtime: RuntimeHandle) -> Non
         demand_level = str(event.parameters.get("demand_level", "high")).strip().lower() or "high"
         min_ratio = _stimulus_int(event.parameters.get("min_prb_policy_ratio", 20), "min_prb_policy_ratio")
         max_ratio = _stimulus_int(event.parameters.get("max_prb_policy_ratio", 80), "max_prb_policy_ratio")
-        runtime.state["slice_runtime"] = {
-            "active_slice": {"plmn": plmn, "sst": sst, "sd": None if sd is None else _stimulus_int(sd, "sd")},
-            "demand_level": demand_level,
-            "active_ues": _stimulus_int(event.parameters.get("active_ues", 1), "active_ues"),
-            "target_prb_policy": {"min_prb_policy_ratio": min_ratio, "max_prb_policy_ratio": max_ratio},
-        }
-        event.evidence = {"slice": dict(runtime.state["slice_runtime"]["active_slice"]), "demand_level": demand_level}
+        slice_runtime = runtime.state.setdefault("slice_runtime", {})
+        slice_runtime.update(
+            {
+                "active_slice": {"plmn": plmn, "sst": sst, "sd": None if sd is None else _stimulus_int(sd, "sd")},
+                "demand_level": demand_level,
+                "active_ues": _stimulus_int(event.parameters.get("active_ues", 1), "active_ues"),
+                "target_prb_policy": {"min_prb_policy_ratio": min_ratio, "max_prb_policy_ratio": max_ratio},
+            }
+        )
+        event.evidence = {"slice": dict(slice_runtime["active_slice"]), "demand_level": demand_level}
     elif event.kind == StimulusDriverKind.TELEMETRY_GAP:
         sources = [str(source) for source in event.parameters.get("sources", ["json_metrics"])]
         runtime.state["telemetry_gap"] = {"sources": sources, "step_id": event.step_id}
@@ -527,7 +530,11 @@ def _apply_event_to_runtime(event: StimulusEvent, runtime: RuntimeHandle) -> Non
         core_runtime = runtime.state.setdefault("core_runtime", {})
         core_runtime["latency_profile"] = latency_profile
         if "degraded_nf" in event.parameters:
-            core_runtime["degraded_nf"] = str(event.parameters["degraded_nf"]).strip().lower()
+            degraded_nf = str(event.parameters["degraded_nf"]).strip().lower()
+            core_runtime["degraded_nf"] = degraded_nf if latency_profile["loss_rate"] > 0.0 or latency_profile["latency_ms"] > 50.0 else None
+            nf_status = dict(core_runtime.get("nf_status", {}))
+            nf_status[degraded_nf] = "degraded" if core_runtime["degraded_nf"] else "running"
+            core_runtime["nf_status"] = nf_status
         event.evidence = dict(latency_profile)
     elif event.kind == StimulusDriverKind.BACKHAUL_IMPAIRMENT:
         impairment = {

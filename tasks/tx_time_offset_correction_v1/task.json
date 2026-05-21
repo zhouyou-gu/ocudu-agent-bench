@@ -101,6 +101,7 @@
     "raw_metrics": [
       "temporal_action_sequence_match",
       "expected_action_payload_match",
+      "post_action_evidence_match",
       "valid_action_accepted_rate",
       "action_budget_ok",
       "ping_success_ratio",
@@ -110,6 +111,7 @@
     "critical_metrics": [
       "temporal_action_sequence_match",
       "expected_action_payload_match",
+      "post_action_evidence_match",
       "valid_action_accepted_rate",
       "action_budget_ok",
       "ping_success_ratio",
@@ -141,6 +143,17 @@
         "fields": {
           "sector_id": 0,
           "tx_time_offset_us": 7.5
+        },
+        "numeric_tolerance": 0.001
+      }
+    ],
+    "expected_post_action_evidence": [
+      {
+        "after_step_id": 1,
+        "step_id": 2,
+        "fields": {
+          "radio_runtime.tx_time_offset_us": 7.5,
+          "radio_runtime.tx_time_offset_corrected": true
         },
         "numeric_tolerance": 0.001
       }

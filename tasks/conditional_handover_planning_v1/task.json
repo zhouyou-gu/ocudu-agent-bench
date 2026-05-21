@@ -107,6 +107,7 @@
     "raw_metrics": [
       "temporal_action_sequence_match",
       "expected_action_payload_match",
+      "post_action_evidence_match",
       "valid_action_accepted_rate",
       "action_budget_ok",
       "ping_success_ratio",
@@ -116,6 +117,7 @@
     "critical_metrics": [
       "temporal_action_sequence_match",
       "expected_action_payload_match",
+      "post_action_evidence_match",
       "valid_action_accepted_rate",
       "action_budget_ok",
       "ping_success_ratio",
@@ -156,6 +158,19 @@
             8
           ],
           "timeout_s": 5
+        }
+      }
+    ],
+    "expected_post_action_evidence": [
+      {
+        "after_step_id": 2,
+        "step_id": 3,
+        "fields": {
+          "ue_identity.conditional_handover_plan.serving_pci": 4,
+          "ue_identity.conditional_handover_plan.target_pcis": [
+            7,
+            8
+          ]
         }
       }
     ]

@@ -68,6 +68,7 @@
     "raw_metrics": [
       "temporal_action_sequence_match",
       "expected_action_payload_match",
+      "post_action_evidence_match",
       "valid_action_accepted_rate",
       "core_ue_registration_repaired",
       "action_budget_ok",
@@ -77,6 +78,7 @@
     "critical_metrics": [
       "temporal_action_sequence_match",
       "expected_action_payload_match",
+      "post_action_evidence_match",
       "valid_action_accepted_rate",
       "core_ue_registration_repaired",
       "action_budget_ok",
@@ -113,6 +115,16 @@
           "sst": 1,
           "sd": null,
           "auth_profile_id": "ue1_test_profile"
+        }
+      }
+    ],
+    "expected_post_action_evidence": [
+      {
+        "after_step_id": 1,
+        "step_id": 2,
+        "fields": {
+          "core_runtime.ue_registration.status": "registered",
+          "core_runtime.ue_registration.current.supi": "001010000000001"
         }
       }
     ]

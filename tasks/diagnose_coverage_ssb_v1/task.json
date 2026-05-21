@@ -118,6 +118,7 @@
     "raw_metrics": [
       "temporal_action_sequence_match",
       "expected_action_payload_match",
+      "post_action_evidence_match",
       "valid_action_accepted_rate",
       "correct_api_selection",
       "action_budget_ok",
@@ -128,6 +129,7 @@
     "critical_metrics": [
       "temporal_action_sequence_match",
       "expected_action_payload_match",
+      "post_action_evidence_match",
       "valid_action_accepted_rate",
       "correct_api_selection",
       "action_budget_ok",
@@ -165,6 +167,16 @@
         "fields": {
           "nci": 6733824,
           "ssb_block_power_dbm": -14
+        }
+      }
+    ],
+    "expected_post_action_evidence": [
+      {
+        "after_step_id": 2,
+        "step_id": 3,
+        "fields": {
+          "radio_runtime.current_ssb_block_power_dbm": -14,
+          "radio_runtime.ssb_power_cell.nci": 6733824
         }
       }
     ]

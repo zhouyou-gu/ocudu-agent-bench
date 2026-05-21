@@ -101,6 +101,7 @@ def _raw_metrics(
         ),
         RawScoreMetric.TEMPORAL_ACTION_SEQUENCE_MATCH.value: _temporal_action_sequence_match(task, actions),
         RawScoreMetric.EXPECTED_ACTION_PAYLOAD_MATCH.value: _expected_action_payload_match(task, accepted),
+        RawScoreMetric.POST_ACTION_EVIDENCE_MATCH.value: _post_action_evidence_match(task, observations_by_step, accepted),
         RawScoreMetric.UNNECESSARY_ACTION_AVOIDANCE.value: 1.0 if not require_no_action or not action_records else 0.0,
         RawScoreMetric.REPAIR_SUCCESS.value: (
             1.0 if any(not record.get("valid") for record in actions) and bool(accepted) else 0.0
@@ -142,6 +143,7 @@ def _component_scores(task: PrivateTask, raw_metrics: dict[str, float]) -> dict[
                 RawScoreMetric.TRIAGE_SUCCESS.value,
                 RawScoreMetric.TEMPORAL_ACTION_SEQUENCE_MATCH.value,
                 RawScoreMetric.EXPECTED_ACTION_PAYLOAD_MATCH.value,
+                RawScoreMetric.POST_ACTION_EVIDENCE_MATCH.value,
             ),
             default=0.0,
         ),
@@ -154,6 +156,7 @@ def _component_scores(task: PrivateTask, raw_metrics: dict[str, float]) -> dict[
                 RawScoreMetric.CLI_CFO_TARGET_MATCH.value,
                 RawScoreMetric.CLI_TX_TIME_OFFSET_TARGET_MATCH.value,
                 RawScoreMetric.EXPECTED_ACTION_PAYLOAD_MATCH.value,
+                RawScoreMetric.POST_ACTION_EVIDENCE_MATCH.value,
             ),
             default=1.0,
         ),
@@ -201,6 +204,8 @@ def _outcome(
     if raw_metrics.get(RawScoreMetric.TEMPORAL_ACTION_SEQUENCE_MATCH.value, 1.0) < success_threshold:
         return ScoreOutcome.AGENT_FAILURE, FailureCategory.WRONG_ACTION
     if raw_metrics.get(RawScoreMetric.EXPECTED_ACTION_PAYLOAD_MATCH.value, 1.0) < success_threshold:
+        return ScoreOutcome.AGENT_FAILURE, FailureCategory.WRONG_ACTION
+    if raw_metrics.get(RawScoreMetric.POST_ACTION_EVIDENCE_MATCH.value, 1.0) < success_threshold:
         return ScoreOutcome.AGENT_FAILURE, FailureCategory.WRONG_ACTION
     return ScoreOutcome.AGENT_FAILURE, FailureCategory.MISSING_ACTION
 
@@ -303,6 +308,38 @@ def _expected_action_payload_match(task: PrivateTask, accepted_actions: list[dic
         if not matching_records:
             return 0.0
         if not any(_fields_match(record.get("action", {}), fields, tolerance) for record in matching_records):
+            return 0.0
+    return 1.0
+
+
+def _post_action_evidence_match(
+    task: PrivateTask,
+    observations_by_step: dict[Any, dict[str, Any]],
+    accepted_actions: list[dict[str, Any]],
+) -> float:
+    expectations = task.J.get("expected_post_action_evidence", [])
+    if not expectations:
+        return 1.0
+    accepted_steps = {
+        record.get("step_id")
+        for record in accepted_actions
+        if _dispatch(record).get("accepted")
+    }
+    for expectation in expectations:
+        step_id = expectation.get("step_id")
+        fields = expectation.get("fields", {})
+        tolerance = float(expectation.get("numeric_tolerance", task.J.get("numeric_tolerance", 1e-6)))
+        if not isinstance(step_id, int) or not isinstance(fields, dict):
+            return 0.0
+        after_step_id = expectation.get("after_step_id")
+        if after_step_id is not None:
+            if not isinstance(after_step_id, int) or after_step_id not in accepted_steps:
+                return 0.0
+        elif not any(isinstance(value, int) and value < step_id for value in accepted_steps):
+            return 0.0
+        observation = observations_by_step.get(step_id, {})
+        evidence = observation.get("evidence", {})
+        if not _fields_match(evidence, fields, tolerance):
             return 0.0
     return 1.0
 

@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from benchmark.benchmark_api.api_catalog import descriptor_for_action, validate_api_selection
-from benchmark.benchmark_api.runtime_setup import RuntimeHandle, core_ue_registration_state
+from benchmark.benchmark_api.runtime_setup import RuntimeHandle
+from benchmark.benchmark_api.simulated_ocudu import apply_simulated_action
 from benchmark.benchmark_api.types import RanActionType, RanObservationSource, SafeErrorClass
 
 
@@ -98,6 +99,10 @@ def _agent_radio_runtime(radio_runtime: dict[str, Any]) -> dict[str, Any]:
         "sinr_db",
         "cqi",
         "target_ssb_block_power_dbm",
+        "current_ssb_block_power_dbm",
+        "ssb_power_cell",
+        "cfo_corrected",
+        "tx_time_offset_corrected",
     }
     public = {key: radio_runtime[key] for key in allowed if key in radio_runtime}
     impairment = radio_runtime.get("zmq_impairment")
@@ -120,6 +125,17 @@ def _agent_slice_runtime(slice_runtime: dict[str, Any]) -> dict[str, Any]:
         public["target_prb_policy"] = {
             "min_prb_policy_ratio": target_prb_policy.get("min_prb_policy_ratio"),
             "max_prb_policy_ratio": target_prb_policy.get("max_prb_policy_ratio"),
+        }
+    current_prb_policy = slice_runtime.get("current_prb_policy")
+    if isinstance(current_prb_policy, dict):
+        public["current_prb_policy"] = {
+            "plmn": current_prb_policy.get("plmn"),
+            "sst": current_prb_policy.get("sst"),
+            "sd": current_prb_policy.get("sd"),
+            "min_prb_policy_ratio": current_prb_policy.get("min_prb_policy_ratio"),
+            "max_prb_policy_ratio": current_prb_policy.get("max_prb_policy_ratio"),
+            "backend": current_prb_policy.get("backend"),
+            "action_type": current_prb_policy.get("action_type"),
         }
     return public
 
@@ -183,58 +199,20 @@ def dispatch_runtime_action(runtime: RuntimeHandle, action_id: str, action: dict
             completed_at_s=time.time(),
         )
     request = build_request(action_type, action)
-    outcome = {
-        "action_id": action_id,
-        "type": action_type.value,
-        "backend": descriptor.backend.value,
-        "accepted": True,
-    }
-    runtime.state.setdefault("control_outcomes", []).append(outcome)
-    if action_type in {
-        RanActionType.SET_PRB_POLICY_RATIO_WS,
-        RanActionType.SET_PRB_POLICY_RATIO_CCC,
-        RanActionType.SET_PRB_POLICY_RATIO_RC_DU,
-    }:
-        runtime.state["last_prb_policy"] = dict(action)
-    elif action_type == RanActionType.SET_SSB_BLOCK_POWER_WS:
-        runtime.state["last_ssb_power"] = dict(action)
-    elif action_type == RanActionType.TRIGGER_HANDOVER_CLI:
-        runtime.state["last_handover"] = dict(action)
-    elif action_type == RanActionType.TRIGGER_CONDITIONAL_HANDOVER_CLI:
-        runtime.state["last_conditional_handover"] = dict(action)
-    elif action_type == RanActionType.SET_CFO_CLI:
-        radio_runtime = runtime.state.setdefault("radio_runtime", {})
-        radio_runtime["sector_id"] = action["sector_id"]
-        radio_runtime["cfo_hz"] = action["cfo_hz"]
-        radio_runtime["last_cfo_action_id"] = action_id
-    elif action_type == RanActionType.SET_TX_TIME_OFFSET_CLI:
-        radio_runtime = runtime.state.setdefault("radio_runtime", {})
-        radio_runtime["sector_id"] = action["sector_id"]
-        radio_runtime["tx_time_offset_us"] = action["tx_time_offset_us"]
-        radio_runtime["last_tx_time_offset_action_id"] = action_id
-    elif action_type == RanActionType.RESTART_CORE_NF:
-        core_runtime = runtime.state.setdefault("core_runtime", {})
-        restart_counts = dict(core_runtime.get("restart_counts", {}))
-        restart_counts[action["nf"]] = int(restart_counts.get(action["nf"], 0) or 0) + 1
-        core_runtime["running"] = True
-        core_runtime["last_restarted_nf"] = action["nf"]
-        core_runtime["restart_counts"] = restart_counts
-    elif action_type == RanActionType.UPDATE_CORE_UE_REGISTRATION:
-        core_runtime = runtime.state.setdefault("core_runtime", {})
-        previous = core_runtime.get("ue_registration", {})
-        core_runtime["ue_registration"] = core_ue_registration_state(
-            desired=previous.get("desired"),
-            current=action,
-            last_updated_by=action_id,
-        )
-        core_runtime["last_ue_registration_update"] = action["ue_id"]
+    simulated = apply_simulated_action(
+        runtime,
+        action_id=action_id,
+        action_type=action_type,
+        action=action,
+        backend=descriptor.backend.value,
+    )
     return DispatchResult(
         action_id=action_id,
         dispatched=True,
-        accepted=True,
+        accepted=simulated.accepted,
         backend=descriptor.backend.value,
-        safe_error_class=None,
-        safe_message="action accepted by benchmark-mediated RAN API",
+        safe_error_class=simulated.safe_error_class,
+        safe_message=simulated.safe_message,
         private_request=request,
         completed_at_s=time.time(),
     )

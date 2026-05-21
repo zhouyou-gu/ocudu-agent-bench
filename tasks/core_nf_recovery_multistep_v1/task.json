@@ -113,6 +113,7 @@
     "raw_metrics": [
       "temporal_action_sequence_match",
       "expected_action_payload_match",
+      "post_action_evidence_match",
       "valid_action_accepted_rate",
       "action_budget_ok",
       "metrics_continuity",
@@ -121,6 +122,7 @@
     "critical_metrics": [
       "temporal_action_sequence_match",
       "expected_action_payload_match",
+      "post_action_evidence_match",
       "valid_action_accepted_rate",
       "action_budget_ok",
       "metrics_continuity",
@@ -154,6 +156,16 @@
         "action_type": "RESTART_CORE_NF",
         "fields": {
           "nf": "open5gs"
+        }
+      }
+    ],
+    "expected_post_action_evidence": [
+      {
+        "after_step_id": 2,
+        "step_id": 3,
+        "fields": {
+          "core_runtime.restart_counts.open5gs": 1,
+          "core_runtime.last_restarted_nf": "open5gs"
         }
       }
     ]

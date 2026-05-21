@@ -24,9 +24,10 @@ in `skillful-ran-research/benchmark_design/benchmark_stimulus_list.md` and
 
 The current local task manifests declare `E.runtime_adapter =
 simulated_ocudu`. This is an explicit executable adapter for local harness tests,
-not a claim that a remote OCUDU/FlexRIC deployment is running. A task that
-declares an unavailable live adapter fails conformance readiness before scored
-interaction.
+not a claim that a remote OCUDU/FlexRIC deployment is running. It applies
+deterministic simulated state transitions so accepted actions can be reflected in
+later redacted observations. A task that declares an unavailable live adapter
+fails conformance readiness before scored interaction.
 
 ## Entry Points
 

@@ -32,7 +32,8 @@
         "raw_metrics": {"type": "array", "items": {"type": "string"}},
         "critical_metrics": {"type": "array", "items": {"type": "string"}},
         "temporal_expectations": {"type": "array", "items": {"type": "object"}},
-        "expected_action_fields": {"type": "array", "items": {"type": "object"}}
+        "expected_action_fields": {"type": "array", "items": {"type": "object"}},
+        "expected_post_action_evidence": {"type": "array", "items": {"type": "object"}}
       }
     },
     "allowed_observation_context": {"type": "array", "items": {"type": "string"}},

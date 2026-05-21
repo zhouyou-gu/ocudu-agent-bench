@@ -182,6 +182,7 @@ def validate_private_task(task: PrivateTask) -> None:
         RanActionType(str(expected_action))
     _validate_temporal_expectations(task)
     _validate_expected_action_fields(task)
+    _validate_expected_post_action_evidence(task)
 
 
 def task_summary(task: PrivateTask) -> dict[str, Any]:
@@ -274,6 +275,32 @@ def _validate_expected_action_fields(task: PrivateTask) -> None:
         fields = expectation.get("fields", {})
         if not isinstance(fields, dict) or not fields:
             raise ValueError("expected action fields must be a non-empty object")
+        if "numeric_tolerance" in expectation:
+            tolerance = expectation["numeric_tolerance"]
+            if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or float(tolerance) < 0:
+                raise ValueError("numeric_tolerance must be a non-negative number")
+
+
+def _validate_expected_post_action_evidence(task: PrivateTask) -> None:
+    expectations = task.J.get("expected_post_action_evidence", [])
+    if not isinstance(expectations, list):
+        raise ValueError("J.expected_post_action_evidence must be a list")
+    for expectation in expectations:
+        if not isinstance(expectation, dict):
+            raise ValueError("Each expected post-action evidence spec must be an object")
+        step_id = expectation.get("step_id")
+        if isinstance(step_id, bool) or not isinstance(step_id, int) or not 1 <= step_id <= task.step_count:
+            raise ValueError("expected post-action evidence step_id must be within U.steps")
+        after_step_id = expectation.get("after_step_id")
+        if after_step_id is not None:
+            if isinstance(after_step_id, bool) or not isinstance(after_step_id, int) or not 1 <= after_step_id < step_id:
+                raise ValueError("expected post-action evidence after_step_id must be before step_id")
+        fields = expectation.get("fields", {})
+        if not isinstance(fields, dict) or not fields:
+            raise ValueError("expected post-action evidence fields must be a non-empty object")
+        for field in fields:
+            if not isinstance(field, str) or not field.strip():
+                raise ValueError("expected post-action evidence field paths must be non-empty strings")
         if "numeric_tolerance" in expectation:
             tolerance = expectation["numeric_tolerance"]
             if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or float(tolerance) < 0:

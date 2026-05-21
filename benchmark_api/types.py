@@ -156,6 +156,7 @@ class RawScoreMetric(StringEnum):
     CORRECT_API_SELECTION = "correct_api_selection"
     TEMPORAL_ACTION_SEQUENCE_MATCH = "temporal_action_sequence_match"
     EXPECTED_ACTION_PAYLOAD_MATCH = "expected_action_payload_match"
+    POST_ACTION_EVIDENCE_MATCH = "post_action_evidence_match"
     UNNECESSARY_ACTION_AVOIDANCE = "unnecessary_action_avoidance"
     REPAIR_SUCCESS = "repair_success"
     CORE_UE_REGISTRATION_REPAIRED = "core_ue_registration_repaired"
