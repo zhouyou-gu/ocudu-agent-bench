@@ -40,19 +40,10 @@ class TraceRecorder:
         self.oracle.append({"kind": "oracle", "record": dict(oracle_record)})
 
     def finalize_artifacts(self, output_dir: Path | None = None) -> list[dict[str, Any]]:
-        payload = {
-            "run_id": self.run_id,
-            "interaction": self.interaction,
-            "private_benchmark": self.private_benchmark,
-            "oracle": self.oracle,
-            "run_metadata": self.run_metadata,
-        }
-        checksum = _stable_checksum(payload)
         private_path = f"memory://{self.run_id}.trace"
         if output_dir is not None:
             output_dir.mkdir(parents=True, exist_ok=True)
             path = output_dir / f"{self.run_id}.trace.json"
-            path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
             private_path = str(path)
         manifest = {
             "run_id": self.run_id,
@@ -60,7 +51,7 @@ class TraceRecorder:
             "artifact_type": "trace_package",
             "producer_module": "trace.py",
             "private_path": private_path,
-            "checksum": checksum,
+            "checksum": "",
             "collection_time_s": time.time(),
             "visibility_class": "benchmark_private",
             "retention_rule": "operator_policy",
@@ -73,7 +64,12 @@ class TraceRecorder:
         if not self.artifacts_finalized:
             raise RuntimeError("artifact manifest must be finalized before trace finalization")
         self.trace_finalized = True
-        return self.package()
+        package = self.package()
+        checksum = _stable_checksum(_package_without_artifact_checksums(package))
+        self.artifacts = [{**artifact, "checksum": checksum} for artifact in self.artifacts]
+        package = self.package()
+        _write_package_to_artifact_path(package)
+        return package
 
     def package(self) -> dict[str, Any]:
         return {
@@ -91,3 +87,22 @@ class TraceRecorder:
 def _stable_checksum(value: dict[str, Any]) -> str:
     payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _package_without_artifact_checksums(package: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(package)
+    normalized["artifact_manifest"] = [
+        {**artifact, "checksum": ""}
+        for artifact in package.get("artifact_manifest", [])
+    ]
+    return normalized
+
+
+def _write_package_to_artifact_path(package: dict[str, Any]) -> None:
+    for artifact in package.get("artifact_manifest", []):
+        private_path = str(artifact.get("private_path", ""))
+        if not private_path or private_path.startswith("memory://"):
+            continue
+        path = Path(private_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(package, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")

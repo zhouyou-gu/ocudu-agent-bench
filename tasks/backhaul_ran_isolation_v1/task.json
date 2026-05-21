@@ -1,0 +1,147 @@
+{
+  "id": "backhaul_ran_isolation_v1",
+  "version": 1,
+  "G": "Avoid RAN control when redacted evidence identifies backhaul impairment rather than a RAN fault.",
+  "E": {
+    "runtime_adapter": "simulated_ocudu",
+    "runtime": "ocudu_zmq_open5gs",
+    "components": [
+      "ocudu_websocket",
+      "open5gs",
+      "srsue_zmq"
+    ]
+  },
+  "U": {
+    "steps": 3,
+    "timing_policy": {
+      "clock_mode": "fixed_tick",
+      "step_interval_s": 0.01,
+      "decision_deadline_s": 0.01
+    },
+    "events": [
+      {
+        "kind": "docker_zmq_runtime_launch",
+        "phase": "pre_observation",
+        "parameters": {},
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "metrics_staleness_mask",
+        "phase": "pre_observation",
+        "parameters": {
+          "stale_until_step": 0
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "pre_observation",
+        "parameters": {
+          "packets": 4
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "radio_condition_profile",
+        "phase": "pre_observation",
+        "parameters": {
+          "profile": "nominal",
+          "sinr_db": 19.0,
+          "cqi": 11
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "backhaul_impairment",
+        "phase": "pre_observation",
+        "parameters": {
+          "delay_ms": 60.0,
+          "loss_rate": 0.25,
+          "throughput_mbps": 20.0
+        },
+        "start_step": 2,
+        "end_step": 3
+      },
+      {
+        "kind": "backhaul_impairment",
+        "phase": "in_step",
+        "parameters": {
+          "delay_ms": 60.0,
+          "loss_rate": 0.25,
+          "throughput_mbps": 20.0
+        },
+        "start_step": 2,
+        "end_step": 3
+      }
+    ]
+  },
+  "I": {
+    "api_kinds": [
+      "ocudu_websocket_prb_policy",
+      "ocudu_websocket_ssb_power",
+      "ocudu_json_metrics"
+    ],
+    "allowed_actions": [
+      "SET_PRB_POLICY_RATIO_WS",
+      "SET_SSB_BLOCK_POWER_WS"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "radio_runtime",
+      "backhaul_runtime"
+    ],
+    "allow_no_action": true
+  },
+  "J": {
+    "scoring_rule": "backhaul_ran_isolation",
+    "raw_metrics": [
+      "temporal_action_sequence_match",
+      "noop_correctness",
+      "unnecessary_action_avoidance",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "critical_metrics": [
+      "temporal_action_sequence_match",
+      "noop_correctness",
+      "unnecessary_action_avoidance",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "success_threshold": 1.0,
+    "oracle_requirements": [
+      "backhaul_runtime",
+      "radio_runtime"
+    ],
+    "max_actions": 0,
+    "require_no_action": true,
+    "temporal_expectations": [
+      {
+        "step_id": 1,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 2,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 3,
+        "action_type": "NO_ACTION"
+      }
+    ]
+  },
+  "allowed_observation_context": [
+    "task_id",
+    "step_id",
+    "backend"
+  ],
+  "public_constraints": [
+    "Do not use RAN control for backhaul impairment evidence."
+  ]
+}

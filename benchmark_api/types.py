@@ -19,6 +19,12 @@ class StringEnum(str, Enum):
 class RanApiKind(StringEnum):
     OCUDU_WEBSOCKET_PRB_POLICY = "ocudu_websocket_prb_policy"
     OCUDU_WEBSOCKET_SSB_POWER = "ocudu_websocket_ssb_power"
+    OCUDU_CLI_HANDOVER = "ocudu_cli_handover"
+    OCUDU_CLI_CONDITIONAL_HANDOVER = "ocudu_cli_conditional_handover"
+    OCUDU_CLI_CFO_CONTROL = "ocudu_cli_cfo_control"
+    OCUDU_CLI_TX_TIME_OFFSET_CONTROL = "ocudu_cli_tx_time_offset_control"
+    CORE_NF_LIFECYCLE_CONTROL = "core_nf_lifecycle_control"
+    CORE_UE_REGISTRATION_CONTROL = "core_ue_registration_control"
     OCUDU_JSON_METRICS = "ocudu_json_metrics"
     E2SM_KPM_V05_OBSERVATION = "e2sm_kpm_v05_observation"
     E2SM_CCC_PRB_POLICY_CONTROL = "e2sm_ccc_prb_policy_control"
@@ -34,6 +40,8 @@ class RanApiRole(StringEnum):
 
 class RanApiBackend(StringEnum):
     WEBSOCKET = "websocket"
+    OCUDU_CLI = "ocudu_cli"
+    CORE_CONTROL = "core_control"
     JSON_METRICS = "json_metrics"
     E2_KPM = "e2_kpm"
     E2_CONTROL = "e2_control"
@@ -42,6 +50,12 @@ class RanApiBackend(StringEnum):
 class RanActionType(StringEnum):
     SET_PRB_POLICY_RATIO_WS = "SET_PRB_POLICY_RATIO_WS"
     SET_SSB_BLOCK_POWER_WS = "SET_SSB_BLOCK_POWER_WS"
+    TRIGGER_HANDOVER_CLI = "TRIGGER_HANDOVER_CLI"
+    TRIGGER_CONDITIONAL_HANDOVER_CLI = "TRIGGER_CONDITIONAL_HANDOVER_CLI"
+    SET_CFO_CLI = "SET_CFO_CLI"
+    SET_TX_TIME_OFFSET_CLI = "SET_TX_TIME_OFFSET_CLI"
+    RESTART_CORE_NF = "RESTART_CORE_NF"
+    UPDATE_CORE_UE_REGISTRATION = "UPDATE_CORE_UE_REGISTRATION"
     SET_PRB_POLICY_RATIO_CCC = "SET_PRB_POLICY_RATIO_CCC"
     SET_PRB_POLICY_RATIO_RC_DU = "SET_PRB_POLICY_RATIO_RC_DU"
     NO_ACTION = "NO_ACTION"
@@ -55,6 +69,11 @@ class RanObservationSource(StringEnum):
     E2_KPM_V05 = "e2_kpm_v05"
     E2_CONTROL_OUTCOME = "e2_control_outcome"
     UE_IDENTITY = "ue_identity"
+    UE_RUNTIME = "ue_runtime"
+    CORE_RUNTIME = "core_runtime"
+    RADIO_RUNTIME = "radio_runtime"
+    SLICE_RUNTIME = "slice_runtime"
+    BACKHAUL_RUNTIME = "backhaul_runtime"
 
 
 class SafeErrorClass(StringEnum):
@@ -81,6 +100,7 @@ class StimulusDriverKind(StringEnum):
     DOCKER_ZMQ_RUNTIME_LAUNCH = "docker_zmq_runtime_launch"
     TRAFFIC_LOAD_PROFILE = "traffic_load_profile"
     UE_ACTIVITY_CHURN = "ue_activity_churn"
+    CORE_UE_REGISTRATION_MISCONFIG = "core_ue_registration_misconfig"
     MOBILITY_PATH = "mobility_path"
     RADIO_CONDITION_PROFILE = "radio_condition_profile"
     SLICE_DEMAND_SHIFT = "slice_demand_shift"
@@ -134,8 +154,13 @@ class RawScoreMetric(StringEnum):
     STALE_ACTION_AVOIDANCE = "stale_action_avoidance"
     TRIAGE_SUCCESS = "triage_success"
     CORRECT_API_SELECTION = "correct_api_selection"
+    TEMPORAL_ACTION_SEQUENCE_MATCH = "temporal_action_sequence_match"
+    EXPECTED_ACTION_PAYLOAD_MATCH = "expected_action_payload_match"
     UNNECESSARY_ACTION_AVOIDANCE = "unnecessary_action_avoidance"
     REPAIR_SUCCESS = "repair_success"
+    CORE_UE_REGISTRATION_REPAIRED = "core_ue_registration_repaired"
+    CLI_CFO_TARGET_MATCH = "cli_cfo_target_match"
+    CLI_TX_TIME_OFFSET_TARGET_MATCH = "cli_tx_time_offset_target_match"
     CLEAN_TEARDOWN = "clean_teardown"
 
 
@@ -203,6 +228,19 @@ class MetricDirection(StringEnum):
 
 IMPLEMENTED_STIMULUS_DRIVERS = {
     StimulusDriverKind.UE_PING_TRAFFIC,
+    StimulusDriverKind.UE_ACTIVITY_CHURN,
+    StimulusDriverKind.CORE_UE_REGISTRATION_MISCONFIG,
+    StimulusDriverKind.TRAFFIC_LOAD_PROFILE,
+    StimulusDriverKind.MOBILITY_PATH,
+    StimulusDriverKind.RADIO_CONDITION_PROFILE,
+    StimulusDriverKind.SLICE_DEMAND_SHIFT,
+    StimulusDriverKind.TELEMETRY_GAP,
+    StimulusDriverKind.E2_KPM_AVAILABILITY_WINDOW,
+    StimulusDriverKind.RIC_XAPP_LIFECYCLE,
+    StimulusDriverKind.CORE_LATENCY_PROFILE,
+    StimulusDriverKind.BACKHAUL_IMPAIRMENT,
+    StimulusDriverKind.CELL_IDENTITY_CHANGE,
+    StimulusDriverKind.FUTURE_ZMQ_IMPAIRMENT,
     StimulusDriverKind.METRICS_STALENESS_MASK,
     StimulusDriverKind.DOCKER_ZMQ_RUNTIME_LAUNCH,
 }

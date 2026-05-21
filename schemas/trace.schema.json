@@ -1,11 +1,23 @@
 {
   "type": "object",
-  "required": ["run_id", "interaction", "private_benchmark", "oracle", "artifact_manifest"],
+  "required": [
+    "run_id",
+    "interaction",
+    "private_benchmark",
+    "oracle",
+    "artifact_manifest",
+    "run_metadata",
+    "artifacts_finalized",
+    "trace_finalized"
+  ],
   "properties": {
     "run_id": {"type": "string"},
     "interaction": {"type": "array"},
     "private_benchmark": {"type": "array"},
     "oracle": {"type": "array"},
-    "artifact_manifest": {"type": "array"}
+    "artifact_manifest": {"type": "array", "items": {"$ref": "artifact_manifest.schema.json"}},
+    "run_metadata": {"type": "object"},
+    "artifacts_finalized": {"type": "boolean"},
+    "trace_finalized": {"type": "boolean"}
   }
 }

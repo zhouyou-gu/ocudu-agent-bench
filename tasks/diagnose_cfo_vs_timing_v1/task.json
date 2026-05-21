@@ -1,0 +1,192 @@
+{
+  "id": "diagnose_cfo_vs_timing_v1",
+  "version": 1,
+  "G": "Avoid a radio-adjustment guess under ambiguous symptoms, then choose CFO once discriminating evidence appears.",
+  "E": {
+    "runtime_adapter": "simulated_ocudu",
+    "runtime": "ocudu_zmq_open5gs",
+    "components": [
+      "ocudu_websocket",
+      "ocudu_cli",
+      "open5gs",
+      "srsue_zmq"
+    ]
+  },
+  "U": {
+    "steps": 4,
+    "timing_policy": {
+      "clock_mode": "fixed_tick",
+      "step_interval_s": 0.01,
+      "decision_deadline_s": 0.01
+    },
+    "events": [
+      {
+        "kind": "docker_zmq_runtime_launch",
+        "phase": "pre_observation",
+        "parameters": {},
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "metrics_staleness_mask",
+        "phase": "pre_observation",
+        "parameters": {
+          "stale_until_step": 0
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "pre_observation",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "in_step",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "radio_condition_profile",
+        "phase": "pre_observation",
+        "parameters": {
+          "profile": "nominal",
+          "sinr_db": 20.0,
+          "cqi": 11
+        },
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "future_zmq_impairment",
+        "phase": "pre_observation",
+        "parameters": {
+          "enabled": true,
+          "impairment_kind": "ambiguous_radio"
+        },
+        "apply_steps": [
+          2
+        ]
+      },
+      {
+        "kind": "radio_condition_profile",
+        "phase": "pre_observation",
+        "parameters": {
+          "profile": "cfo_offset",
+          "target_cfo_hz": -950.0,
+          "sinr_db": 13.0,
+          "cqi": 7
+        },
+        "start_step": 3,
+        "end_step": 4
+      },
+      {
+        "kind": "radio_condition_profile",
+        "phase": "in_step",
+        "parameters": {
+          "profile": "cfo_offset",
+          "target_cfo_hz": -950.0,
+          "sinr_db": 13.0,
+          "cqi": 7
+        },
+        "start_step": 3,
+        "end_step": 4
+      }
+    ]
+  },
+  "I": {
+    "api_kinds": [
+      "ocudu_cli_cfo_control",
+      "ocudu_cli_tx_time_offset_control",
+      "ocudu_json_metrics"
+    ],
+    "allowed_actions": [
+      "SET_CFO_CLI",
+      "SET_TX_TIME_OFFSET_CLI"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "radio_runtime"
+    ],
+    "allow_no_action": true
+  },
+  "J": {
+    "scoring_rule": "diagnose_cfo_vs_timing",
+    "raw_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "valid_action_accepted_rate",
+      "correct_api_selection",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "critical_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "valid_action_accepted_rate",
+      "correct_api_selection",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "success_threshold": 1.0,
+    "oracle_requirements": [
+      "radio_runtime",
+      "control_outcome"
+    ],
+    "expected_action_type": "SET_CFO_CLI",
+    "max_actions": 1,
+    "require_evidence_before_action": true,
+    "temporal_expectations": [
+      {
+        "step_id": 1,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 2,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 3,
+        "action_type": "SET_CFO_CLI"
+      },
+      {
+        "step_id": 4,
+        "action_type": "NO_ACTION"
+      }
+    ],
+    "expected_action_fields": [
+      {
+        "step_id": 3,
+        "action_type": "SET_CFO_CLI",
+        "fields": {
+          "sector_id": 0,
+          "cfo_hz": -950.0
+        },
+        "numeric_tolerance": 0.001
+      }
+    ]
+  },
+  "allowed_observation_context": [
+    "task_id",
+    "step_id",
+    "backend"
+  ],
+  "public_constraints": [
+    "Use only task-selected APIs and avoid repeated control after accepted repair."
+  ]
+}

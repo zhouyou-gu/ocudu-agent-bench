@@ -8,7 +8,7 @@ from benchmark.benchmark_api.task_definition import load_task
 
 class RuntimeSetupTests(unittest.TestCase):
     def test_unavailable_live_adapter_blocks_readiness(self) -> None:
-        task = load_task("ws_prb_ping_v1")
+        task = load_task("slice_congestion_prb_rebalance_v1")
         setup = dict(task.E)
         setup["runtime_adapter"] = "ocudu_live"
         runtime = instantiate_runtime(setup, "unit-live")

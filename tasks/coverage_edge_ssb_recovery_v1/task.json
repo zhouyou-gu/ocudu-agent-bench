@@ -1,0 +1,191 @@
+{
+  "id": "coverage_edge_ssb_recovery_v1",
+  "version": 1,
+  "G": "Raise SSB block power only for a visible coverage-edge condition on the current cell, then avoid repeating it.",
+  "E": {
+    "runtime_adapter": "simulated_ocudu",
+    "runtime": "ocudu_zmq_open5gs",
+    "components": [
+      "ocudu_websocket",
+      "open5gs",
+      "srsue_zmq"
+    ]
+  },
+  "U": {
+    "steps": 3,
+    "timing_policy": {
+      "clock_mode": "fixed_tick",
+      "step_interval_s": 0.01,
+      "decision_deadline_s": 0.01
+    },
+    "events": [
+      {
+        "kind": "docker_zmq_runtime_launch",
+        "phase": "pre_observation",
+        "parameters": {},
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "metrics_staleness_mask",
+        "phase": "pre_observation",
+        "parameters": {
+          "stale_until_step": 0
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "pre_observation",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "in_step",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "radio_condition_profile",
+        "phase": "pre_observation",
+        "parameters": {
+          "profile": "nominal",
+          "sinr_db": 20.0,
+          "cqi": 11
+        },
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "radio_condition_profile",
+        "phase": "pre_observation",
+        "parameters": {
+          "profile": "coverage_edge",
+          "sinr_db": 4.5,
+          "cqi": 3,
+          "target_ssb_block_power_dbm": -13
+        },
+        "start_step": 2,
+        "end_step": 3
+      },
+      {
+        "kind": "radio_condition_profile",
+        "phase": "in_step",
+        "parameters": {
+          "profile": "coverage_edge",
+          "sinr_db": 4.5,
+          "cqi": 3,
+          "target_ssb_block_power_dbm": -13
+        },
+        "start_step": 2,
+        "end_step": 3
+      },
+      {
+        "kind": "cell_identity_change",
+        "phase": "pre_observation",
+        "parameters": {
+          "plmn": "00101",
+          "nci": 6733825,
+          "gnb_id": 411,
+          "sector_id": 1,
+          "pci": 11,
+          "serving_pci": 11
+        },
+        "start_step": 2,
+        "end_step": 3
+      }
+    ]
+  },
+  "I": {
+    "api_kinds": [
+      "ocudu_websocket_ssb_power",
+      "ocudu_json_metrics"
+    ],
+    "allowed_actions": [
+      "SET_SSB_BLOCK_POWER_WS"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "cell_identity",
+      "radio_runtime",
+      "websocket_control_outcomes"
+    ],
+    "allow_no_action": true
+  },
+  "J": {
+    "scoring_rule": "coverage_edge_ssb_recovery",
+    "raw_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "critical_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "success_threshold": 1.0,
+    "oracle_requirements": [
+      "ping",
+      "metrics",
+      "cell_identity",
+      "radio_runtime",
+      "control_outcome"
+    ],
+    "expected_action_type": "SET_SSB_BLOCK_POWER_WS",
+    "max_actions": 1,
+    "require_evidence_before_action": true,
+    "temporal_expectations": [
+      {
+        "step_id": 1,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 2,
+        "action_type": "SET_SSB_BLOCK_POWER_WS"
+      },
+      {
+        "step_id": 3,
+        "action_type": "NO_ACTION"
+      }
+    ],
+    "expected_action_fields": [
+      {
+        "step_id": 2,
+        "action_type": "SET_SSB_BLOCK_POWER_WS",
+        "fields": {
+          "plmn": "00101",
+          "nci": 6733825,
+          "ssb_block_power_dbm": -13
+        }
+      }
+    ]
+  },
+  "allowed_observation_context": [
+    "task_id",
+    "step_id",
+    "backend"
+  ],
+  "public_constraints": [
+    "Use only task-selected APIs and avoid repeated control after accepted repair."
+  ]
+}

@@ -2,12 +2,40 @@
   "type": "object",
   "required": ["id", "version", "G", "E", "U", "I", "J"],
   "properties": {
-    "id": {"type": "string"},
-    "version": {"type": "integer"},
-    "G": {"type": "string"},
-    "E": {"type": "object"},
-    "U": {"type": "object"},
-    "I": {"type": "object"},
-    "J": {"type": "object"}
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_]*_v[0-9]+$"},
+    "version": {"type": "integer", "minimum": 1},
+    "G": {"type": "string", "minLength": 1},
+    "E": {
+      "type": "object",
+      "required": ["runtime_adapter", "runtime", "components"],
+      "properties": {
+        "runtime_adapter": {"type": "string"},
+        "runtime": {"type": "string"},
+        "components": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "U": {"$ref": "stimulus.schema.json"},
+    "I": {
+      "type": "object",
+      "required": ["api_kinds", "allowed_actions", "observation_sources", "allow_no_action"],
+      "properties": {
+        "api_kinds": {"type": "array", "items": {"type": "string"}},
+        "allowed_actions": {"type": "array", "items": {"type": "string"}},
+        "observation_sources": {"type": "array", "items": {"type": "string"}},
+        "allow_no_action": {"type": "boolean"}
+      }
+    },
+    "J": {
+      "type": "object",
+      "properties": {
+        "scoring_rule": {"type": "string"},
+        "raw_metrics": {"type": "array", "items": {"type": "string"}},
+        "critical_metrics": {"type": "array", "items": {"type": "string"}},
+        "temporal_expectations": {"type": "array", "items": {"type": "object"}},
+        "expected_action_fields": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "allowed_observation_context": {"type": "array", "items": {"type": "string"}},
+    "public_constraints": {"type": "array", "items": {"type": "string"}}
   }
 }

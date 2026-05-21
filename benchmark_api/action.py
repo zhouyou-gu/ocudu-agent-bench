@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from benchmark.benchmark_api.api_catalog import validate_api_selection
 from benchmark.benchmark_api.ran_api import DispatchResult, dispatch_runtime_action
 from benchmark.benchmark_api.runtime_setup import RuntimeHandle
 from benchmark.benchmark_api.task_definition import PrivateTask
@@ -95,10 +96,27 @@ def validate_action(task: PrivateTask, decision: Any) -> dict[str, Any]:
         if not task.allow_no_action:
             return _invalid(action, SafeErrorClass.PERMISSION_ERROR, "no-action is not allowed")
         return _valid({"type": RanActionType.NO_ACTION.value})
-    if action_type.value not in set(task.allowed_actions):
+    selected_action_types = {
+        descriptor.action_type.value
+        for descriptor in validate_api_selection(list(task.selected_api_kinds))
+        if descriptor.action_type is not None
+    }
+    if action_type.value not in set(task.allowed_actions) or action_type.value not in selected_action_types:
         return _invalid(action, SafeErrorClass.PERMISSION_ERROR, "action.type is not selected for this task")
     if action_type == RanActionType.SET_SSB_BLOCK_POWER_WS:
         return _validate_ssb(action)
+    if action_type == RanActionType.TRIGGER_HANDOVER_CLI:
+        return _validate_handover(action)
+    if action_type == RanActionType.TRIGGER_CONDITIONAL_HANDOVER_CLI:
+        return _validate_conditional_handover(action)
+    if action_type == RanActionType.SET_CFO_CLI:
+        return _validate_cfo(action)
+    if action_type == RanActionType.SET_TX_TIME_OFFSET_CLI:
+        return _validate_tx_time_offset(action)
+    if action_type == RanActionType.RESTART_CORE_NF:
+        return _validate_core_nf_restart(action)
+    if action_type == RanActionType.UPDATE_CORE_UE_REGISTRATION:
+        return _validate_core_ue_registration_update(action)
     return _validate_prb(action, action_type)
 
 
@@ -158,8 +176,198 @@ def _validate_ssb(action: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _validate_handover(action: dict[str, Any]) -> dict[str, Any]:
+    serving_pci = _validate_pci(action, "serving_pci")
+    if serving_pci is not None:
+        return serving_pci
+    target_pci = _validate_pci(action, "target_pci")
+    if target_pci is not None:
+        return target_pci
+    rnti = _normalize_rnti(action.get("rnti"))
+    if rnti is None:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "rnti must be a non-zero 16-bit integer or hex string")
+    return _valid(
+        {
+            "type": RanActionType.TRIGGER_HANDOVER_CLI.value,
+            "serving_pci": int(action["serving_pci"]),
+            "rnti": rnti,
+            "target_pci": int(action["target_pci"]),
+        }
+    )
+
+
+def _validate_conditional_handover(action: dict[str, Any]) -> dict[str, Any]:
+    serving_pci = _validate_pci(action, "serving_pci")
+    if serving_pci is not None:
+        return serving_pci
+    rnti = _normalize_rnti(action.get("rnti"))
+    if rnti is None:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "rnti must be a non-zero 16-bit integer or hex string")
+    target_pcis = action.get("target_pcis")
+    if not isinstance(target_pcis, list) or not 1 <= len(target_pcis) <= 8:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "target_pcis must contain 1 to 8 PCI integers")
+    normalized_targets = []
+    for target in target_pcis:
+        if not _is_int(target) or not 0 <= int(target) <= 1007:
+            return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "target_pcis must contain PCI integers in [0, 1007]")
+        normalized_targets.append(int(target))
+    timeout_s = action.get("timeout_s")
+    if timeout_s is not None and (not _is_int(timeout_s) or int(timeout_s) <= 0):
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "timeout_s must be a positive integer")
+    return _valid(
+        {
+            "type": RanActionType.TRIGGER_CONDITIONAL_HANDOVER_CLI.value,
+            "serving_pci": int(action["serving_pci"]),
+            "rnti": rnti,
+            "target_pcis": normalized_targets,
+            "timeout_s": None if timeout_s is None else int(timeout_s),
+        }
+    )
+
+
+def _validate_cfo(action: dict[str, Any]) -> dict[str, Any]:
+    sector_id = _validate_sector_id(action)
+    if sector_id is not None:
+        return sector_id
+    cfo_hz = action.get("cfo_hz")
+    if not _is_number(cfo_hz):
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "cfo_hz must be a number")
+    if not -100_000.0 <= float(cfo_hz) <= 100_000.0:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "cfo_hz must be in [-100000, 100000]")
+    return _valid(
+        {
+            "type": RanActionType.SET_CFO_CLI.value,
+            "sector_id": int(action["sector_id"]),
+            "cfo_hz": float(cfo_hz),
+        }
+    )
+
+
+def _validate_tx_time_offset(action: dict[str, Any]) -> dict[str, Any]:
+    sector_id = _validate_sector_id(action)
+    if sector_id is not None:
+        return sector_id
+    tx_time_offset_us = action.get("tx_time_offset_us")
+    if not _is_number(tx_time_offset_us):
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "tx_time_offset_us must be a number")
+    if not -10_000.0 <= float(tx_time_offset_us) <= 10_000.0:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "tx_time_offset_us must be in [-10000, 10000]")
+    return _valid(
+        {
+            "type": RanActionType.SET_TX_TIME_OFFSET_CLI.value,
+            "sector_id": int(action["sector_id"]),
+            "tx_time_offset_us": float(tx_time_offset_us),
+        }
+    )
+
+
+def _validate_pci(action: dict[str, Any], field: str) -> dict[str, Any] | None:
+    if not _is_int(action.get(field)):
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, f"{field} must be an integer")
+    if not 0 <= int(action[field]) <= 1007:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, f"{field} must be in [0, 1007]")
+    return None
+
+
+def _validate_sector_id(action: dict[str, Any]) -> dict[str, Any] | None:
+    if not _is_int(action.get("sector_id")):
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "sector_id must be an integer")
+    if not 0 <= int(action["sector_id"]) <= 255:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "sector_id must be in [0, 255]")
+    return None
+
+
+def _normalize_rnti(value: Any) -> str | None:
+    if _is_int(value):
+        rnti = int(value)
+    elif isinstance(value, str):
+        text = value.strip().lower()
+        if not text:
+            return None
+        try:
+            rnti = int(text, 16 if text.startswith("0x") else 16)
+        except ValueError:
+            return None
+    else:
+        return None
+    if not 1 <= rnti <= 0xFFFF:
+        return None
+    return f"0x{rnti:04x}"
+
+
+def _validate_core_nf_restart(action: dict[str, Any]) -> dict[str, Any]:
+    nf = str(action.get("nf", "")).strip().lower()
+    if nf not in {"amf", "smf", "upf", "open5gs"}:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "nf must be one of amf, smf, upf, or open5gs")
+    return _valid({"type": RanActionType.RESTART_CORE_NF.value, "nf": nf})
+
+
+def _validate_core_ue_registration_update(action: dict[str, Any]) -> dict[str, Any]:
+    ue_id = _normalize_token(action.get("ue_id"), "ue_id")
+    if ue_id is None:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "ue_id must be a non-empty identifier")
+    supi = str(action.get("supi", "")).strip()
+    if not supi.isdigit() or not 5 <= len(supi) <= 16:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "supi must be a 5 to 16 digit IMSI/SUPI string")
+    plmn = str(action.get("plmn", "")).strip()
+    if not plmn.isdigit() or len(plmn) not in {5, 6}:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "plmn must be a 5 or 6 digit string")
+    dnn = _normalize_dnn(action.get("dnn"))
+    if dnn is None:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "dnn must be a non-empty DNN string")
+    sst = action.get("sst")
+    if not _is_int(sst) or not 0 <= int(sst) <= 255:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "sst must be an integer in [0, 255]")
+    sd = action.get("sd")
+    if sd is not None and (not _is_int(sd) or not 0 <= int(sd) <= 0xFFFFFF):
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "sd must be an integer in [0, 16777215]")
+    auth_profile_id = _normalize_token(action.get("auth_profile_id"), "auth_profile_id")
+    if auth_profile_id is None:
+        return _invalid(action, SafeErrorClass.SCHEMA_ERROR, "auth_profile_id must be a non-empty identifier")
+    return _valid(
+        {
+            "type": RanActionType.UPDATE_CORE_UE_REGISTRATION.value,
+            "ue_id": ue_id,
+            "supi": supi,
+            "plmn": plmn,
+            "dnn": dnn,
+            "sst": int(sst),
+            "sd": None if sd is None else int(sd),
+            "auth_profile_id": auth_profile_id,
+        }
+    )
+
+
+def _normalize_token(value: Any, field: str) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or len(text) > 64:
+        return None
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-")
+    if any(char not in allowed for char in text):
+        return None
+    return text
+
+
+def _normalize_dnn(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip().lower()
+    if not text or len(text) > 63:
+        return None
+    allowed = set("abcdefghijklmnopqrstuvwxyz0123456789-.")
+    if any(char not in allowed for char in text):
+        return None
+    return text
+
+
 def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def _valid(action: dict[str, Any]) -> dict[str, Any]:

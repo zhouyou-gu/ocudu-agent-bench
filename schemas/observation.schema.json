@@ -1,10 +1,21 @@
 {
   "type": "object",
-  "required": ["step_id", "observation_timestamp_s", "evidence"],
+  "required": ["step_id", "observation_timestamp_s", "task_id", "evidence", "previous_feedback", "context"],
+  "additionalProperties": false,
   "properties": {
-    "step_id": {"type": "integer"},
+    "step_id": {"type": "integer", "minimum": 1},
     "observation_timestamp_s": {"type": "number"},
+    "task_id": {"type": "string"},
     "evidence": {"type": "object"},
-    "previous_feedback": {"type": ["object", "null"]}
+    "previous_feedback": {"type": ["object", "null"]},
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {"type": "string"},
+        "step_id": {"type": "integer", "minimum": 1},
+        "backend": {"type": "object"}
+      }
+    }
   }
 }

@@ -1,12 +1,45 @@
 {
   "type": "object",
   "required": ["type"],
+  "additionalProperties": false,
   "properties": {
-    "type": {"type": "string"},
+    "type": {
+      "type": "string",
+      "enum": [
+        "SET_PRB_POLICY_RATIO_WS",
+        "SET_SSB_BLOCK_POWER_WS",
+        "TRIGGER_HANDOVER_CLI",
+        "TRIGGER_CONDITIONAL_HANDOVER_CLI",
+        "SET_CFO_CLI",
+        "SET_TX_TIME_OFFSET_CLI",
+        "RESTART_CORE_NF",
+        "UPDATE_CORE_UE_REGISTRATION",
+        "SET_PRB_POLICY_RATIO_CCC",
+        "SET_PRB_POLICY_RATIO_RC_DU",
+        "NO_ACTION"
+      ]
+    },
     "min_prb_policy_ratio": {"type": "integer"},
     "max_prb_policy_ratio": {"type": "integer"},
+    "plmn": {"type": "string"},
+    "sst": {"type": "integer"},
+    "sd": {"type": ["integer", "null"]},
+    "dedicated_ratio": {"type": ["integer", "null"]},
     "nci": {"type": "integer"},
     "ssb_block_power_dbm": {"type": "integer"},
-    "du_ue_id": {"type": "integer"}
+    "du_ue_id": {"type": "integer"},
+    "serving_pci": {"type": "integer"},
+    "rnti": {"type": ["integer", "string"]},
+    "target_pci": {"type": "integer"},
+    "target_pcis": {"type": "array", "items": {"type": "integer"}},
+    "timeout_s": {"type": "integer"},
+    "sector_id": {"type": "integer"},
+    "cfo_hz": {"type": "number"},
+    "tx_time_offset_us": {"type": "number"},
+    "nf": {"type": "string"},
+    "ue_id": {"type": "string"},
+    "supi": {"type": "string"},
+    "dnn": {"type": "string"},
+    "auth_profile_id": {"type": "string"}
   }
 }

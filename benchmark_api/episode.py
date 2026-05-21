@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -51,7 +52,12 @@ def run_episode(config: EpisodeConfig, agent: Callable[[dict[str, Any]], Any]) -
         trace.run_metadata["closed_at_s"] = time.time()
         trace.finalize_artifacts(config.output_dir)
         package = trace.finalize_trace()
-        return {"run_id": config.run_id, "task": task.task_id, "trace": package, "summary": _unscored_summary(task.task_id, config.run_id)}
+        summary = _unscored_summary(task.task_id, config.run_id)
+        summary, summary_path = _persist_summary(config.output_dir, config.run_id, summary)
+        result = {"run_id": config.run_id, "task": task.task_id, "trace": package, "summary": summary}
+        if summary_path is not None:
+            result["scored_summary_path"] = summary_path
+        return result
 
     wrapper = AgentApiWrapper(
         agent=agent,
@@ -88,13 +94,28 @@ def run_episode(config: EpisodeConfig, agent: Callable[[dict[str, Any]], Any]) -
         trace.record_feedback(feedback)
         previous_feedback = feedback
 
-    cleanup = cleanup_runtime(runtime)
-    trace.record_oracle({"cleanup": cleanup, "runtime_closed": runtime.closed})
     trace.run_metadata["closed_at_s"] = time.time()
     trace.finalize_artifacts(config.output_dir)
+    cleanup = cleanup_runtime(runtime)
+    trace.record_oracle({"cleanup": cleanup, "runtime_closed": runtime.closed})
     trace_package = trace.finalize_trace()
     summary = score_episode(task, trace_package)
-    return {"run_id": config.run_id, "task": task.task_id, "trace": trace_package, "summary": summary}
+    summary, summary_path = _persist_summary(config.output_dir, config.run_id, summary)
+    result = {"run_id": config.run_id, "task": task.task_id, "trace": trace_package, "summary": summary}
+    if summary_path is not None:
+        result["scored_summary_path"] = summary_path
+    return result
+
+
+def _persist_summary(output_dir: Path | None, run_id: str, summary: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    if output_dir is None:
+        return summary, None
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"{run_id}.summary.json"
+    payload = dict(summary)
+    payload["scored_summary_path"] = str(path)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    return payload, str(path)
 
 
 def _unscored_summary(task_id: str, run_id: str) -> dict[str, Any]:

@@ -1,11 +1,25 @@
 {
   "type": "object",
-  "required": ["run_id", "artifact_id", "artifact_type", "producer_module", "visibility_class"],
+  "required": [
+    "run_id",
+    "artifact_id",
+    "artifact_type",
+    "producer_module",
+    "private_path",
+    "checksum",
+    "collection_time_s",
+    "visibility_class",
+    "retention_rule"
+  ],
   "properties": {
     "run_id": {"type": "string"},
     "artifact_id": {"type": "string"},
     "artifact_type": {"type": "string"},
     "producer_module": {"type": "string"},
-    "visibility_class": {"type": "string"}
+    "private_path": {"type": "string"},
+    "checksum": {"type": "string"},
+    "collection_time_s": {"type": "number"},
+    "visibility_class": {"type": "string"},
+    "retention_rule": {"type": "string"}
   }
 }

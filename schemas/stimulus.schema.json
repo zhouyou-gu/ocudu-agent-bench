@@ -2,8 +2,38 @@
   "type": "object",
   "required": ["steps", "timing_policy", "events"],
   "properties": {
-    "steps": {"type": "integer"},
-    "timing_policy": {"type": "object"},
-    "events": {"type": "array"}
+    "steps": {"type": "integer", "minimum": 1},
+    "timing_policy": {
+      "type": "object",
+      "required": ["clock_mode", "step_interval_s", "decision_deadline_s"],
+      "properties": {
+        "clock_mode": {"type": "string"},
+        "step_interval_s": {"type": "number", "exclusiveMinimum": 0},
+        "decision_deadline_s": {"type": "number", "exclusiveMinimum": 0},
+        "late_action_policy": {"type": "string"},
+        "action_apply_policy": {"type": "string"}
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "phase", "parameters"],
+        "properties": {
+          "kind": {"type": "string"},
+          "phase": {"type": "string", "enum": ["pre_observation", "in_step"]},
+          "parameters": {"type": "object"},
+          "apply_steps": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+          "start_step": {"type": "integer", "minimum": 1},
+          "end_step": {"type": "integer", "minimum": 1}
+        },
+        "not": {
+          "allOf": [
+            {"required": ["apply_steps"]},
+            {"anyOf": [{"required": ["start_step"]}, {"required": ["end_step"]}]}
+          ]
+        }
+      }
+    }
   }
 }

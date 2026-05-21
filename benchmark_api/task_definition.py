@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.benchmark_api.api_catalog import build_api_projection, validate_api_selection
+from benchmark.benchmark_api.stimulus import targeted_steps_for_event, validate_stimulus_parameters
 from benchmark.benchmark_api.types import (
     IMPLEMENTED_STIMULUS_DRIVERS,
     RanActionType,
@@ -118,7 +119,7 @@ def agent_visible_task(task: PrivateTask) -> AgentVisibleTask:
     projection = build_api_projection(list(task.selected_api_kinds))
     selected_actions = sorted(set(projection["action_types"]) & set(task.allowed_actions))
     projection["action_types"] = selected_actions
-    projection["observation_sources"] = sorted(set(projection["observation_sources"]) & set(task.observation_sources))
+    projection["observation_sources"] = sorted(set(task.observation_sources))
     if task.allow_no_action:
         projection["action_types"].append(RanActionType.NO_ACTION.value)
     return AgentVisibleTask(
@@ -145,27 +146,42 @@ def validate_private_task(task: PrivateTask) -> None:
         raise ValueError(f"Task {task.task_id} has invalid E runtime setup")
     if not task.E.get("runtime_adapter"):
         raise ValueError(f"Task {task.task_id} must declare E.runtime_adapter")
-    validate_api_selection(list(task.selected_api_kinds))
+    selected_descriptors = validate_api_selection(list(task.selected_api_kinds))
+    selected_action_types = {
+        descriptor.action_type.value
+        for descriptor in selected_descriptors
+        if descriptor.action_type is not None
+    }
     allowed_actions = set(task.allowed_actions)
     for action in allowed_actions:
         RanActionType(action)
     if RanActionType.NO_ACTION.value in allowed_actions:
         raise ValueError("NO_ACTION belongs to allow_no_action, not allowed_actions")
+    unselected_actions = allowed_actions - selected_action_types
+    if unselected_actions:
+        names = ", ".join(sorted(unselected_actions))
+        raise ValueError(f"allowed_actions must be backed by selected api_kinds: {names}")
     for source in task.observation_sources:
         RanObservationSource(source)
-    selected_driver_kinds = {
-        StimulusDriverKind(event["kind"])
-        for event in _stimulus_events(task.U)
-    }
+    stimulus_events = _stimulus_events(task.U)
+    steps = task.step_count
+    if steps <= 0:
+        raise ValueError(f"Task {task.task_id} must declare positive U.steps")
+    selected_driver_kinds = {StimulusDriverKind(event["kind"]) for event in stimulus_events}
     future = selected_driver_kinds - IMPLEMENTED_STIMULUS_DRIVERS
     if future:
         names = ", ".join(sorted(driver.value for driver in future))
         raise ValueError(f"Task {task.task_id} references non-implemented stimulus driver(s): {names}")
+    for event in stimulus_events:
+        targeted_steps_for_event(event, steps)
+        validate_stimulus_parameters(StimulusDriverKind(event["kind"]), event.get("parameters", {}))
     for metric in task.J.get("raw_metrics", []):
         RawScoreMetric(metric)
     expected_action = task.J.get("expected_action_type")
     if expected_action is not None:
         RanActionType(str(expected_action))
+    _validate_temporal_expectations(task)
+    _validate_expected_action_fields(task)
 
 
 def task_summary(task: PrivateTask) -> dict[str, Any]:
@@ -224,3 +240,41 @@ def _stimulus_events(stimulus: dict[str, Any]) -> tuple[dict[str, Any], ...]:
         if not isinstance(event, dict) or "kind" not in event or "phase" not in event:
             raise ValueError("Each stimulus event must contain kind and phase")
     return tuple(events)
+
+
+def _validate_temporal_expectations(task: PrivateTask) -> None:
+    expectations = task.J.get("temporal_expectations", [])
+    if not isinstance(expectations, list):
+        raise ValueError("J.temporal_expectations must be a list")
+    for expectation in expectations:
+        if not isinstance(expectation, dict):
+            raise ValueError("Each temporal expectation must be an object")
+        step_id = expectation.get("step_id")
+        if isinstance(step_id, bool) or not isinstance(step_id, int) or not 1 <= step_id <= task.step_count:
+            raise ValueError("temporal expectation step_id must be within U.steps")
+        RanActionType(str(expectation.get("action_type", "")))
+        for field in ("valid", "accepted"):
+            if field in expectation and not isinstance(expectation[field], bool):
+                raise ValueError(f"temporal expectation {field} must be a boolean")
+
+
+def _validate_expected_action_fields(task: PrivateTask) -> None:
+    expectations = task.J.get("expected_action_fields", [])
+    if not isinstance(expectations, list):
+        raise ValueError("J.expected_action_fields must be a list")
+    for expectation in expectations:
+        if not isinstance(expectation, dict):
+            raise ValueError("Each expected action field spec must be an object")
+        step_id = expectation.get("step_id")
+        if isinstance(step_id, bool) or not isinstance(step_id, int) or not 1 <= step_id <= task.step_count:
+            raise ValueError("expected action field step_id must be within U.steps")
+        action_type = RanActionType(str(expectation.get("action_type", "")))
+        if action_type == RanActionType.NO_ACTION:
+            raise ValueError("expected action fields cannot target NO_ACTION")
+        fields = expectation.get("fields", {})
+        if not isinstance(fields, dict) or not fields:
+            raise ValueError("expected action fields must be a non-empty object")
+        if "numeric_tolerance" in expectation:
+            tolerance = expectation["numeric_tolerance"]
+            if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or float(tolerance) < 0:
+                raise ValueError("numeric_tolerance must be a non-negative number")

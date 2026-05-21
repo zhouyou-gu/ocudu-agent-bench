@@ -1,0 +1,171 @@
+{
+  "id": "conditional_handover_planning_v1",
+  "version": 1,
+  "G": "Use conditional handover for a visible multi-target mobility path, then avoid repeating it.",
+  "E": {
+    "runtime_adapter": "simulated_ocudu",
+    "runtime": "ocudu_zmq_open5gs",
+    "components": [
+      "ocudu_websocket",
+      "ocudu_cli",
+      "open5gs",
+      "srsue_zmq"
+    ]
+  },
+  "U": {
+    "steps": 3,
+    "timing_policy": {
+      "clock_mode": "fixed_tick",
+      "step_interval_s": 0.01,
+      "decision_deadline_s": 0.01
+    },
+    "events": [
+      {
+        "kind": "docker_zmq_runtime_launch",
+        "phase": "pre_observation",
+        "parameters": {},
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "metrics_staleness_mask",
+        "phase": "pre_observation",
+        "parameters": {
+          "stale_until_step": 0
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "pre_observation",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "in_step",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "mobility_path",
+        "phase": "pre_observation",
+        "parameters": {
+          "serving_pci": 4,
+          "target_pcis": [
+            7,
+            8
+          ],
+          "rnti": "0x4601",
+          "du_ue_id": 1
+        },
+        "start_step": 2,
+        "end_step": 3
+      },
+      {
+        "kind": "mobility_path",
+        "phase": "in_step",
+        "parameters": {
+          "serving_pci": 4,
+          "target_pcis": [
+            7,
+            8
+          ],
+          "rnti": "0x4601",
+          "du_ue_id": 1
+        },
+        "start_step": 2,
+        "end_step": 3
+      }
+    ]
+  },
+  "I": {
+    "api_kinds": [
+      "ocudu_cli_conditional_handover",
+      "ocudu_json_metrics"
+    ],
+    "allowed_actions": [
+      "TRIGGER_CONDITIONAL_HANDOVER_CLI"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "ue_identity"
+    ],
+    "allow_no_action": true
+  },
+  "J": {
+    "scoring_rule": "conditional_handover_planning",
+    "raw_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "critical_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "success_threshold": 1.0,
+    "oracle_requirements": [
+      "ue_identity",
+      "control_outcome"
+    ],
+    "expected_action_type": "TRIGGER_CONDITIONAL_HANDOVER_CLI",
+    "max_actions": 1,
+    "require_evidence_before_action": true,
+    "temporal_expectations": [
+      {
+        "step_id": 1,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 2,
+        "action_type": "TRIGGER_CONDITIONAL_HANDOVER_CLI"
+      },
+      {
+        "step_id": 3,
+        "action_type": "NO_ACTION"
+      }
+    ],
+    "expected_action_fields": [
+      {
+        "step_id": 2,
+        "action_type": "TRIGGER_CONDITIONAL_HANDOVER_CLI",
+        "fields": {
+          "serving_pci": 4,
+          "rnti": "0x4601",
+          "target_pcis": [
+            7,
+            8
+          ],
+          "timeout_s": 5
+        }
+      }
+    ]
+  },
+  "allowed_observation_context": [
+    "task_id",
+    "step_id",
+    "backend"
+  ],
+  "public_constraints": [
+    "Use only task-selected APIs and avoid repeated control after accepted repair."
+  ]
+}
