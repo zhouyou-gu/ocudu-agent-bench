@@ -7,6 +7,7 @@ from pathlib import Path
 import benchmark.benchmark_api.episode as episode_module
 from benchmark.benchmark_api.controller import BaselineController
 from benchmark.benchmark_api.episode import EpisodeConfig, run_episode
+from benchmark.benchmark_api.task_catalog import load_tasks_for_suite
 from benchmark.benchmark_api.trace import TraceRecorder
 
 
@@ -24,7 +25,7 @@ class EpisodeTests(unittest.TestCase):
             }
 
         result = run_episode(
-            EpisodeConfig(task_id="slice_congestion_prb_rebalance_v1", run_id="unit-episode", seed=3),
+            EpisodeConfig(task_id="base_prb_slice_congestion_rebalance_v1", run_id="unit-episode", seed=3),
             BaselineController("auto"),
         )
 
@@ -40,7 +41,7 @@ class EpisodeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             result = run_episode(
                 EpisodeConfig(
-                    task_id="slice_congestion_prb_rebalance_v1",
+                    task_id="base_prb_slice_congestion_rebalance_v1",
                     run_id="unit-summary-output",
                     seed=3,
                     output_dir=Path(tmpdir),
@@ -79,7 +80,7 @@ class EpisodeTests(unittest.TestCase):
             TraceRecorder.finalize_artifacts = wrapped_finalize_artifacts
             episode_module.cleanup_runtime = wrapped_cleanup_runtime
             result = episode_module.run_episode(
-                EpisodeConfig(task_id="minimal_intervention_budget_v1", run_id="unit-artifact-before-cleanup", seed=1),
+                EpisodeConfig(task_id="base_restraint_minimal_intervention_budget_v1", run_id="unit-artifact-before-cleanup", seed=1),
                 lambda payload: {"decision": None},
             )
         finally:
@@ -92,10 +93,11 @@ class EpisodeTests(unittest.TestCase):
     def test_timeout_becomes_no_action_and_d_interval_stays_active_to_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tasks_dir = Path(tmpdir)
-            task_dir = tasks_dir / "unit_timeout_v1"
-            task_dir.mkdir()
-            manifest = json.loads(Path("benchmark/tasks/minimal_intervention_budget_v1/task.json").read_text(encoding="utf-8"))
+            task_dir = tasks_dir / "base" / "restraint" / "unit_timeout_v1"
+            task_dir.mkdir(parents=True)
+            manifest = json.loads(Path("benchmark/task_sets/base/restraint/base_restraint_minimal_intervention_budget_v1/task.json").read_text(encoding="utf-8"))
             manifest["id"] = "unit_timeout_v1"
+            manifest["M"] = {"task_set": "base", "family": "restraint", "role": "primary"}
             manifest["U"]["steps"] = 1
             manifest["U"]["timing_policy"]["decision_deadline_s"] = 0.01
             manifest["U"]["timing_policy"]["step_interval_s"] = 0.02
@@ -138,7 +140,7 @@ class EpisodeTests(unittest.TestCase):
             sent["value"] = True
             return {"decision": {"type": "SET_PRB_POLICY_RATIO_WS", "min_prb_policy_ratio": 20, "max_prb_policy_ratio": 80}}
 
-        result = run_episode(EpisodeConfig(task_id="stale_metrics_then_prb_v1", run_id="unit-stale", seed=1), acts_on_stale_once)
+        result = run_episode(EpisodeConfig(task_id="base_prb_stale_metrics_then_rebalance_v1", run_id="unit-stale", seed=1), acts_on_stale_once)
 
         self.assertEqual(result["summary"]["outcome"], "agent_failure")
         self.assertEqual(result["summary"]["raw_metrics"]["stale_action_avoidance"], 0.0)
@@ -153,7 +155,7 @@ class EpisodeTests(unittest.TestCase):
             return {"decision": {"type": "SET_PRB_POLICY_RATIO_WS", "min_prb_policy_ratio": 30, "max_prb_policy_ratio": 90}}
 
         result = run_episode(
-            EpisodeConfig(task_id="slice_congestion_prb_rebalance_v1", run_id="unit-temporal-fail", seed=1),
+            EpisodeConfig(task_id="base_prb_slice_congestion_rebalance_v1", run_id="unit-temporal-fail", seed=1),
             acts_too_early,
         )
 
@@ -170,10 +172,92 @@ class EpisodeTests(unittest.TestCase):
             radio = payload["observation"]["evidence"]["radio_runtime"]
             return {"decision": {"type": "SET_CFO_CLI", "sector_id": radio["sector_id"], "cfo_hz": -1.0}}
 
-        result = run_episode(EpisodeConfig(task_id="cfo_correction_v1", run_id="unit-payload-fail", seed=1), wrong_cfo)
+        result = run_episode(EpisodeConfig(task_id="base_radio_cli_cfo_correction_v1", run_id="unit-payload-fail", seed=1), wrong_cfo)
 
         self.assertEqual(result["summary"]["outcome"], "agent_failure")
         self.assertEqual(result["summary"]["raw_metrics"]["expected_action_payload_match"], 0.0)
+
+    def test_diagnostic_payload_similarity_is_graded_but_not_critical(self) -> None:
+        sent = {"value": False}
+
+        def nearly_correct_prb(payload):
+            if payload["observation"]["step_id"] != 2 or sent["value"]:
+                return {"decision": None}
+            sent["value"] = True
+            target = payload["observation"]["evidence"]["slice_runtime"]["target_prb_policy"]
+            active_slice = payload["observation"]["evidence"]["slice_runtime"]["active_slice"]
+            return {
+                "decision": {
+                    "type": "SET_PRB_POLICY_RATIO_WS",
+                    "plmn": active_slice["plmn"],
+                    "sst": active_slice["sst"],
+                    "sd": active_slice["sd"],
+                    "min_prb_policy_ratio": target["min_prb_policy_ratio"] + 1,
+                    "max_prb_policy_ratio": target["max_prb_policy_ratio"],
+                }
+            }
+
+        task_id = _generated_legacy_task_id("slice_congestion_prb_ratio_precision_v1")
+        result = run_episode(
+            EpisodeConfig(task_id=task_id, run_id="unit-payload-similarity", seed=1, suite="generated", suite_count=50, suite_seed=11),
+            nearly_correct_prb,
+        )
+        raw = result["summary"]["raw_metrics"]
+
+        self.assertEqual(result["summary"]["outcome"], "agent_failure")
+        self.assertEqual(raw["expected_action_payload_match"], 0.0)
+        self.assertGreater(raw["expected_action_payload_similarity"], 0.0)
+        self.assertLess(raw["expected_action_payload_similarity"], 1.0)
+        self.assertGreater(raw["post_action_evidence_similarity"], 0.0)
+        self.assertLess(raw["post_action_evidence_similarity"], 1.0)
+
+    def test_diagnostic_timing_similarity_is_graded_for_nearby_wrong_step(self) -> None:
+        sent = {"value": False}
+
+        def acts_too_early(payload):
+            if sent["value"]:
+                return {"decision": None}
+            sent["value"] = True
+            target = payload["observation"]["evidence"]["slice_runtime"].get("target_prb_policy") or {
+                "min_prb_policy_ratio": 30,
+                "max_prb_policy_ratio": 90,
+            }
+            return {
+                "decision": {
+                    "type": "SET_PRB_POLICY_RATIO_WS",
+                    "min_prb_policy_ratio": target["min_prb_policy_ratio"],
+                    "max_prb_policy_ratio": target["max_prb_policy_ratio"],
+                }
+            }
+
+        task_id = _generated_legacy_task_id("slice_congestion_prb_delayed_demand_v1")
+        result = run_episode(
+            EpisodeConfig(task_id=task_id, run_id="unit-timing-similarity", seed=1, suite="generated", suite_count=50, suite_seed=11),
+            acts_too_early,
+        )
+        raw = result["summary"]["raw_metrics"]
+
+        self.assertEqual(result["summary"]["outcome"], "agent_failure")
+        self.assertEqual(raw["temporal_action_sequence_match"], 0.0)
+        self.assertGreater(raw["action_timing_similarity"], 0.0)
+        self.assertLess(raw["action_timing_similarity"], 1.0)
+
+    def test_diagnosis_symptom_observation_hides_direct_prb_repair_target(self) -> None:
+        result = run_episode(
+            EpisodeConfig(task_id="compound_diagnosis_congestion_vs_coverage_v1", run_id="unit-diagnosis-redaction", seed=1, suite="compound"),
+            BaselineController("auto"),
+        )
+
+        self.assertEqual(result["summary"]["outcome"], "success")
+        observations = [
+            entry["record"]
+            for entry in result["trace"]["interaction"]
+            if entry["kind"] == "observation"
+        ]
+        step3_slice = observations[2]["evidence"]["slice_runtime"]
+        self.assertNotIn("target_prb_policy", step3_slice)
+        self.assertEqual(step3_slice["queue_pressure"], 0.32)
+        self.assertEqual(step3_slice["prb_utilization"], 0.88)
 
     def test_cli_handover_experiment_scores_with_visible_ue_identity(self) -> None:
         sent = {"value": False}
@@ -192,7 +276,7 @@ class EpisodeTests(unittest.TestCase):
                 }
             }
 
-        result = run_episode(EpisodeConfig(task_id="immediate_handover_v1", run_id="unit-ho", seed=1), handover_agent)
+        result = run_episode(EpisodeConfig(task_id="base_mobility_immediate_handover_v1", run_id="unit-ho", seed=1), handover_agent)
 
         self.assertEqual(result["summary"]["outcome"], "success")
         action = [
@@ -220,7 +304,7 @@ class EpisodeTests(unittest.TestCase):
                 }
             }
 
-        result = run_episode(EpisodeConfig(task_id="conditional_handover_planning_v1", run_id="unit-cho", seed=1), cho_agent)
+        result = run_episode(EpisodeConfig(task_id="base_mobility_conditional_handover_planning_v1", run_id="unit-cho", seed=1), cho_agent)
 
         self.assertEqual(result["summary"]["outcome"], "success")
         action = [
@@ -246,7 +330,7 @@ class EpisodeTests(unittest.TestCase):
                 }
             }
 
-        result = run_episode(EpisodeConfig(task_id="cfo_correction_v1", run_id="unit-cfo", seed=1), cfo_agent)
+        result = run_episode(EpisodeConfig(task_id="base_radio_cli_cfo_correction_v1", run_id="unit-cfo", seed=1), cfo_agent)
 
         self.assertEqual(result["summary"]["outcome"], "success")
         self.assertEqual(result["summary"]["raw_metrics"]["expected_action_payload_match"], 1.0)
@@ -274,7 +358,7 @@ class EpisodeTests(unittest.TestCase):
                 }
             }
 
-        result = run_episode(EpisodeConfig(task_id="tx_time_offset_correction_v1", run_id="unit-tx-time-offset", seed=1), tx_time_offset_agent)
+        result = run_episode(EpisodeConfig(task_id="base_radio_cli_tx_time_offset_correction_v1", run_id="unit-tx-time-offset", seed=1), tx_time_offset_agent)
 
         self.assertEqual(result["summary"]["outcome"], "success")
         self.assertEqual(result["summary"]["raw_metrics"]["expected_action_payload_match"], 1.0)
@@ -291,7 +375,7 @@ class EpisodeTests(unittest.TestCase):
             sent["value"] = True
             return {"decision": {"type": "RESTART_CORE_NF", "nf": "open5gs"}}
 
-        result = run_episode(EpisodeConfig(task_id="core_nf_recovery_multistep_v1", run_id="unit-core-restart", seed=1), agent)
+        result = run_episode(EpisodeConfig(task_id="base_core_nf_recovery_v1", run_id="unit-core-restart", seed=1), agent)
 
         self.assertEqual(result["summary"]["outcome"], "success")
         action = [
@@ -322,7 +406,7 @@ class EpisodeTests(unittest.TestCase):
                 }
             }
 
-        result = run_episode(EpisodeConfig(task_id="core_ue_registration_repair_multistep_v1", run_id="unit-core-ue-reg", seed=1), agent)
+        result = run_episode(EpisodeConfig(task_id="base_core_ue_registration_repair_v1", run_id="unit-core-ue-reg", seed=1), agent)
 
         self.assertEqual(result["summary"]["outcome"], "success")
         self.assertEqual(result["summary"]["raw_metrics"]["core_ue_registration_repaired"], 1.0)
@@ -333,7 +417,7 @@ class EpisodeTests(unittest.TestCase):
 
     def test_minimal_intervention_scores_as_no_action_task(self) -> None:
         result = run_episode(
-            EpisodeConfig(task_id="minimal_intervention_budget_v1", run_id="unit-minimal-intervention", seed=1),
+            EpisodeConfig(task_id="base_restraint_minimal_intervention_budget_v1", run_id="unit-minimal-intervention", seed=1),
             lambda payload: {"decision": None},
         )
 
@@ -342,6 +426,14 @@ class EpisodeTests(unittest.TestCase):
         self.assertTrue(actions)
         self.assertTrue(all(action["action"]["type"] == "NO_ACTION" for action in actions))
         self.assertTrue(all(not action["dispatch"]["dispatched"] for action in actions))
+
+
+def _generated_legacy_task_id(legacy_task_id: str, seed: int = 11, count: int = 50) -> str:
+    generated = load_tasks_for_suite(suite="generated", seed=seed, count=count)
+    for task in generated.values():
+        if task.M.get("variant", {}).get("legacy_task_id") == legacy_task_id:
+            return task.task_id
+    raise AssertionError(f"missing generated legacy task: {legacy_task_id}")
 
 
 if __name__ == "__main__":

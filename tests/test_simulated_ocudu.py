@@ -5,12 +5,12 @@ from benchmark.benchmark_api.controller import BaselineController
 from benchmark.benchmark_api.episode import EpisodeConfig, run_episode
 from benchmark.benchmark_api.runtime_setup import instantiate_runtime
 from benchmark.benchmark_api.stimulus import apply_pre_observation, expand_stimulus_plan
-from benchmark.benchmark_api.task_definition import load_task
+from benchmark.tests.task_helpers import load_checked_in_task as load_task
 
 
 class SimulatedOcuduTransitionTests(unittest.TestCase):
     def test_accepted_prb_action_changes_next_step_slice_evidence(self) -> None:
-        result = run_episode(EpisodeConfig(task_id="slice_congestion_prb_rebalance_v1", run_id="unit-prb-effect", seed=1), BaselineController("auto"))
+        result = run_episode(EpisodeConfig(task_id="base_prb_slice_congestion_rebalance_v1", run_id="unit-prb-effect", seed=1), BaselineController("auto"))
 
         self.assertEqual(result["summary"]["outcome"], "success")
         self.assertEqual(result["summary"]["raw_metrics"]["post_action_evidence_match"], 1.0)
@@ -21,7 +21,7 @@ class SimulatedOcuduTransitionTests(unittest.TestCase):
         self.assertEqual(current["backend"], "websocket")
 
     def test_accepted_ssb_action_changes_next_step_radio_evidence(self) -> None:
-        result = run_episode(EpisodeConfig(task_id="coverage_edge_ssb_recovery_v1", run_id="unit-ssb-effect", seed=1), BaselineController("auto"))
+        result = run_episode(EpisodeConfig(task_id="base_ssb_coverage_edge_recovery_v1", run_id="unit-ssb-effect", seed=1), BaselineController("auto"))
 
         self.assertEqual(result["summary"]["outcome"], "success")
         self.assertEqual(result["summary"]["raw_metrics"]["post_action_evidence_match"], 1.0)
@@ -32,8 +32,8 @@ class SimulatedOcuduTransitionTests(unittest.TestCase):
 
     def test_accepted_cli_radio_actions_change_next_step_radio_evidence(self) -> None:
         cases = (
-            ("cfo_correction_v1", "radio_runtime.cfo_hz", -1200.0),
-            ("tx_time_offset_correction_v1", "radio_runtime.tx_time_offset_us", 7.5),
+            ("base_radio_cli_cfo_correction_v1", "radio_runtime.cfo_hz", -1200.0),
+            ("base_radio_cli_tx_time_offset_correction_v1", "radio_runtime.tx_time_offset_us", 7.5),
         )
         for task_id, path, expected in cases:
             with self.subTest(task_id=task_id):
@@ -44,8 +44,8 @@ class SimulatedOcuduTransitionTests(unittest.TestCase):
                 self.assertEqual(_path_get(_observation(result, 2)["evidence"], path), expected)
 
     def test_handover_and_cho_actions_change_ue_identity_evidence(self) -> None:
-        handover = run_episode(EpisodeConfig(task_id="immediate_handover_v1", run_id="unit-ho-effect", seed=1), BaselineController("auto"))
-        cho = run_episode(EpisodeConfig(task_id="conditional_handover_planning_v1", run_id="unit-cho-effect", seed=1), BaselineController("auto"))
+        handover = run_episode(EpisodeConfig(task_id="base_mobility_immediate_handover_v1", run_id="unit-ho-effect", seed=1), BaselineController("auto"))
+        cho = run_episode(EpisodeConfig(task_id="base_mobility_conditional_handover_planning_v1", run_id="unit-cho-effect", seed=1), BaselineController("auto"))
 
         self.assertEqual(handover["summary"]["outcome"], "success")
         self.assertEqual(_observation(handover, 3)["evidence"]["ue_identity"]["serving_pci"], 7)
@@ -53,9 +53,9 @@ class SimulatedOcuduTransitionTests(unittest.TestCase):
         self.assertEqual(_observation(cho, 3)["evidence"]["ue_identity"]["conditional_handover_plan"]["target_pcis"], [7, 8])
 
     def test_core_actions_change_next_step_core_evidence(self) -> None:
-        nf = run_episode(EpisodeConfig(task_id="core_nf_recovery_multistep_v1", run_id="unit-core-nf-effect", seed=1), BaselineController("auto"))
+        nf = run_episode(EpisodeConfig(task_id="base_core_nf_recovery_v1", run_id="unit-core-nf-effect", seed=1), BaselineController("auto"))
         ue = run_episode(
-            EpisodeConfig(task_id="core_ue_registration_repair_multistep_v1", run_id="unit-core-ue-effect", seed=1),
+            EpisodeConfig(task_id="base_core_ue_registration_repair_v1", run_id="unit-core-ue-effect", seed=1),
             BaselineController("auto"),
         )
 
@@ -65,7 +65,7 @@ class SimulatedOcuduTransitionTests(unittest.TestCase):
         self.assertEqual(_observation(ue, 2)["evidence"]["core_runtime"]["ue_registration"]["status"], "registered")
 
     def test_runtime_rejects_stale_cell_wrong_slice_wrong_mobility_and_repeats(self) -> None:
-        ssb_task = load_task("coverage_edge_ssb_recovery_v1")
+        ssb_task = load_task("base_ssb_coverage_edge_recovery_v1")
         ssb_runtime = _runtime_at_step(ssb_task, step_id=2)
         stale_cell = handle_agent_decision(
             ssb_task,
@@ -77,7 +77,7 @@ class SimulatedOcuduTransitionTests(unittest.TestCase):
         self.assertFalse(stale_cell.dispatch.accepted)
         self.assertEqual(stale_cell.dispatch.safe_error_class.value, "runtime_rejected")
 
-        prb_task = load_task("slice_congestion_prb_rebalance_v1")
+        prb_task = load_task("base_prb_slice_congestion_rebalance_v1")
         prb_runtime = _runtime_at_step(prb_task, step_id=2)
         wrong_slice = handle_agent_decision(
             prb_task,
@@ -89,7 +89,7 @@ class SimulatedOcuduTransitionTests(unittest.TestCase):
         self.assertFalse(wrong_slice.dispatch.accepted)
         self.assertEqual(wrong_slice.dispatch.safe_error_class.value, "runtime_rejected")
 
-        ho_task = load_task("immediate_handover_v1")
+        ho_task = load_task("base_mobility_immediate_handover_v1")
         ho_runtime = _runtime_at_step(ho_task, step_id=2)
         wrong_pci = handle_agent_decision(
             ho_task,
@@ -118,7 +118,7 @@ class SimulatedOcuduTransitionTests(unittest.TestCase):
         self.assertEqual(repeat.dispatch.safe_error_class.value, "runtime_rejected")
 
     def test_unavailable_e2_backend_rejects_before_domain_transition(self) -> None:
-        task = load_task("ric_xapp_ws_fallback_v1")
+        task = load_task("base_prb_ric_xapp_ws_fallback_v1")
         runtime = _runtime_at_step(task, step_id=2)
 
         record = handle_agent_decision(
@@ -142,7 +142,7 @@ class SimulatedOcuduTransitionTests(unittest.TestCase):
             radio = payload["observation"]["evidence"]["radio_runtime"]
             return {"decision": {"type": "SET_CFO_CLI", "sector_id": radio["sector_id"], "cfo_hz": -1150.0}}
 
-        result = run_episode(EpisodeConfig(task_id="cfo_correction_v1", run_id="unit-post-action-fail", seed=1), wrong_cfo)
+        result = run_episode(EpisodeConfig(task_id="base_radio_cli_cfo_correction_v1", run_id="unit-post-action-fail", seed=1), wrong_cfo)
 
         self.assertEqual(result["summary"]["outcome"], "agent_failure")
         self.assertEqual(result["summary"]["raw_metrics"]["expected_action_payload_match"], 0.0)

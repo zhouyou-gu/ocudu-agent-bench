@@ -1,6 +1,6 @@
 {
   "type": "object",
-  "required": ["id", "version", "G", "E", "U", "I", "J"],
+  "required": ["id", "version", "G", "E", "U", "I", "J", "M"],
   "properties": {
     "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_]*_v[0-9]+$"},
     "version": {"type": "integer", "minimum": 1},
@@ -22,7 +22,8 @@
         "api_kinds": {"type": "array", "items": {"type": "string"}},
         "allowed_actions": {"type": "array", "items": {"type": "string"}},
         "observation_sources": {"type": "array", "items": {"type": "string"}},
-        "allow_no_action": {"type": "boolean"}
+        "allow_no_action": {"type": "boolean"},
+        "observation_detail": {"type": "string", "enum": ["repair_targets", "diagnosis_symptoms"]}
       }
     },
     "J": {
@@ -34,6 +35,31 @@
         "temporal_expectations": {"type": "array", "items": {"type": "object"}},
         "expected_action_fields": {"type": "array", "items": {"type": "object"}},
         "expected_post_action_evidence": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "M": {
+      "type": "object",
+      "required": ["task_set", "family", "role"],
+      "properties": {
+        "task_set": {"type": "string", "enum": ["base", "regression", "compound", "generated"]},
+        "family": {"type": "string", "enum": ["prb", "ssb", "mobility", "radio_cli", "core", "diagnosis", "isolation", "restraint", "backend", "harness"]},
+        "role": {"type": "string", "enum": ["primary", "regression", "compound"]},
+        "variant": {
+          "type": "object",
+          "required": ["family", "axis", "level", "anchor_task_id", "suite", "variant_id", "seed", "axis_values", "expected_failure_modes"],
+          "properties": {
+            "family": {"type": "string"},
+            "axis": {"type": "string"},
+            "level": {"type": "string"},
+            "anchor_task_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_]*_v[0-9]+$"},
+            "suite": {"type": "string"},
+            "variant_id": {"type": "string"},
+            "seed": {"type": "integer"},
+            "axis_values": {"type": "object"},
+            "expected_failure_modes": {"type": "array", "items": {"type": "string"}}
+          },
+          "additionalProperties": true
+        }
       }
     },
     "allowed_observation_context": {"type": "array", "items": {"type": "string"}},

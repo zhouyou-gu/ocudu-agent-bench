@@ -30,7 +30,12 @@ def build_observation(
     step_id: int,
     previous_feedback: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    evidence = read_evidence(runtime, task.observation_sources, task.selected_api_kinds)
+    evidence = read_evidence(
+        runtime,
+        task.observation_sources,
+        task.selected_api_kinds,
+        observation_detail=str(task.I.get("observation_detail", "repair_targets")),
+    )
     frame: dict[str, Any] = {
         "step_id": step_id,
         "observation_timestamp_s": time.time(),

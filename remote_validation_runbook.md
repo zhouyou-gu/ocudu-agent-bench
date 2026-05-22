@@ -52,14 +52,18 @@ Run these after sync from `<remote.workspace>/synced/`:
 ```bash
 python3 -m unittest discover benchmark/tests
 python3 -m compileall -q benchmark
-python3 benchmark/benchctl.py --json tasks list
-python3 benchmark/benchctl.py --json episode run --task slice_congestion_prb_rebalance_v1 --controller auto --seed 1 --output-dir /tmp/ocuduagentbench_remote_smoke
-python3 benchmark/benchctl.py --json run --task slice_congestion_prb_rebalance_v1 --controller auto --runs 3 --seed 10 --output-dir /tmp/ocuduagentbench_remote_runs
+python3 benchmark/benchctl.py --json tasks list --suite all_checked_in
+python3 benchmark/benchctl.py --json tasks list --suite standard --seed 1 --count 200
+python3 benchmark/benchctl.py --json episode run --task base_prb_slice_congestion_rebalance_v1 --controller auto --seed 1 --output-dir /tmp/ocuduagentbench_remote_smoke
+python3 benchmark/benchctl.py --json run --task base_prb_slice_congestion_rebalance_v1 --controller auto --runs 3 --seed 10 --output-dir /tmp/ocuduagentbench_remote_runs
+python3 benchmark/benchctl.py --json run --suite all_checked_in --controller auto --seed 1 --output-dir /tmp/ocuduagentbench_remote_checked_in
+python3 benchmark/benchctl.py --json run --suite standard --controller auto --seed 1 --count 200 --output-dir /tmp/ocuduagentbench_remote_standard
 ```
 
-For expanded simulated coverage, run each `benchmark/tasks/*/task.json` task
-with `--controller auto` unless the task explicitly requires a different
-baseline, and use distinct output directories under `/tmp/ocuduagentbench_*`.
+For expanded simulated coverage, use suite-level commands. Checked-in manifests
+live under `benchmark/task_sets/{base,regression,compound}/<family>/<task_id>/`;
+generated variants are in-memory tasks produced from
+`benchmark/task_sets/generated/`.
 
 ## Required Readiness Classes
 

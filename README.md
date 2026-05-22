@@ -14,6 +14,10 @@ T = <G, E, U, I, J>
 - `I`: task-selected RAN API projection.
 - `J`: post-run oracle scoring rule.
 
+Checked-in and generated manifests also carry private metadata `M` for task-set,
+family, role, and generated-variant grouping. `M` is never agent-visible and is
+not part of scoring.
+
 The benchmark controls runtime setup and stimulus. The agent sees only the
 redacted task view, selected RAN APIs, observations, accepted action schema, and
 redacted feedback.
@@ -21,6 +25,17 @@ redacted feedback.
 Benchmark-private stimulus drivers and task-selected runtime APIs are documented
 in `skillful-ran-research/benchmark_design/benchmark_stimulus_list.md` and
 `skillful-ran-research/benchmark_design/benchmark_runtime_api_list.md`.
+
+The current simulated task surface is organized under `benchmark/task_sets/`:
+
+- `base`: 25 primary checked-in tasks under `benchmark/task_sets/base/<family>/`.
+- `regression`: 1 harness regression task under `benchmark/task_sets/regression/`.
+- `compound`: 8 checked-in latent-cause diagnosis tasks under
+  `benchmark/task_sets/compound/<family>/`.
+- `all_checked_in`: aggregate view over `base`, `regression`, and `compound`.
+- `generated` / `standard` / `diagnostic` / `stress`: deterministic in-memory
+  single-anchor variants from `benchmark/task_sets/generated/axis_registry.json`
+  and `suite_policies.json`.
 
 The current local task manifests declare `E.runtime_adapter =
 simulated_ocudu`. This is an explicit executable adapter for local harness tests,
@@ -31,9 +46,12 @@ fails conformance readiness before scored interaction.
 
 ## Entry Points
 
-- `benchmark/benchctl.py --json tasks list`
-- `benchmark/benchctl.py --json episode run --task slice_congestion_prb_rebalance_v1 --controller auto`
-- `benchmark/benchctl.py --json run --task slice_congestion_prb_rebalance_v1 --controller auto --runs 2`
+- `benchmark/benchctl.py --json tasks list --suite all_checked_in`
+- `benchmark/benchctl.py --json tasks list --suite standard --seed 1 --count 200`
+- `benchmark/benchctl.py --json episode run --task base_prb_slice_congestion_rebalance_v1 --controller auto`
+- `benchmark/benchctl.py --json run --task base_prb_slice_congestion_rebalance_v1 --controller auto --runs 2`
+- `benchmark/benchctl.py --json run --suite compound --controller auto`
+- `benchmark/benchctl.py --json run --suite standard --controller auto --seed 1 --count 200`
 - `benchmark/benchctl.py --json remote check --config .config`
 - `benchmark/benchctl.py --json remote sync --config .config --dry-run`
 

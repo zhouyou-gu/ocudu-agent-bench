@@ -102,6 +102,9 @@ def _raw_metrics(
         RawScoreMetric.TEMPORAL_ACTION_SEQUENCE_MATCH.value: _temporal_action_sequence_match(task, actions),
         RawScoreMetric.EXPECTED_ACTION_PAYLOAD_MATCH.value: _expected_action_payload_match(task, accepted),
         RawScoreMetric.POST_ACTION_EVIDENCE_MATCH.value: _post_action_evidence_match(task, observations_by_step, accepted),
+        RawScoreMetric.ACTION_TIMING_SIMILARITY.value: _action_timing_similarity(task, actions),
+        RawScoreMetric.EXPECTED_ACTION_PAYLOAD_SIMILARITY.value: _expected_action_payload_similarity(task, accepted),
+        RawScoreMetric.POST_ACTION_EVIDENCE_SIMILARITY.value: _post_action_evidence_similarity(task, observations_by_step, accepted),
         RawScoreMetric.UNNECESSARY_ACTION_AVOIDANCE.value: 1.0 if not require_no_action or not action_records else 0.0,
         RawScoreMetric.REPAIR_SUCCESS.value: (
             1.0 if any(not record.get("valid") for record in actions) and bool(accepted) else 0.0
@@ -289,6 +292,37 @@ def _temporal_action_sequence_match(task: PrivateTask, actions: list[dict[str, A
     return 1.0
 
 
+def _action_timing_similarity(task: PrivateTask, actions: list[dict[str, Any]]) -> float:
+    expectations = task.J.get("temporal_expectations", [])
+    if not expectations:
+        return 1.0
+    scores = []
+    max_distance = max(1, task.step_count - 1)
+    for expectation in expectations:
+        step_id = expectation.get("step_id")
+        expected_type = str(expectation.get("action_type", "")).strip()
+        if not isinstance(step_id, int) or not expected_type:
+            scores.append(0.0)
+            continue
+        if expected_type == RanActionType.NO_ACTION.value:
+            record = next((item for item in actions if item.get("step_id") == step_id), None)
+            scores.append(1.0 if record and record.get("action", {}).get("type") == expected_type else 0.0)
+            continue
+        candidates = [
+            record
+            for record in actions
+            if record.get("action", {}).get("type") == expected_type
+            and _matches_validity_expectation(record, expectation)
+            and _matches_acceptance_expectation(record, expectation)
+        ]
+        if not candidates:
+            scores.append(0.0)
+            continue
+        distance = min(abs(int(record.get("step_id", 0)) - step_id) for record in candidates)
+        scores.append(max(0.0, 1.0 - (distance / max_distance)))
+    return sum(scores) / len(scores) if scores else 1.0
+
+
 def _expected_action_payload_match(task: PrivateTask, accepted_actions: list[dict[str, Any]]) -> float:
     expectations = task.J.get("expected_action_fields", [])
     if not expectations:
@@ -310,6 +344,30 @@ def _expected_action_payload_match(task: PrivateTask, accepted_actions: list[dic
         if not any(_fields_match(record.get("action", {}), fields, tolerance) for record in matching_records):
             return 0.0
     return 1.0
+
+
+def _expected_action_payload_similarity(task: PrivateTask, accepted_actions: list[dict[str, Any]]) -> float:
+    expectations = task.J.get("expected_action_fields", [])
+    if not expectations:
+        return 1.0
+    scores = []
+    for expectation in expectations:
+        step_id = expectation.get("step_id")
+        expected_type = str(expectation.get("action_type", "")).strip()
+        fields = expectation.get("fields", {})
+        if not isinstance(step_id, int) or not expected_type or not isinstance(fields, dict):
+            scores.append(0.0)
+            continue
+        matching_records = [
+            record
+            for record in accepted_actions
+            if record.get("step_id") == step_id and record.get("action", {}).get("type") == expected_type
+        ]
+        if not matching_records:
+            scores.append(0.0)
+            continue
+        scores.append(max(_fields_similarity(record.get("action", {}), fields) for record in matching_records))
+    return sum(scores) / len(scores) if scores else 1.0
 
 
 def _post_action_evidence_match(
@@ -344,6 +402,39 @@ def _post_action_evidence_match(
     return 1.0
 
 
+def _post_action_evidence_similarity(
+    task: PrivateTask,
+    observations_by_step: dict[Any, dict[str, Any]],
+    accepted_actions: list[dict[str, Any]],
+) -> float:
+    expectations = task.J.get("expected_post_action_evidence", [])
+    if not expectations:
+        return 1.0
+    accepted_steps = {
+        record.get("step_id")
+        for record in accepted_actions
+        if _dispatch(record).get("accepted")
+    }
+    scores = []
+    for expectation in expectations:
+        step_id = expectation.get("step_id")
+        fields = expectation.get("fields", {})
+        if not isinstance(step_id, int) or not isinstance(fields, dict):
+            scores.append(0.0)
+            continue
+        after_step_id = expectation.get("after_step_id")
+        if after_step_id is not None:
+            if not isinstance(after_step_id, int) or after_step_id not in accepted_steps:
+                scores.append(0.0)
+                continue
+        elif not any(isinstance(value, int) and value < step_id for value in accepted_steps):
+            scores.append(0.0)
+            continue
+        evidence = observations_by_step.get(step_id, {}).get("evidence", {})
+        scores.append(_fields_similarity(evidence, fields))
+    return sum(scores) / len(scores) if scores else 1.0
+
+
 def _fields_match(action: dict[str, Any], fields: dict[str, Any], tolerance: float) -> bool:
     for field, expected in fields.items():
         actual = _path_get(action, str(field))
@@ -356,6 +447,37 @@ def _fields_match(action: dict[str, Any], fields: dict[str, Any], tolerance: flo
         if actual != expected:
             return False
     return True
+
+
+def _fields_similarity(data: dict[str, Any], fields: dict[str, Any]) -> float:
+    if not fields:
+        return 1.0
+    scores = []
+    for field, expected in fields.items():
+        actual = _path_get(data, str(field))
+        scores.append(_value_similarity(actual, expected))
+    return sum(scores) / len(scores)
+
+
+def _value_similarity(actual: Any, expected: Any) -> float:
+    actual_num = _num(actual)
+    expected_num = _num(expected)
+    if actual_num is not None and expected_num is not None:
+        scale = max(abs(expected_num), 1.0)
+        return max(0.0, 1.0 - min(abs(actual_num - expected_num) / scale, 1.0))
+    return 1.0 if actual == expected else 0.0
+
+
+def _matches_validity_expectation(record: dict[str, Any], expectation: dict[str, Any]) -> bool:
+    if "valid" not in expectation:
+        return bool(record.get("valid"))
+    return bool(record.get("valid")) == bool(expectation["valid"])
+
+
+def _matches_acceptance_expectation(record: dict[str, Any], expectation: dict[str, Any]) -> bool:
+    if "accepted" not in expectation:
+        return bool(_dispatch(record).get("accepted"))
+    return bool(_dispatch(record).get("accepted")) == bool(expectation["accepted"])
 
 
 def _path_get(data: dict[str, Any], path: str) -> Any:

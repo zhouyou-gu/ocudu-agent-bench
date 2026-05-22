@@ -1,0 +1,175 @@
+{
+  "id": "base_radio_cli_tx_time_offset_correction_v1",
+  "version": 1,
+  "G": "Apply one transmit-time-offset correction for the visible sector, then avoid repeating it.",
+  "E": {
+    "runtime_adapter": "simulated_ocudu",
+    "runtime": "ocudu_zmq_open5gs",
+    "components": [
+      "ocudu_websocket",
+      "ocudu_cli",
+      "open5gs",
+      "srsue_zmq"
+    ]
+  },
+  "U": {
+    "steps": 2,
+    "timing_policy": {
+      "clock_mode": "fixed_tick",
+      "step_interval_s": 0.01,
+      "decision_deadline_s": 0.01
+    },
+    "events": [
+      {
+        "kind": "docker_zmq_runtime_launch",
+        "phase": "pre_observation",
+        "parameters": {},
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "metrics_staleness_mask",
+        "phase": "pre_observation",
+        "parameters": {
+          "stale_until_step": 0
+        },
+        "start_step": 1,
+        "end_step": 2
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "pre_observation",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 2
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "in_step",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 2
+      },
+      {
+        "kind": "radio_condition_profile",
+        "phase": "pre_observation",
+        "parameters": {
+          "profile": "timing_offset",
+          "target_tx_time_offset_us": 7.5,
+          "sinr_db": 15.0,
+          "cqi": 8
+        },
+        "start_step": 1,
+        "end_step": 2
+      },
+      {
+        "kind": "radio_condition_profile",
+        "phase": "in_step",
+        "parameters": {
+          "profile": "timing_offset",
+          "target_tx_time_offset_us": 7.5,
+          "sinr_db": 15.0,
+          "cqi": 8
+        },
+        "start_step": 1,
+        "end_step": 2
+      }
+    ]
+  },
+  "I": {
+    "api_kinds": [
+      "ocudu_cli_tx_time_offset_control",
+      "ocudu_json_metrics"
+    ],
+    "allowed_actions": [
+      "SET_TX_TIME_OFFSET_CLI"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "radio_runtime"
+    ],
+    "allow_no_action": true
+  },
+  "J": {
+    "scoring_rule": "tx_time_offset_correction",
+    "raw_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "post_action_evidence_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "critical_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "post_action_evidence_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "success_threshold": 1.0,
+    "oracle_requirements": [
+      "radio_runtime",
+      "control_outcome"
+    ],
+    "expected_action_type": "SET_TX_TIME_OFFSET_CLI",
+    "max_actions": 1,
+    "require_evidence_before_action": true,
+    "temporal_expectations": [
+      {
+        "step_id": 1,
+        "action_type": "SET_TX_TIME_OFFSET_CLI"
+      },
+      {
+        "step_id": 2,
+        "action_type": "NO_ACTION"
+      }
+    ],
+    "expected_action_fields": [
+      {
+        "step_id": 1,
+        "action_type": "SET_TX_TIME_OFFSET_CLI",
+        "fields": {
+          "sector_id": 0,
+          "tx_time_offset_us": 7.5
+        },
+        "numeric_tolerance": 0.001
+      }
+    ],
+    "expected_post_action_evidence": [
+      {
+        "after_step_id": 1,
+        "step_id": 2,
+        "fields": {
+          "radio_runtime.tx_time_offset_us": 7.5,
+          "radio_runtime.tx_time_offset_corrected": true
+        },
+        "numeric_tolerance": 0.001
+      }
+    ]
+  },
+  "allowed_observation_context": [
+    "task_id",
+    "step_id",
+    "backend"
+  ],
+  "public_constraints": [
+    "Use only task-selected APIs and avoid repeated control after accepted repair."
+  ],
+  "M": {
+    "task_set": "base",
+    "family": "radio_cli",
+    "role": "primary"
+  }
+}

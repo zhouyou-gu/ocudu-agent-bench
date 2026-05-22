@@ -1,0 +1,193 @@
+{
+  "id": "base_ssb_wrong_cell_identity_trap_v1",
+  "version": 1,
+  "G": "Avoid acting on stale cell identity and use only the current cell identity after it changes.",
+  "E": {
+    "runtime_adapter": "simulated_ocudu",
+    "runtime": "ocudu_zmq_open5gs",
+    "components": [
+      "ocudu_websocket",
+      "open5gs",
+      "srsue_zmq"
+    ]
+  },
+  "U": {
+    "steps": 3,
+    "timing_policy": {
+      "clock_mode": "fixed_tick",
+      "step_interval_s": 0.01,
+      "decision_deadline_s": 0.01
+    },
+    "events": [
+      {
+        "kind": "docker_zmq_runtime_launch",
+        "phase": "pre_observation",
+        "parameters": {},
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "metrics_staleness_mask",
+        "phase": "pre_observation",
+        "parameters": {
+          "stale_until_step": 0
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "pre_observation",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "in_step",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "cell_identity_change",
+        "phase": "pre_observation",
+        "parameters": {
+          "plmn": "00101",
+          "nci": 6733824,
+          "gnb_id": 411,
+          "sector_id": 0,
+          "pci": 1,
+          "serving_pci": 1
+        },
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "cell_identity_change",
+        "phase": "pre_observation",
+        "parameters": {
+          "plmn": "00101",
+          "nci": 6733899,
+          "gnb_id": 411,
+          "sector_id": 2,
+          "pci": 22,
+          "serving_pci": 22
+        },
+        "start_step": 2,
+        "end_step": 3
+      },
+      {
+        "kind": "radio_condition_profile",
+        "phase": "pre_observation",
+        "parameters": {
+          "profile": "coverage_edge",
+          "sinr_db": 5.5,
+          "cqi": 4,
+          "target_ssb_block_power_dbm": -12
+        },
+        "start_step": 2,
+        "end_step": 3
+      }
+    ]
+  },
+  "I": {
+    "api_kinds": [
+      "ocudu_websocket_ssb_power",
+      "ocudu_json_metrics"
+    ],
+    "allowed_actions": [
+      "SET_SSB_BLOCK_POWER_WS"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "cell_identity",
+      "radio_runtime",
+      "websocket_control_outcomes"
+    ],
+    "allow_no_action": true
+  },
+  "J": {
+    "scoring_rule": "wrong_cell_identity_trap",
+    "raw_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "post_action_evidence_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "critical_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "post_action_evidence_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "success_threshold": 1.0,
+    "oracle_requirements": [
+      "cell_identity",
+      "control_outcome"
+    ],
+    "expected_action_type": "SET_SSB_BLOCK_POWER_WS",
+    "max_actions": 1,
+    "require_evidence_before_action": true,
+    "temporal_expectations": [
+      {
+        "step_id": 1,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 2,
+        "action_type": "SET_SSB_BLOCK_POWER_WS"
+      },
+      {
+        "step_id": 3,
+        "action_type": "NO_ACTION"
+      }
+    ],
+    "expected_action_fields": [
+      {
+        "step_id": 2,
+        "action_type": "SET_SSB_BLOCK_POWER_WS",
+        "fields": {
+          "nci": 6733899,
+          "ssb_block_power_dbm": -12
+        }
+      }
+    ],
+    "expected_post_action_evidence": [
+      {
+        "after_step_id": 2,
+        "step_id": 3,
+        "fields": {
+          "radio_runtime.current_ssb_block_power_dbm": -12,
+          "radio_runtime.ssb_power_cell.nci": 6733899
+        }
+      }
+    ]
+  },
+  "allowed_observation_context": [
+    "task_id",
+    "step_id",
+    "backend"
+  ],
+  "public_constraints": [
+    "Use only task-selected APIs and avoid repeated control after accepted repair."
+  ],
+  "M": {
+    "task_set": "base",
+    "family": "ssb",
+    "role": "primary"
+  }
+}

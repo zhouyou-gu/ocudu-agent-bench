@@ -6,13 +6,13 @@ from benchmark.benchmark_api.action import handle_agent_decision
 from benchmark.benchmark_api.feedback import build_feedback
 from benchmark.benchmark_api.observation import build_observation
 from benchmark.benchmark_api.runtime_setup import instantiate_runtime
-from benchmark.benchmark_api.task_definition import load_task
+from benchmark.tests.task_helpers import load_checked_in_task as load_task
 from benchmark.benchmark_api.trace import TraceRecorder
 
 
 class ObservationFeedbackTraceTests(unittest.TestCase):
     def test_observation_excludes_private_runtime_and_stimulus_fields(self) -> None:
-        task = load_task("slice_congestion_prb_rebalance_v1")
+        task = load_task("base_prb_slice_congestion_rebalance_v1")
         runtime = instantiate_runtime(task.E, "unit")
         observation = build_observation(task, runtime, step_id=1, previous_feedback=None)
         rendered = repr(observation)
@@ -23,7 +23,7 @@ class ObservationFeedbackTraceTests(unittest.TestCase):
         self.assertIn("evidence", observation)
 
     def test_observation_backend_state_is_limited_to_selected_api_projection(self) -> None:
-        task = load_task("cfo_correction_v1")
+        task = load_task("base_radio_cli_cfo_correction_v1")
         runtime = instantiate_runtime(task.E, "unit-backend-filter")
         observation = build_observation(task, runtime, step_id=1, previous_feedback=None)
 
@@ -32,7 +32,7 @@ class ObservationFeedbackTraceTests(unittest.TestCase):
         self.assertNotIn("core_control", observation["evidence"]["backend"])
 
     def test_feedback_uses_safe_error_classes_only(self) -> None:
-        task = load_task("slice_congestion_prb_rebalance_v1")
+        task = load_task("base_prb_slice_congestion_rebalance_v1")
         runtime = instantiate_runtime(task.E, "unit")
         record = handle_agent_decision(task, runtime, step_id=1, decision={"type": "BAD"})
         feedback = build_feedback(record)

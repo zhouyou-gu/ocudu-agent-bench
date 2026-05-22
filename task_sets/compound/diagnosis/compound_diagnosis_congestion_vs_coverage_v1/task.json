@@ -1,0 +1,217 @@
+{
+  "id": "compound_diagnosis_congestion_vs_coverage_v1",
+  "version": 1,
+  "G": "Infer from symptoms that the latent cause is slice congestion rather than coverage, then apply PRB control once.",
+  "E": {
+    "runtime_adapter": "simulated_ocudu",
+    "runtime": "ocudu_zmq_open5gs",
+    "components": [
+      "ocudu_websocket",
+      "open5gs",
+      "srsue_zmq"
+    ]
+  },
+  "U": {
+    "steps": 4,
+    "timing_policy": {
+      "clock_mode": "fixed_tick",
+      "step_interval_s": 0.01,
+      "decision_deadline_s": 0.01
+    },
+    "events": [
+      {
+        "kind": "docker_zmq_runtime_launch",
+        "phase": "pre_observation",
+        "parameters": {},
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "metrics_staleness_mask",
+        "phase": "pre_observation",
+        "parameters": {
+          "stale_until_step": 0
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "pre_observation",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "in_step",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "radio_condition_profile",
+        "phase": "pre_observation",
+        "parameters": {
+          "profile": "nominal",
+          "sinr_db": 21.0,
+          "cqi": 12
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "slice_demand_shift",
+        "phase": "pre_observation",
+        "parameters": {
+          "sst": 1,
+          "demand_level": "high",
+          "active_ues": 7,
+          "queue_pressure": 0.32,
+          "prb_utilization": 0.88,
+          "min_prb_policy_ratio": 32,
+          "max_prb_policy_ratio": 88
+        },
+        "start_step": 3,
+        "end_step": 4
+      },
+      {
+        "kind": "traffic_load_profile",
+        "phase": "in_step",
+        "parameters": {
+          "profile": "high",
+          "packet_rate_pps": 800.0,
+          "active_ues": 7
+        },
+        "start_step": 3,
+        "end_step": 4
+      },
+      {
+        "kind": "future_zmq_impairment",
+        "phase": "pre_observation",
+        "parameters": {
+          "enabled": true,
+          "impairment_kind": "ambiguous_load_radio"
+        },
+        "apply_steps": [
+          2
+        ]
+      }
+    ]
+  },
+  "I": {
+    "api_kinds": [
+      "ocudu_websocket_prb_policy",
+      "ocudu_websocket_ssb_power",
+      "ocudu_json_metrics"
+    ],
+    "allowed_actions": [
+      "SET_PRB_POLICY_RATIO_WS",
+      "SET_SSB_BLOCK_POWER_WS"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "slice_runtime",
+      "radio_runtime",
+      "websocket_control_outcomes"
+    ],
+    "allow_no_action": true,
+    "observation_detail": "diagnosis_symptoms"
+  },
+  "J": {
+    "scoring_rule": "latent_congestion_vs_coverage",
+    "raw_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "post_action_evidence_match",
+      "valid_action_accepted_rate",
+      "correct_api_selection",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown",
+      "action_timing_similarity",
+      "expected_action_payload_similarity",
+      "post_action_evidence_similarity"
+    ],
+    "critical_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "post_action_evidence_match",
+      "valid_action_accepted_rate",
+      "correct_api_selection",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "success_threshold": 1.0,
+    "oracle_requirements": [
+      "slice_runtime",
+      "radio_runtime",
+      "control_outcome"
+    ],
+    "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+    "max_actions": 1,
+    "require_evidence_before_action": true,
+    "temporal_expectations": [
+      {
+        "step_id": 1,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 2,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 3,
+        "action_type": "SET_PRB_POLICY_RATIO_WS"
+      },
+      {
+        "step_id": 4,
+        "action_type": "NO_ACTION"
+      }
+    ],
+    "expected_action_fields": [
+      {
+        "step_id": 3,
+        "action_type": "SET_PRB_POLICY_RATIO_WS",
+        "fields": {
+          "min_prb_policy_ratio": 32,
+          "max_prb_policy_ratio": 88
+        }
+      }
+    ],
+    "expected_post_action_evidence": [
+      {
+        "after_step_id": 3,
+        "step_id": 4,
+        "fields": {
+          "slice_runtime.current_prb_policy.min_prb_policy_ratio": 32,
+          "slice_runtime.current_prb_policy.max_prb_policy_ratio": 88,
+          "slice_runtime.current_prb_policy.backend": "websocket",
+          "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_WS"
+        }
+      }
+    ]
+  },
+  "allowed_observation_context": [
+    "task_id",
+    "step_id",
+    "backend"
+  ],
+  "public_constraints": [
+    "Use only task-selected APIs and avoid repeated control after accepted repair."
+  ],
+  "M": {
+    "task_set": "compound",
+    "family": "diagnosis",
+    "role": "compound"
+  }
+}

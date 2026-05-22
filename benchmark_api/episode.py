@@ -16,7 +16,8 @@ from benchmark.benchmark_api.observation import build_observation
 from benchmark.benchmark_api.runtime_setup import cleanup_runtime, instantiate_runtime
 from benchmark.benchmark_api.scoring import score_episode
 from benchmark.benchmark_api.stimulus import apply_pre_observation, expand_stimulus_plan, finish_in_step, start_in_step
-from benchmark.benchmark_api.task_definition import agent_visible_task, load_task
+from benchmark.benchmark_api.task_catalog import load_task_for_suite
+from benchmark.benchmark_api.task_definition import agent_visible_task
 from benchmark.benchmark_api.trace import TraceRecorder
 
 
@@ -26,13 +27,24 @@ class EpisodeConfig:
     run_id: str
     seed: int = 1
     tasks_dir: Path | None = None
+    suite: str = "base"
+    suite_count: int | None = None
+    suite_seed: int | None = None
+    family: str | None = None
     output_dir: Path | None = None
     agent_session_id: str | None = None
 
 
 def run_episode(config: EpisodeConfig, agent: Callable[[dict[str, Any]], Any]) -> dict[str, Any]:
     started_at = time.time()
-    task = load_task(config.task_id, config.tasks_dir)
+    task = load_task_for_suite(
+        config.task_id,
+        suite=config.suite,
+        seed=config.suite_seed if config.suite_seed is not None else config.seed,
+        count=config.suite_count,
+        family=config.family,
+        task_sets_dir=config.tasks_dir,
+    )
     agent_view = agent_visible_task(task)
     runtime = instantiate_runtime(task.E, config.run_id)
     stimulus_plan = expand_stimulus_plan(task.U, config.seed)

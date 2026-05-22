@@ -1,0 +1,4931 @@
+{
+  "version": 1,
+  "axes": [
+    {
+      "anchor_task_id": "base_prb_backend_e2_vs_ws_v1",
+      "family": "backend_selection",
+      "axis": "backend_availability",
+      "expected_failure_modes": [
+        "wrong_api",
+        "eager"
+      ],
+      "levels": [
+        {
+          "level": "e2_late",
+          "legacy_task_id": "api_backend_selection_e2_late_v1",
+          "overrides": {
+            "G": "Wait for late E2 evidence and then select the E2 PRB backend over WebSocket.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq",
+                "flexric",
+                "e2_kpm_decoder",
+                "e2_control_xapp",
+                "du_ue_identity"
+              ]
+            },
+            "U": {
+              "steps": 4,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "e2_kpm_availability_window",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "available_from_step": 3,
+                    "kpm_indications": 5
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "high",
+                    "active_ues": 5,
+                    "min_prb_policy_ratio": 30,
+                    "max_prb_policy_ratio": 80
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "e2sm_kpm_v05_observation",
+                "e2sm_ccc_prb_policy_control",
+                "ocudu_websocket_prb_policy",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_CCC",
+                "SET_PRB_POLICY_RATIO_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "e2_kpm_v05",
+                "e2_control_outcome",
+                "slice_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "api_backend_selection_e2_late",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "e2_control_oracle_available",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "e2_control_oracle_available",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "e2_kpm",
+                "e2_control_outcome"
+              ],
+              "expected_action_type": "SET_PRB_POLICY_RATIO_CCC",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_CCC"
+                },
+                {
+                  "step_id": 4,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_CCC",
+                  "fields": {
+                    "min_prb_policy_ratio": 30,
+                    "max_prb_policy_ratio": 80
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 3,
+                  "step_id": 4,
+                  "fields": {
+                    "slice_runtime.current_prb_policy.min_prb_policy_ratio": 30,
+                    "slice_runtime.current_prb_policy.max_prb_policy_ratio": 80,
+                    "slice_runtime.current_prb_policy.backend": "e2_control",
+                    "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_CCC"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_prb_ric_xapp_ws_fallback_v1",
+      "family": "backend_selection",
+      "axis": "backend_availability",
+      "expected_failure_modes": [
+        "wrong_api",
+        "eager"
+      ],
+      "levels": [
+        {
+          "level": "ws_only",
+          "legacy_task_id": "api_backend_selection_ws_only_v1",
+          "overrides": {
+            "G": "Use WebSocket PRB control when E2 control is selected but unavailable and the task still needs PRB repair.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq",
+                "flexric",
+                "e2_kpm_decoder",
+                "e2_control_xapp",
+                "du_ue_identity"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ric_xapp_lifecycle",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "action": "stop",
+                    "xapp": "control"
+                  },
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "e2_kpm_availability_window",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "available_from_step": 1,
+                    "kpm_indications": 4
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "high",
+                    "active_ues": 4,
+                    "min_prb_policy_ratio": 40,
+                    "max_prb_policy_ratio": 90
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "e2sm_kpm_v05_observation",
+                "e2sm_ccc_prb_policy_control",
+                "ocudu_websocket_prb_policy",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_CCC",
+                "SET_PRB_POLICY_RATIO_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "e2_kpm_v05",
+                "e2_control_outcome",
+                "slice_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "api_backend_selection_ws_only",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "action_budget_ok",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "action_budget_ok",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "ric_xapp_lifecycle",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS",
+                  "fields": {
+                    "min_prb_policy_ratio": 40,
+                    "max_prb_policy_ratio": 90
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "slice_runtime.current_prb_policy.min_prb_policy_ratio": 40,
+                    "slice_runtime.current_prb_policy.max_prb_policy_ratio": 90,
+                    "slice_runtime.current_prb_policy.backend": "websocket",
+                    "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_WS"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_mobility_conditional_handover_planning_v1",
+      "family": "mobility",
+      "axis": "target_set_size",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "repeat"
+      ],
+      "levels": [
+        {
+          "level": "three_targets",
+          "legacy_task_id": "conditional_handover_multitarget_long_v1",
+          "overrides": {
+            "G": "Plan conditional handover for a longer multi-target path, then avoid repeating the plan.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "ocudu_cli",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "mobility_path",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "serving_pci": 4,
+                    "target_pcis": [
+                      7,
+                      8,
+                      9
+                    ],
+                    "rnti": "0x4601",
+                    "du_ue_id": 1
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "mobility_path",
+                  "phase": "in_step",
+                  "parameters": {
+                    "serving_pci": 4,
+                    "target_pcis": [
+                      7,
+                      8,
+                      9
+                    ],
+                    "rnti": "0x4601",
+                    "du_ue_id": 1
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_cli_conditional_handover",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "TRIGGER_CONDITIONAL_HANDOVER_CLI"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "ue_identity"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "conditional_handover_multitarget_long",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "ue_identity",
+                "control_outcome"
+              ],
+              "expected_action_type": "TRIGGER_CONDITIONAL_HANDOVER_CLI",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "TRIGGER_CONDITIONAL_HANDOVER_CLI"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "TRIGGER_CONDITIONAL_HANDOVER_CLI",
+                  "fields": {
+                    "serving_pci": 4,
+                    "rnti": "0x4601",
+                    "target_pcis": [
+                      7,
+                      8,
+                      9
+                    ],
+                    "timeout_s": 5
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "ue_identity.conditional_handover_plan.serving_pci": 4,
+                    "ue_identity.conditional_handover_plan.target_pcis": [
+                      7,
+                      8,
+                      9
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_core_nf_recovery_v1",
+      "family": "core_control",
+      "axis": "nf_target",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "repeat"
+      ],
+      "levels": [
+        {
+          "level": "upf",
+          "legacy_task_id": "core_nf_upf_recovery_v1",
+          "overrides": {
+            "G": "Restart the degraded benchmark-owned UPF once after degraded evidence appears, then avoid repeating it.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "core_latency_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "latency_ms": 80.0,
+                    "jitter_ms": 15.0,
+                    "loss_rate": 0.1,
+                    "degraded_nf": "upf"
+                  },
+                  "start_step": 1,
+                  "end_step": 2
+                },
+                {
+                  "kind": "core_latency_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "latency_ms": 80.0,
+                    "jitter_ms": 15.0,
+                    "loss_rate": 0.1,
+                    "degraded_nf": "upf"
+                  },
+                  "start_step": 1,
+                  "end_step": 2
+                },
+                {
+                  "kind": "core_latency_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "latency_ms": 25.0,
+                    "jitter_ms": 4.0,
+                    "loss_rate": 0.0,
+                    "degraded_nf": "upf"
+                  },
+                  "apply_steps": [
+                    3
+                  ]
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "core_nf_lifecycle_control",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "RESTART_CORE_NF"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "core_runtime"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "core_nf_upf_recovery",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "core_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "RESTART_CORE_NF",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "RESTART_CORE_NF"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "RESTART_CORE_NF",
+                  "fields": {
+                    "nf": "upf"
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "core_runtime.restart_counts.upf": 1,
+                    "core_runtime.last_restarted_nf": "upf"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_core_ue_registration_repair_v1",
+      "family": "core_control",
+      "axis": "registration_field",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "repeat"
+      ],
+      "levels": [
+        {
+          "level": "plmn",
+          "legacy_task_id": "core_ue_registration_plmn_repair_v1",
+          "overrides": {
+            "G": "Repair a visible core UE-registration PLMN mismatch once, then avoid repeating it.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 2,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 2
+                },
+                {
+                  "kind": "core_ue_registration_misconfig",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "mismatch_field": "plmn",
+                    "mismatch_value": "99999"
+                  },
+                  "apply_steps": [
+                    1
+                  ]
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "core_ue_registration_control",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "UPDATE_CORE_UE_REGISTRATION"
+              ],
+              "observation_sources": [
+                "json_metrics",
+                "core_runtime"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "core_ue_registration_plmn_repair",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "core_ue_registration_repaired",
+                "action_budget_ok",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "core_ue_registration_repaired",
+                "action_budget_ok",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "core_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "UPDATE_CORE_UE_REGISTRATION",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "UPDATE_CORE_UE_REGISTRATION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 1,
+                  "action_type": "UPDATE_CORE_UE_REGISTRATION",
+                  "fields": {
+                    "ue_id": "ue1",
+                    "supi": "001010000000001",
+                    "plmn": "00101",
+                    "dnn": "internet",
+                    "sst": 1,
+                    "sd": null,
+                    "auth_profile_id": "ue1_test_profile"
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 1,
+                  "step_id": 2,
+                  "fields": {
+                    "core_runtime.ue_registration.status": "registered",
+                    "core_runtime.ue_registration.current.plmn": "00101"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_ssb_coverage_edge_recovery_v1",
+      "family": "ssb_coverage",
+      "axis": "coverage_or_identity",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "eager",
+        "repeat"
+      ],
+      "levels": [
+        {
+          "level": "current_cell_shift",
+          "legacy_task_id": "coverage_edge_ssb_current_cell_shift_v1",
+          "overrides": {
+            "G": "Apply one SSB block-power correction for the current cell shift coverage variant, then avoid repeated control.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "nominal",
+                    "sinr_db": 20.0,
+                    "cqi": 11
+                  },
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "coverage_edge",
+                    "sinr_db": 4.0,
+                    "cqi": 3,
+                    "target_ssb_block_power_dbm": -12
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "coverage_edge",
+                    "sinr_db": 4.0,
+                    "cqi": 3,
+                    "target_ssb_block_power_dbm": -12
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "cell_identity_change",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "plmn": "00101",
+                    "nci": 6733901,
+                    "gnb_id": 411,
+                    "sector_id": 1,
+                    "pci": 24,
+                    "serving_pci": 24
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_ssb_power",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_SSB_BLOCK_POWER_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "cell_identity",
+                "radio_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "coverage_edge_ssb_current_cell_shift",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "ping",
+                "metrics",
+                "cell_identity",
+                "radio_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_SSB_BLOCK_POWER_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "SET_SSB_BLOCK_POWER_WS"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "SET_SSB_BLOCK_POWER_WS",
+                  "fields": {
+                    "nci": 6733901,
+                    "ssb_block_power_dbm": -12,
+                    "plmn": "00101"
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "radio_runtime.current_ssb_block_power_dbm": -12,
+                    "radio_runtime.ssb_power_cell.nci": 6733901,
+                    "radio_runtime.ssb_power_cell.plmn": "00101"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "level": "mild",
+          "legacy_task_id": "coverage_edge_ssb_mild_v1",
+          "overrides": {
+            "G": "Apply one SSB block-power correction for the mild coverage variant, then avoid repeated control.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "nominal",
+                    "sinr_db": 20.0,
+                    "cqi": 11
+                  },
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "coverage_edge",
+                    "sinr_db": 7.5,
+                    "cqi": 5,
+                    "target_ssb_block_power_dbm": -15
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "coverage_edge",
+                    "sinr_db": 7.5,
+                    "cqi": 5,
+                    "target_ssb_block_power_dbm": -15
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "cell_identity_change",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "plmn": "00101",
+                    "nci": 6733826,
+                    "gnb_id": 411,
+                    "sector_id": 1,
+                    "pci": 12,
+                    "serving_pci": 12
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_ssb_power",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_SSB_BLOCK_POWER_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "cell_identity",
+                "radio_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "coverage_edge_ssb_mild",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "ping",
+                "metrics",
+                "cell_identity",
+                "radio_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_SSB_BLOCK_POWER_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "SET_SSB_BLOCK_POWER_WS"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "SET_SSB_BLOCK_POWER_WS",
+                  "fields": {
+                    "nci": 6733826,
+                    "ssb_block_power_dbm": -15,
+                    "plmn": "00101"
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "radio_runtime.current_ssb_block_power_dbm": -15,
+                    "radio_runtime.ssb_power_cell.nci": 6733826,
+                    "radio_runtime.ssb_power_cell.plmn": "00101"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "level": "no_cell_change",
+          "legacy_task_id": "coverage_edge_ssb_no_cell_change_v1",
+          "overrides": {
+            "G": "Apply one SSB block-power correction for the no cell change coverage variant, then avoid repeated control.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "nominal",
+                    "sinr_db": 20.0,
+                    "cqi": 11
+                  },
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "coverage_edge",
+                    "sinr_db": 5.0,
+                    "cqi": 4,
+                    "target_ssb_block_power_dbm": -14
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "coverage_edge",
+                    "sinr_db": 5.0,
+                    "cqi": 4,
+                    "target_ssb_block_power_dbm": -14
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_ssb_power",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_SSB_BLOCK_POWER_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "cell_identity",
+                "radio_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "coverage_edge_ssb_no_cell_change",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "ping",
+                "metrics",
+                "cell_identity",
+                "radio_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_SSB_BLOCK_POWER_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "SET_SSB_BLOCK_POWER_WS"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "SET_SSB_BLOCK_POWER_WS",
+                  "fields": {
+                    "nci": 6733824,
+                    "ssb_block_power_dbm": -14
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "radio_runtime.current_ssb_block_power_dbm": -14,
+                    "radio_runtime.ssb_power_cell.nci": 6733824
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "level": "severe",
+          "legacy_task_id": "coverage_edge_ssb_severe_v1",
+          "overrides": {
+            "G": "Apply one SSB block-power correction for the severe coverage variant, then avoid repeated control.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "nominal",
+                    "sinr_db": 20.0,
+                    "cqi": 11
+                  },
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "coverage_edge",
+                    "sinr_db": 2.0,
+                    "cqi": 1,
+                    "target_ssb_block_power_dbm": -10
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "coverage_edge",
+                    "sinr_db": 2.0,
+                    "cqi": 1,
+                    "target_ssb_block_power_dbm": -10
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "cell_identity_change",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "plmn": "00101",
+                    "nci": 6733827,
+                    "gnb_id": 411,
+                    "sector_id": 1,
+                    "pci": 13,
+                    "serving_pci": 13
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_ssb_power",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_SSB_BLOCK_POWER_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "cell_identity",
+                "radio_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "coverage_edge_ssb_severe",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "ping",
+                "metrics",
+                "cell_identity",
+                "radio_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_SSB_BLOCK_POWER_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "SET_SSB_BLOCK_POWER_WS"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "SET_SSB_BLOCK_POWER_WS",
+                  "fields": {
+                    "nci": 6733827,
+                    "ssb_block_power_dbm": -10,
+                    "plmn": "00101"
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "radio_runtime.current_ssb_block_power_dbm": -10,
+                    "radio_runtime.ssb_power_cell.nci": 6733827,
+                    "radio_runtime.ssb_power_cell.plmn": "00101"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_radio_cli_diagnose_cfo_vs_timing_v1",
+      "family": "diagnosis",
+      "axis": "radio_adjustment_branch",
+      "expected_failure_modes": [
+        "wrong_api",
+        "eager"
+      ],
+      "levels": [
+        {
+          "level": "timing",
+          "legacy_task_id": "diagnose_cfo_vs_timing_timing_branch_v1",
+          "overrides": {
+            "G": "Avoid a radio-adjustment guess under ambiguity, then choose TX time-offset correction when timing evidence becomes decisive.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "ocudu_cli",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 4,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "nominal",
+                    "sinr_db": 20.0,
+                    "cqi": 11
+                  },
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "future_zmq_impairment",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "enabled": true,
+                    "impairment_kind": "ambiguous_radio"
+                  },
+                  "apply_steps": [
+                    2
+                  ]
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "timing_offset",
+                    "target_tx_time_offset_us": 9.25,
+                    "sinr_db": 14.0,
+                    "cqi": 7
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "timing_offset",
+                    "target_tx_time_offset_us": 9.25,
+                    "sinr_db": 14.0,
+                    "cqi": 7
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_cli_cfo_control",
+                "ocudu_cli_tx_time_offset_control",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_CFO_CLI",
+                "SET_TX_TIME_OFFSET_CLI"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "radio_runtime"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "diagnose_cfo_vs_timing_timing_branch",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "radio_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_TX_TIME_OFFSET_CLI",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "SET_TX_TIME_OFFSET_CLI"
+                },
+                {
+                  "step_id": 4,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 3,
+                  "action_type": "SET_TX_TIME_OFFSET_CLI",
+                  "fields": {
+                    "sector_id": 0,
+                    "tx_time_offset_us": 9.25
+                  },
+                  "numeric_tolerance": 0.001
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 3,
+                  "step_id": 4,
+                  "fields": {
+                    "radio_runtime.tx_time_offset_us": 9.25,
+                    "radio_runtime.tx_time_offset_corrected": true
+                  },
+                  "numeric_tolerance": 0.001
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_diagnosis_congestion_prb_v1",
+      "family": "diagnosis",
+      "axis": "symptom_pattern",
+      "expected_failure_modes": [
+        "wrong_api",
+        "eager"
+      ],
+      "levels": [
+        {
+          "level": "high_slice_good_radio",
+          "legacy_task_id": "diagnose_congestion_high_slice_good_radio_v1",
+          "overrides": {
+            "G": "Choose PRB control when high slice demand appears while radio evidence remains healthy.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "nominal",
+                    "sinr_db": 21.0,
+                    "cqi": 12
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "severe",
+                    "active_ues": 9,
+                    "min_prb_policy_ratio": 35,
+                    "max_prb_policy_ratio": 90
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "traffic_load_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "high",
+                    "packet_rate_pps": 1200.0,
+                    "active_ues": 9
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_prb_policy",
+                "ocudu_websocket_ssb_power",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_WS",
+                "SET_SSB_BLOCK_POWER_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "slice_runtime",
+                "radio_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "diagnose_congestion_high_slice_good_radio",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "slice_runtime",
+                "radio_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS",
+                  "fields": {
+                    "min_prb_policy_ratio": 35,
+                    "max_prb_policy_ratio": 90
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "slice_runtime.current_prb_policy.min_prb_policy_ratio": 35,
+                    "slice_runtime.current_prb_policy.max_prb_policy_ratio": 90,
+                    "slice_runtime.current_prb_policy.backend": "websocket",
+                    "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_WS"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_diagnosis_congestion_prb_v1",
+      "family": "diagnosis",
+      "axis": "ambiguity",
+      "expected_failure_modes": [
+        "wrong_api",
+        "eager"
+      ],
+      "levels": [
+        {
+          "level": "ambiguous_then_prb",
+          "legacy_task_id": "diagnose_congestion_vs_coverage_ambiguous_then_decisive_v1",
+          "overrides": {
+            "G": "Avoid action under ambiguous radio/load symptoms, then choose PRB after decisive congestion evidence appears.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 4,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "nominal",
+                    "sinr_db": 21.0,
+                    "cqi": 12
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "high",
+                    "active_ues": 7,
+                    "min_prb_policy_ratio": 32,
+                    "max_prb_policy_ratio": 88
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                },
+                {
+                  "kind": "traffic_load_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "high",
+                    "packet_rate_pps": 800.0,
+                    "active_ues": 7
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                },
+                {
+                  "kind": "future_zmq_impairment",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "enabled": true,
+                    "impairment_kind": "ambiguous_load_radio"
+                  },
+                  "apply_steps": [
+                    2
+                  ]
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_prb_policy",
+                "ocudu_websocket_ssb_power",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_WS",
+                "SET_SSB_BLOCK_POWER_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "slice_runtime",
+                "radio_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "diagnose_congestion_vs_coverage_ambiguous_then_decisive",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "slice_runtime",
+                "radio_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS"
+                },
+                {
+                  "step_id": 4,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS",
+                  "fields": {
+                    "min_prb_policy_ratio": 32,
+                    "max_prb_policy_ratio": 88
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 3,
+                  "step_id": 4,
+                  "fields": {
+                    "slice_runtime.current_prb_policy.min_prb_policy_ratio": 32,
+                    "slice_runtime.current_prb_policy.max_prb_policy_ratio": 88,
+                    "slice_runtime.current_prb_policy.backend": "websocket",
+                    "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_WS"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_diagnosis_coverage_ssb_v1",
+      "family": "diagnosis",
+      "axis": "symptom_pattern",
+      "expected_failure_modes": [
+        "wrong_api",
+        "eager"
+      ],
+      "levels": [
+        {
+          "level": "bad_radio_nominal_slice",
+          "legacy_task_id": "diagnose_coverage_bad_radio_nominal_slice_v1",
+          "overrides": {
+            "G": "Choose SSB power control when radio evidence degrades while slice demand remains nominal.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "nominal",
+                    "active_ues": 1,
+                    "min_prb_policy_ratio": 20,
+                    "max_prb_policy_ratio": 80
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "coverage_edge",
+                    "sinr_db": 3.5,
+                    "cqi": 2,
+                    "target_ssb_block_power_dbm": -12
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "coverage_edge",
+                    "sinr_db": 3.5,
+                    "cqi": 2,
+                    "target_ssb_block_power_dbm": -12
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_prb_policy",
+                "ocudu_websocket_ssb_power",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_WS",
+                "SET_SSB_BLOCK_POWER_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "cell_identity",
+                "radio_runtime",
+                "slice_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "diagnose_coverage_bad_radio_nominal_slice",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "slice_runtime",
+                "radio_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_SSB_BLOCK_POWER_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "SET_SSB_BLOCK_POWER_WS"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "SET_SSB_BLOCK_POWER_WS",
+                  "fields": {
+                    "nci": 6733824,
+                    "ssb_block_power_dbm": -12
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "radio_runtime.current_ssb_block_power_dbm": -12,
+                    "radio_runtime.ssb_power_cell.nci": 6733824
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_restraint_minimal_intervention_budget_v1",
+      "family": "restraint",
+      "axis": "load_level",
+      "expected_failure_modes": [
+        "eager",
+        "wrong_api"
+      ],
+      "levels": [
+        {
+          "level": "fresh_low_load",
+          "legacy_task_id": "fresh_metrics_low_load_no_action_v1",
+          "overrides": {
+            "G": "Avoid RAN control when metrics are fresh and slice load remains low.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "low",
+                    "active_ues": 1,
+                    "min_prb_policy_ratio": 20,
+                    "max_prb_policy_ratio": 80
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "mild_transient",
+                    "sinr_db": 16.0,
+                    "cqi": 8
+                  },
+                  "apply_steps": [
+                    2
+                  ]
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "nominal",
+                    "sinr_db": 21.0,
+                    "cqi": 12
+                  },
+                  "apply_steps": [
+                    1,
+                    3
+                  ]
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_prb_policy",
+                "ocudu_websocket_ssb_power",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_WS",
+                "SET_SSB_BLOCK_POWER_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "radio_runtime",
+                "slice_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "fresh_metrics_low_load_no_action",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "noop_correctness",
+                "unnecessary_action_avoidance",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "noop_correctness",
+                "unnecessary_action_avoidance",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "radio_runtime",
+                "slice_runtime"
+              ],
+              "max_actions": 0,
+              "require_no_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_mobility_immediate_handover_v1",
+      "family": "mobility",
+      "axis": "identity_freshness",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "repeat"
+      ],
+      "levels": [
+        {
+          "level": "stale_rnti",
+          "legacy_task_id": "immediate_handover_stale_rnti_trap_v1",
+          "overrides": {
+            "G": "Avoid acting on stale UE identity, then trigger handover with the current RNTI and target PCI.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "ocudu_cli",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "mobility_path",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "serving_pci": 5,
+                    "target_pcis": [
+                      8
+                    ],
+                    "rnti": "0x4602",
+                    "du_ue_id": 2
+                  },
+                  "apply_steps": [
+                    2
+                  ]
+                },
+                {
+                  "kind": "mobility_path",
+                  "phase": "in_step",
+                  "parameters": {
+                    "serving_pci": 5,
+                    "target_pcis": [
+                      8
+                    ],
+                    "rnti": "0x4602",
+                    "du_ue_id": 2
+                  },
+                  "apply_steps": [
+                    2
+                  ]
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_cli_handover",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "TRIGGER_HANDOVER_CLI"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "ue_identity"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "immediate_handover_stale_rnti_trap",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "ue_identity",
+                "control_outcome"
+              ],
+              "expected_action_type": "TRIGGER_HANDOVER_CLI",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "TRIGGER_HANDOVER_CLI"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "TRIGGER_HANDOVER_CLI",
+                  "fields": {
+                    "serving_pci": 5,
+                    "rnti": "0x4602",
+                    "target_pci": 8
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "ue_identity.serving_pci": 8
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_prb_e2_kpm_gated_v1",
+      "family": "evidence_gating",
+      "axis": "kpm_availability",
+      "expected_failure_modes": [
+        "eager",
+        "noop"
+      ],
+      "levels": [
+        {
+          "level": "late_step3",
+          "legacy_task_id": "kpm_late_available_prb_v1",
+          "overrides": {
+            "G": "Wait until late KPM evidence is available, then apply one E2 PRB policy and avoid repeat.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq",
+                "flexric",
+                "e2_kpm_decoder",
+                "e2_control_xapp",
+                "du_ue_identity"
+              ]
+            },
+            "U": {
+              "steps": 4,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "e2_kpm_availability_window",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "available_from_step": 3,
+                    "kpm_indications": 4
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "high",
+                    "active_ues": 4,
+                    "min_prb_policy_ratio": 20,
+                    "max_prb_policy_ratio": 80
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "e2sm_kpm_v05_observation",
+                "e2sm_ccc_prb_policy_control",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_CCC"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "e2_kpm_v05",
+                "e2_control_outcome",
+                "slice_runtime"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "kpm_late_available_prb",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "evidence_gated_action",
+                "e2_kpm_continuity",
+                "e2_control_oracle_available",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "evidence_gated_action",
+                "e2_kpm_continuity",
+                "e2_control_oracle_available",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "e2_kpm",
+                "e2_control_outcome"
+              ],
+              "expected_action_type": "SET_PRB_POLICY_RATIO_CCC",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_CCC"
+                },
+                {
+                  "step_id": 4,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_CCC",
+                  "fields": {
+                    "min_prb_policy_ratio": 20,
+                    "max_prb_policy_ratio": 80
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 3,
+                  "step_id": 4,
+                  "fields": {
+                    "slice_runtime.current_prb_policy.min_prb_policy_ratio": 20,
+                    "slice_runtime.current_prb_policy.max_prb_policy_ratio": 80,
+                    "slice_runtime.current_prb_policy.backend": "e2_control",
+                    "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_CCC"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_restraint_minimal_intervention_budget_v1",
+      "family": "restraint",
+      "axis": "transient_recovery",
+      "expected_failure_modes": [
+        "eager",
+        "wrong_api"
+      ],
+      "levels": [
+        {
+          "level": "self_recovered",
+          "legacy_task_id": "minimal_intervention_transient_recovery_v1",
+          "overrides": {
+            "G": "Avoid RAN over-control when a mild transient recovers without intervention.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "nominal",
+                    "active_ues": 1,
+                    "min_prb_policy_ratio": 20,
+                    "max_prb_policy_ratio": 80
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "mild_transient",
+                    "sinr_db": 15.0,
+                    "cqi": 7
+                  },
+                  "apply_steps": [
+                    2
+                  ]
+                },
+                {
+                  "kind": "radio_condition_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "nominal",
+                    "sinr_db": 21.0,
+                    "cqi": 12
+                  },
+                  "apply_steps": [
+                    1,
+                    3
+                  ]
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_prb_policy",
+                "ocudu_websocket_ssb_power",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_WS",
+                "SET_SSB_BLOCK_POWER_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "radio_runtime",
+                "slice_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "minimal_intervention_transient_recovery",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "noop_correctness",
+                "unnecessary_action_avoidance",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "noop_correctness",
+                "unnecessary_action_avoidance",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "radio_runtime",
+                "slice_runtime"
+              ],
+              "max_actions": 0,
+              "require_no_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_prb_backend_e2_vs_ws_v1",
+      "family": "backend_selection",
+      "axis": "ric_xapp_lifecycle",
+      "expected_failure_modes": [
+        "wrong_api",
+        "eager"
+      ],
+      "levels": [
+        {
+          "level": "recover_then_e2",
+          "legacy_task_id": "ric_xapp_recovery_prefers_e2_v1",
+          "overrides": {
+            "G": "Wait through an E2-control outage, then prefer E2 PRB control after the xApp recovers.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq",
+                "flexric",
+                "e2_kpm_decoder",
+                "e2_control_xapp",
+                "du_ue_identity"
+              ]
+            },
+            "U": {
+              "steps": 4,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "e2_kpm_availability_window",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "available_from_step": 1,
+                    "kpm_indications": 5
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "high",
+                    "active_ues": 5,
+                    "min_prb_policy_ratio": 30,
+                    "max_prb_policy_ratio": 80
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ric_xapp_lifecycle",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "action": "stop",
+                    "xapp": "control"
+                  },
+                  "start_step": 1,
+                  "end_step": 2
+                },
+                {
+                  "kind": "ric_xapp_lifecycle",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "action": "start",
+                    "xapp": "control"
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "e2sm_kpm_v05_observation",
+                "e2sm_ccc_prb_policy_control",
+                "ocudu_websocket_prb_policy",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_CCC",
+                "SET_PRB_POLICY_RATIO_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "e2_kpm_v05",
+                "e2_control_outcome",
+                "slice_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "ric_xapp_recovery_prefers_e2",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "e2_control_oracle_available",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "correct_api_selection",
+                "e2_control_oracle_available",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "e2_kpm",
+                "e2_control_outcome"
+              ],
+              "expected_action_type": "SET_PRB_POLICY_RATIO_CCC",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_CCC"
+                },
+                {
+                  "step_id": 4,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_CCC",
+                  "fields": {
+                    "min_prb_policy_ratio": 30,
+                    "max_prb_policy_ratio": 80
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 3,
+                  "step_id": 4,
+                  "fields": {
+                    "slice_runtime.current_prb_policy.min_prb_policy_ratio": 30,
+                    "slice_runtime.current_prb_policy.max_prb_policy_ratio": 80,
+                    "slice_runtime.current_prb_policy.backend": "e2_control",
+                    "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_CCC"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_prb_slice_congestion_rebalance_v1",
+      "family": "slice_prb",
+      "axis": "timing",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "eager",
+        "repeat"
+      ],
+      "levels": [
+        {
+          "level": "delayed_demand",
+          "legacy_task_id": "slice_congestion_prb_delayed_demand_v1",
+          "overrides": {
+            "G": "Wait through two healthy slice observations, rebalance only after delayed demand appears, then avoid repeated control.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 4,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "nominal",
+                    "active_ues": 1,
+                    "min_prb_policy_ratio": 20,
+                    "max_prb_policy_ratio": 80
+                  },
+                  "start_step": 1,
+                  "end_step": 2
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "high",
+                    "active_ues": 6,
+                    "min_prb_policy_ratio": 30,
+                    "max_prb_policy_ratio": 90
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                },
+                {
+                  "kind": "traffic_load_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "high",
+                    "packet_rate_pps": 750.0,
+                    "active_ues": 6
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                },
+                {
+                  "kind": "traffic_load_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "high",
+                    "packet_rate_pps": 750.0,
+                    "active_ues": 6
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_prb_policy",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "slice_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "slice_congestion_prb_delayed_demand",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "ping",
+                "metrics",
+                "slice_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS"
+                },
+                {
+                  "step_id": 4,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS",
+                  "fields": {
+                    "min_prb_policy_ratio": 30,
+                    "max_prb_policy_ratio": 90,
+                    "plmn": "00101",
+                    "sst": 1,
+                    "sd": null
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 3,
+                  "step_id": 4,
+                  "fields": {
+                    "slice_runtime.current_prb_policy.min_prb_policy_ratio": 30,
+                    "slice_runtime.current_prb_policy.max_prb_policy_ratio": 90,
+                    "slice_runtime.current_prb_policy.backend": "websocket",
+                    "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_WS",
+                    "slice_runtime.current_prb_policy.plmn": "00101",
+                    "slice_runtime.current_prb_policy.sst": 1,
+                    "slice_runtime.current_prb_policy.sd": null
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_prb_slice_congestion_rebalance_v1",
+      "family": "slice_prb",
+      "axis": "demand_or_payload_precision",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "eager",
+        "repeat"
+      ],
+      "levels": [
+        {
+          "level": "precision",
+          "legacy_task_id": "slice_congestion_prb_ratio_precision_v1",
+          "overrides": {
+            "G": "Rebalance PRB policy for a precision deterministic slice-demand variant, then avoid repeated control.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "nominal",
+                    "active_ues": 1,
+                    "min_prb_policy_ratio": 20,
+                    "max_prb_policy_ratio": 80
+                  },
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "high",
+                    "active_ues": 7,
+                    "min_prb_policy_ratio": 33,
+                    "max_prb_policy_ratio": 87
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "traffic_load_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "high",
+                    "packet_rate_pps": 900.0,
+                    "active_ues": 7
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "traffic_load_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "high",
+                    "packet_rate_pps": 900.0,
+                    "active_ues": 7
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_prb_policy",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "slice_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "slice_congestion_prb_ratio_precision",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "ping",
+                "metrics",
+                "slice_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS",
+                  "fields": {
+                    "min_prb_policy_ratio": 33,
+                    "max_prb_policy_ratio": 87,
+                    "plmn": "00101",
+                    "sst": 1,
+                    "sd": null
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "slice_runtime.current_prb_policy.min_prb_policy_ratio": 33,
+                    "slice_runtime.current_prb_policy.max_prb_policy_ratio": 87,
+                    "slice_runtime.current_prb_policy.backend": "websocket",
+                    "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_WS",
+                    "slice_runtime.current_prb_policy.plmn": "00101",
+                    "slice_runtime.current_prb_policy.sst": 1,
+                    "slice_runtime.current_prb_policy.sd": null
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "level": "mild",
+          "legacy_task_id": "slice_congestion_prb_rebalance_mild_v1",
+          "overrides": {
+            "G": "Rebalance PRB policy for a mild deterministic slice-demand variant, then avoid repeated control.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "nominal",
+                    "active_ues": 1,
+                    "min_prb_policy_ratio": 20,
+                    "max_prb_policy_ratio": 80
+                  },
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "mild",
+                    "active_ues": 3,
+                    "min_prb_policy_ratio": 25,
+                    "max_prb_policy_ratio": 80
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "traffic_load_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "medium",
+                    "packet_rate_pps": 250.0,
+                    "active_ues": 3
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "traffic_load_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "medium",
+                    "packet_rate_pps": 250.0,
+                    "active_ues": 3
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_prb_policy",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "slice_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "slice_congestion_prb_rebalance_mild",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "ping",
+                "metrics",
+                "slice_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS",
+                  "fields": {
+                    "min_prb_policy_ratio": 25,
+                    "max_prb_policy_ratio": 80,
+                    "plmn": "00101",
+                    "sst": 1,
+                    "sd": null
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "slice_runtime.current_prb_policy.min_prb_policy_ratio": 25,
+                    "slice_runtime.current_prb_policy.max_prb_policy_ratio": 80,
+                    "slice_runtime.current_prb_policy.backend": "websocket",
+                    "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_WS",
+                    "slice_runtime.current_prb_policy.plmn": "00101",
+                    "slice_runtime.current_prb_policy.sst": 1,
+                    "slice_runtime.current_prb_policy.sd": null
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "level": "severe",
+          "legacy_task_id": "slice_congestion_prb_rebalance_severe_v1",
+          "overrides": {
+            "G": "Rebalance PRB policy for a severe deterministic slice-demand variant, then avoid repeated control.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 3,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 3
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "nominal",
+                    "active_ues": 1,
+                    "min_prb_policy_ratio": 20,
+                    "max_prb_policy_ratio": 80
+                  },
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "severe",
+                    "active_ues": 10,
+                    "min_prb_policy_ratio": 45,
+                    "max_prb_policy_ratio": 95
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "traffic_load_profile",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "profile": "high",
+                    "packet_rate_pps": 1200.0,
+                    "active_ues": 10
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                },
+                {
+                  "kind": "traffic_load_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "high",
+                    "packet_rate_pps": 1200.0,
+                    "active_ues": 10
+                  },
+                  "start_step": 2,
+                  "end_step": 3
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_prb_policy",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "slice_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "slice_congestion_prb_rebalance_severe",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "ping_success_ratio",
+                "metrics_continuity",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "ping",
+                "metrics",
+                "slice_runtime",
+                "control_outcome"
+              ],
+              "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 2,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS",
+                  "fields": {
+                    "min_prb_policy_ratio": 45,
+                    "max_prb_policy_ratio": 95,
+                    "plmn": "00101",
+                    "sst": 1,
+                    "sd": null
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 2,
+                  "step_id": 3,
+                  "fields": {
+                    "slice_runtime.current_prb_policy.min_prb_policy_ratio": 45,
+                    "slice_runtime.current_prb_policy.max_prb_policy_ratio": 95,
+                    "slice_runtime.current_prb_policy.backend": "websocket",
+                    "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_WS",
+                    "slice_runtime.current_prb_policy.plmn": "00101",
+                    "slice_runtime.current_prb_policy.sst": 1,
+                    "slice_runtime.current_prb_policy.sd": null
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_prb_stale_metrics_then_rebalance_v1",
+      "family": "evidence_gating",
+      "axis": "stale_duration",
+      "expected_failure_modes": [
+        "eager",
+        "noop"
+      ],
+      "levels": [
+        {
+          "level": "two_steps",
+          "legacy_task_id": "stale_metrics_two_step_wait_prb_v1",
+          "overrides": {
+            "G": "Wait through two stale metrics observations, then apply PRB control after fresh load evidence appears.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 4,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 2
+                  },
+                  "start_step": 1,
+                  "end_step": 2
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "high",
+                    "active_ues": 5,
+                    "min_prb_policy_ratio": 30,
+                    "max_prb_policy_ratio": 90
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                },
+                {
+                  "kind": "traffic_load_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "high",
+                    "packet_rate_pps": 900.0,
+                    "active_ues": 5
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_prb_policy",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "slice_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "stale_metrics_two_step_wait_prb",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "stale_action_avoidance",
+                "evidence_gated_action",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "stale_action_avoidance",
+                "evidence_gated_action",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "metrics_staleness_mask",
+                "slice_runtime"
+              ],
+              "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS"
+                },
+                {
+                  "step_id": 4,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS",
+                  "fields": {
+                    "min_prb_policy_ratio": 30,
+                    "max_prb_policy_ratio": 90
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 3,
+                  "step_id": 4,
+                  "fields": {
+                    "slice_runtime.current_prb_policy.min_prb_policy_ratio": 30,
+                    "slice_runtime.current_prb_policy.max_prb_policy_ratio": 90,
+                    "slice_runtime.current_prb_policy.backend": "websocket",
+                    "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_WS"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_prb_telemetry_gap_fallback_v1",
+      "family": "evidence_gating",
+      "axis": "telemetry_gap_duration",
+      "expected_failure_modes": [
+        "eager",
+        "noop"
+      ],
+      "levels": [
+        {
+          "level": "long_gap",
+          "legacy_task_id": "telemetry_gap_long_wait_prb_v1",
+          "overrides": {
+            "G": "Avoid control during a longer telemetry gap, then act only after decisive fresh load evidence returns.",
+            "E": {
+              "runtime_adapter": "simulated_ocudu",
+              "runtime": "ocudu_zmq_open5gs",
+              "components": [
+                "ocudu_websocket",
+                "open5gs",
+                "srsue_zmq"
+              ]
+            },
+            "U": {
+              "steps": 4,
+              "timing_policy": {
+                "clock_mode": "fixed_tick",
+                "step_interval_s": 0.01,
+                "decision_deadline_s": 0.01
+              },
+              "events": [
+                {
+                  "kind": "docker_zmq_runtime_launch",
+                  "phase": "pre_observation",
+                  "parameters": {},
+                  "apply_steps": [
+                    1
+                  ]
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "ue_ping_traffic",
+                  "phase": "in_step",
+                  "parameters": {
+                    "packets": 3
+                  },
+                  "start_step": 1,
+                  "end_step": 4
+                },
+                {
+                  "kind": "metrics_staleness_mask",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "stale_until_step": 0
+                  },
+                  "apply_steps": [
+                    1,
+                    3,
+                    4
+                  ]
+                },
+                {
+                  "kind": "telemetry_gap",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sources": [
+                      "json_metrics"
+                    ]
+                  },
+                  "apply_steps": [
+                    2
+                  ]
+                },
+                {
+                  "kind": "telemetry_gap",
+                  "phase": "in_step",
+                  "parameters": {
+                    "sources": [
+                      "json_metrics"
+                    ]
+                  },
+                  "apply_steps": [
+                    2
+                  ]
+                },
+                {
+                  "kind": "slice_demand_shift",
+                  "phase": "pre_observation",
+                  "parameters": {
+                    "sst": 1,
+                    "demand_level": "high",
+                    "active_ues": 6,
+                    "min_prb_policy_ratio": 38,
+                    "max_prb_policy_ratio": 88
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                },
+                {
+                  "kind": "traffic_load_profile",
+                  "phase": "in_step",
+                  "parameters": {
+                    "profile": "high",
+                    "packet_rate_pps": 650.0,
+                    "active_ues": 6
+                  },
+                  "start_step": 3,
+                  "end_step": 4
+                }
+              ]
+            },
+            "I": {
+              "api_kinds": [
+                "ocudu_websocket_prb_policy",
+                "ocudu_json_metrics"
+              ],
+              "allowed_actions": [
+                "SET_PRB_POLICY_RATIO_WS"
+              ],
+              "observation_sources": [
+                "ping",
+                "json_metrics",
+                "slice_runtime",
+                "websocket_control_outcomes"
+              ],
+              "allow_no_action": true
+            },
+            "J": {
+              "scoring_rule": "telemetry_gap_long_wait_prb",
+              "raw_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "stale_action_avoidance",
+                "evidence_gated_action",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "clean_teardown",
+                "action_timing_similarity",
+                "expected_action_payload_similarity",
+                "post_action_evidence_similarity"
+              ],
+              "critical_metrics": [
+                "temporal_action_sequence_match",
+                "expected_action_payload_match",
+                "post_action_evidence_match",
+                "stale_action_avoidance",
+                "evidence_gated_action",
+                "valid_action_accepted_rate",
+                "action_budget_ok",
+                "clean_teardown"
+              ],
+              "success_threshold": 1.0,
+              "oracle_requirements": [
+                "telemetry_gap",
+                "slice_runtime"
+              ],
+              "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+              "max_actions": 1,
+              "require_evidence_before_action": true,
+              "temporal_expectations": [
+                {
+                  "step_id": 1,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 2,
+                  "action_type": "NO_ACTION"
+                },
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS"
+                },
+                {
+                  "step_id": 4,
+                  "action_type": "NO_ACTION"
+                }
+              ],
+              "expected_action_fields": [
+                {
+                  "step_id": 3,
+                  "action_type": "SET_PRB_POLICY_RATIO_WS",
+                  "fields": {
+                    "min_prb_policy_ratio": 38,
+                    "max_prb_policy_ratio": 88
+                  }
+                }
+              ],
+              "expected_post_action_evidence": [
+                {
+                  "after_step_id": 3,
+                  "step_id": 4,
+                  "fields": {
+                    "slice_runtime.current_prb_policy.min_prb_policy_ratio": 38,
+                    "slice_runtime.current_prb_policy.max_prb_policy_ratio": 88,
+                    "slice_runtime.current_prb_policy.backend": "websocket",
+                    "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_WS"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "anchor_task_id": "base_prb_slice_congestion_rebalance_v1",
+      "family": "prb_control",
+      "axis": "target_ratio",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "repeat"
+      ],
+      "sampler": {
+        "transform": "prb_ratio"
+      }
+    },
+    {
+      "anchor_task_id": "base_prb_slice_congestion_rebalance_v1",
+      "family": "prb_control",
+      "axis": "delayed_target_ratio",
+      "expected_failure_modes": [
+        "eager",
+        "wrong_payload"
+      ],
+      "sampler": {
+        "transform": "prb_ratio"
+      }
+    },
+    {
+      "anchor_task_id": "base_prb_stale_metrics_then_rebalance_v1",
+      "family": "evidence_gating",
+      "axis": "stale_then_ratio",
+      "expected_failure_modes": [
+        "eager",
+        "wrong_payload"
+      ],
+      "sampler": {
+        "transform": "prb_ratio"
+      }
+    },
+    {
+      "anchor_task_id": "base_ssb_coverage_edge_recovery_v1",
+      "family": "ssb_control",
+      "axis": "target_power",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "repeat"
+      ],
+      "sampler": {
+        "transform": "ssb_power"
+      }
+    },
+    {
+      "anchor_task_id": "base_ssb_wrong_cell_identity_trap_v1",
+      "family": "ssb_control",
+      "axis": "current_cell_identity",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "eager"
+      ],
+      "sampler": {
+        "transform": "ssb_power"
+      }
+    },
+    {
+      "anchor_task_id": "base_radio_cli_cfo_correction_v1",
+      "family": "radio_cli",
+      "axis": "cfo_target",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "noop"
+      ],
+      "sampler": {
+        "transform": "cfo_target"
+      }
+    },
+    {
+      "anchor_task_id": "base_radio_cli_tx_time_offset_correction_v1",
+      "family": "radio_cli",
+      "axis": "tx_offset_target",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "noop"
+      ],
+      "sampler": {
+        "transform": "tx_offset_target"
+      }
+    },
+    {
+      "anchor_task_id": "base_mobility_immediate_handover_v1",
+      "family": "mobility",
+      "axis": "handover_identity",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "repeat"
+      ],
+      "sampler": {
+        "transform": "handover_identity"
+      }
+    },
+    {
+      "anchor_task_id": "base_mobility_conditional_handover_planning_v1",
+      "family": "mobility",
+      "axis": "cho_target_set",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "wrong_api"
+      ],
+      "sampler": {
+        "transform": "cho_targets"
+      }
+    },
+    {
+      "anchor_task_id": "base_core_nf_recovery_v1",
+      "family": "core_control",
+      "axis": "degraded_nf",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "repeat"
+      ],
+      "sampler": {
+        "transform": "core_nf_target"
+      }
+    },
+    {
+      "anchor_task_id": "base_core_ue_registration_repair_v1",
+      "family": "core_control",
+      "axis": "registration_mismatch_field",
+      "expected_failure_modes": [
+        "wrong_payload",
+        "noop"
+      ],
+      "sampler": {
+        "transform": "core_ue_mismatch"
+      }
+    },
+    {
+      "anchor_task_id": "base_restraint_minimal_intervention_budget_v1",
+      "family": "restraint",
+      "axis": "mild_symptom_level",
+      "expected_failure_modes": [
+        "eager",
+        "wrong_api"
+      ],
+      "sampler": {
+        "transform": "no_action_symptoms"
+      }
+    }
+  ],
+  "compound_hooks": [
+    {
+      "compound_task_id": "compound_isolation_backhaul_not_ran_v1",
+      "family": "isolation",
+      "status": "deferred"
+    },
+    {
+      "compound_task_id": "compound_radio_cfo_vs_timing_v1",
+      "family": "radio_cli",
+      "status": "deferred"
+    },
+    {
+      "compound_task_id": "compound_diagnosis_congestion_vs_coverage_v1",
+      "family": "diagnosis",
+      "status": "deferred"
+    },
+    {
+      "compound_task_id": "compound_core_vs_ran_failure_v1",
+      "family": "core",
+      "status": "deferred"
+    },
+    {
+      "compound_task_id": "compound_diagnosis_coverage_vs_backhaul_v1",
+      "family": "diagnosis",
+      "status": "deferred"
+    },
+    {
+      "compound_task_id": "compound_fallback_e2_outage_ws_v1",
+      "family": "backend",
+      "status": "deferred"
+    },
+    {
+      "compound_task_id": "compound_mobility_vs_coverage_v1",
+      "family": "mobility",
+      "status": "deferred"
+    },
+    {
+      "compound_task_id": "compound_identity_stale_cell_then_ssb_v1",
+      "family": "ssb",
+      "status": "deferred"
+    }
+  ]
+}

@@ -1,1 +1,1 @@
-"""Emulated timeline-agent test fixtures."""
+"""Emulated profile-agent test fixtures."""

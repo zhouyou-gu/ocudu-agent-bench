@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "suites": {
+    "generated": {
+      "default_count": 200,
+      "selection": "balanced",
+      "interaction_depth": 1
+    },
+    "standard": {
+      "default_count": 200,
+      "selection": "balanced",
+      "interaction_depth": 1,
+      "balance_by": [
+        "family",
+        "expected_failure_modes"
+      ]
+    },
+    "diagnostic": {
+      "default_count": 1000,
+      "selection": "balanced",
+      "interaction_depth": 2,
+      "balance_by": [
+        "family",
+        "expected_failure_modes"
+      ]
+    },
+    "stress": {
+      "default_count": 200,
+      "selection": "sampled",
+      "interaction_depth": 1,
+      "allow_duplicates_after_exhaustion": true
+    }
+  }
+}

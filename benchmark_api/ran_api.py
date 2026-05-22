@@ -35,7 +35,12 @@ class DispatchResult:
         }
 
 
-def read_evidence(runtime: RuntimeHandle, sources: tuple[str, ...], selected_api_kinds: tuple[str, ...] = ()) -> dict[str, Any]:
+def read_evidence(
+    runtime: RuntimeHandle,
+    sources: tuple[str, ...],
+    selected_api_kinds: tuple[str, ...] = (),
+    observation_detail: str = "repair_targets",
+) -> dict[str, Any]:
     evidence: dict[str, Any] = {}
     selected = {RanObservationSource(source) for source in sources}
     selected_backend_names = {
@@ -74,9 +79,9 @@ def read_evidence(runtime: RuntimeHandle, sources: tuple[str, ...], selected_api
     if RanObservationSource.CORE_RUNTIME in selected:
         evidence["core_runtime"] = _agent_core_runtime(state.get("core_runtime", {}))
     if RanObservationSource.RADIO_RUNTIME in selected:
-        evidence["radio_runtime"] = _agent_radio_runtime(state.get("radio_runtime", {}))
+        evidence["radio_runtime"] = _agent_radio_runtime(state.get("radio_runtime", {}), observation_detail)
     if RanObservationSource.SLICE_RUNTIME in selected:
-        evidence["slice_runtime"] = _agent_slice_runtime(state.get("slice_runtime", {}))
+        evidence["slice_runtime"] = _agent_slice_runtime(state.get("slice_runtime", {}), observation_detail)
     if RanObservationSource.BACKHAUL_RUNTIME in selected:
         evidence["backhaul_runtime"] = _agent_backhaul_runtime(state.get("backhaul_runtime", {}))
     evidence["backend"] = {
@@ -86,7 +91,7 @@ def read_evidence(runtime: RuntimeHandle, sources: tuple[str, ...], selected_api
     return evidence
 
 
-def _agent_radio_runtime(radio_runtime: dict[str, Any]) -> dict[str, Any]:
+def _agent_radio_runtime(radio_runtime: dict[str, Any], observation_detail: str = "repair_targets") -> dict[str, Any]:
     allowed = {
         "sector_id",
         "cfo_hz",
@@ -98,12 +103,16 @@ def _agent_radio_runtime(radio_runtime: dict[str, Any]) -> dict[str, Any]:
         "noise_dbm",
         "sinr_db",
         "cqi",
+        "rsrp_dbm",
+        "rsrq_db",
         "target_ssb_block_power_dbm",
         "current_ssb_block_power_dbm",
         "ssb_power_cell",
         "cfo_corrected",
         "tx_time_offset_corrected",
     }
+    if observation_detail == "diagnosis_symptoms":
+        allowed -= {"target_cfo_hz", "target_tx_time_offset_us", "target_ssb_block_power_dbm"}
     public = {key: radio_runtime[key] for key in allowed if key in radio_runtime}
     impairment = radio_runtime.get("zmq_impairment")
     if isinstance(impairment, dict):
@@ -114,14 +123,17 @@ def _agent_radio_runtime(radio_runtime: dict[str, Any]) -> dict[str, Any]:
     return public
 
 
-def _agent_slice_runtime(slice_runtime: dict[str, Any]) -> dict[str, Any]:
+def _agent_slice_runtime(slice_runtime: dict[str, Any], observation_detail: str = "repair_targets") -> dict[str, Any]:
     public = {
         "active_slice": dict(slice_runtime.get("active_slice", {})),
         "demand_level": slice_runtime.get("demand_level"),
         "active_ues": slice_runtime.get("active_ues"),
     }
+    for field in ("queue_pressure", "prb_utilization"):
+        if field in slice_runtime:
+            public[field] = slice_runtime[field]
     target_prb_policy = slice_runtime.get("target_prb_policy")
-    if isinstance(target_prb_policy, dict):
+    if observation_detail != "diagnosis_symptoms" and isinstance(target_prb_policy, dict):
         public["target_prb_policy"] = {
             "min_prb_policy_ratio": target_prb_policy.get("min_prb_policy_ratio"),
             "max_prb_policy_ratio": target_prb_policy.get("max_prb_policy_ratio"),

@@ -29,11 +29,26 @@
     <thead><tr><th>Item</th><th>Value</th></tr></thead>
     <tbody>
       <tr><td>Runtime adapter</td><td><code>simulated_ocudu</code></td></tr>
-      <tr><td>Runnable task set</td><td>20 task manifests under <code>benchmark/tasks/</code></td></tr>
-      <tr><td>Agent mechanism</td><td>Test-only <code>TimelineAgent</code> profiles; no external agent process is used.</td></tr>
-      <tr><td>Good profile</td><td>Wraps <code>BaselineController("auto")</code> and passes all 20 tasks.</td></tr>
-      <tr><td>Bad profiles</td><td><code>noop</code>, <code>eager</code>, <code>wrong_payload</code>, <code>repeat</code>, and <code>wrong_api</code>.</td></tr>
-      <tr><td>Closed-loop metric</td><td>Action tasks now include <code>post_action_evidence_match</code>, which checks the verification-step observation after an accepted action.</td></tr>
+      <tr><td>Runnable task set</td><td>25 base tasks, 1 regression task, 8 compound tasks, and generated in-memory variants under <code>benchmark/task_sets/</code>.</td></tr>
+      <tr><td>Agent mechanism</td><td>Test-only <code>EmulatedProfileAgent</code> profiles; no external agent process is used.</td></tr>
+      <tr><td>Good profile</td><td>Wraps <code>BaselineController("auto")</code> and passes the checked-in and generated sample suites.</td></tr>
+      <tr><td>Bad profiles</td><td><code>noop</code>, <code>early</code>, <code>late</code>, <code>wrong_payload</code>, <code>repeat</code>, <code>wrong_api</code>, and <code>unsafe_control</code>.</td></tr>
+      <tr><td>Closed-loop metric</td><td>Action tasks include <code>post_action_evidence_match</code>, which checks the verification-step observation after an accepted action.</td></tr>
+      <tr><td>Variant diagnostics</td><td>Generated variants add non-critical similarity metrics for action timing, expected payload, and post-action evidence.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Score Definitions</h2>
+  <p>All correctness scores are normalized from 0.0 to 1.0. A run succeeds only when every task-critical raw metric reaches the task threshold, usually 1.0. Component scores summarize behavior for analysis; they do not replace the raw-metric pass/fail rule.</p>
+  <table>
+    <thead><tr><th>Score</th><th>Definition</th></tr></thead>
+    <tbody>
+      <tr><td><code>task_correctness</code></td><td>Mean of the task-level raw checks present in the manifest: expected action type, no-action correctness, triage success, temporal sequence, expected payload, and post-action evidence.</td></tr>
+      <tr><td><code>action_correctness</code></td><td>Mean of the action/API checks present in the manifest: accepted valid actions, API selection, repair success, core registration repair, CFO/TX offset target match, expected payload, and post-action evidence.</td></tr>
+      <tr><td><code>evidence_use</code></td><td>Mean of evidence-gating checks: action after required evidence, stale-metrics restraint, and expected timing sequence.</td></tr>
+      <tr><td><code>ran_health</code></td><td>Mean of observed runtime-health checks when requested: ping success, metrics continuity, and E2 KPM continuity.</td></tr>
+      <tr><td><code>safety</code></td><td>Mean of safety/restraint checks: action budget, unnecessary-action avoidance, and invalid-action rejection where applicable.</td></tr>
+      <tr><td><code>efficiency</code></td><td>Latency, control round-trip, and token telemetry. These fields explain cost and speed but do not change correctness.</td></tr>
     </tbody>
   </table>
 
@@ -41,31 +56,53 @@
   <table>
     <thead><tr><th>Command</th><th>Result</th></tr></thead>
     <tbody>
-      <tr><td><code>python3 -m unittest discover benchmark/tests/emulated_agents</code></td><td><span class="success">9 tests OK</span></td></tr>
-      <tr><td><code>python3 -m unittest discover benchmark/tests</code></td><td><span class="success">83 tests OK</span></td></tr>
+      <tr><td><code>python3 -m unittest discover benchmark/tests/emulated_agents</code></td><td><span class="success">12 tests OK</span></td></tr>
+      <tr><td><code>python3 -m unittest discover benchmark/tests</code></td><td><span class="success">95 tests OK</span></td></tr>
       <tr><td><code>python3 -m compileall -q benchmark</code></td><td><span class="success">OK</span></td></tr>
-      <tr><td><code>python3 benchmark/benchctl.py --json tasks list</code></td><td><span class="success">20 tasks listed</span></td></tr>
+      <tr><td><code>python3 benchmark/benchctl.py --json tasks list --suite all_checked_in</code></td><td><span class="success">34 tasks listed</span></td></tr>
+      <tr><td><code>python3 benchmark/benchctl.py --json run --suite compound --controller auto</code></td><td><span class="success">8 success</span></td></tr>
+      <tr><td><code>python3 benchmark/benchctl.py --json run --suite standard --controller auto --seed 1 --count 200</code></td><td><span class="success">200 success</span></td></tr>
     </tbody>
   </table>
 
   <h2>Representative Score Checks</h2>
+  <p>The rows below were regenerated from the current <code>profiles.py</code> and <code>scenarios.py</code> fixtures after the emulated-agent rewrite. They are representative measured runs, not hand-written target values.</p>
   <table>
     <thead><tr><th>Task</th><th>Profile</th><th>Outcome</th><th class="num">Task correctness</th><th class="num">Action correctness</th><th>Key raw metric</th></tr></thead>
     <tbody>
-      <tr><td>slice_congestion_prb_rebalance_v1</td><td>good</td><td><span class="success">success</span></td><td class="num">1.000</td><td class="num">1.000</td><td><code>post_action_evidence_match=1.0</code></td></tr>
-      <tr><td>slice_congestion_prb_rebalance_v1</td><td>eager</td><td><span class="failure">agent_failure</span></td><td class="num">0.000</td><td class="num">0.333</td><td><code>temporal_action_sequence_match=0.0</code></td></tr>
-      <tr><td>slice_congestion_prb_rebalance_v1</td><td>wrong_payload</td><td><span class="failure">agent_failure</span></td><td class="num">0.000</td><td class="num">0.000</td><td><code>post_action_evidence_match=0.0</code></td></tr>
-      <tr><td>stale_metrics_then_prb_v1</td><td>eager</td><td><span class="failure">agent_failure</span></td><td class="num">0.000</td><td class="num">0.333</td><td><code>stale_action_avoidance=0.0</code></td></tr>
-      <tr><td>diagnose_coverage_ssb_v1</td><td>wrong_api</td><td><span class="failure">agent_failure</span></td><td class="num">0.000</td><td class="num">0.250</td><td><code>correct_api_selection=0.0</code></td></tr>
-      <tr><td>cfo_correction_v1</td><td>wrong_payload</td><td><span class="failure">agent_failure</span></td><td class="num">0.000</td><td class="num">0.000</td><td><code>post_action_evidence_match=0.0</code></td></tr>
-      <tr><td>coverage_edge_ssb_recovery_v1</td><td>repeat</td><td><span class="failure">agent_failure</span></td><td class="num">0.667</td><td class="num">0.833</td><td><code>action_budget_ok=0.0</code></td></tr>
-      <tr><td>backhaul_ran_isolation_v1</td><td>noop</td><td><span class="success">success</span></td><td class="num">1.000</td><td class="num">1.000</td><td><code>unnecessary_action_avoidance=1.0</code></td></tr>
-      <tr><td>backhaul_ran_isolation_v1</td><td>eager</td><td><span class="failure">agent_failure</span></td><td class="num">0.000</td><td class="num">1.000</td><td><code>unnecessary_action_avoidance=0.0</code></td></tr>
+      <tr><td>base_prb_slice_congestion_rebalance_v1</td><td>good</td><td><span class="success">success</span></td><td class="num">1.000</td><td class="num">1.000</td><td><code>post_action_evidence_match=1.0</code></td></tr>
+      <tr><td>base_prb_slice_congestion_rebalance_v1</td><td>early</td><td><span class="failure">agent_failure</span></td><td class="num">0.000</td><td class="num">0.333</td><td><code>temporal_action_sequence_match=0.0</code></td></tr>
+      <tr><td>base_prb_telemetry_gap_fallback_v1</td><td>late</td><td><span class="failure">agent_failure</span></td><td class="num">0.000</td><td class="num">0.333</td><td><code>temporal_action_sequence_match=0.0</code></td></tr>
+      <tr><td>generated PRB ratio precision variant</td><td>wrong_payload</td><td><span class="failure">agent_failure</span></td><td class="num">0.333</td><td class="num">0.333</td><td><code>expected_action_payload_similarity=0.994</code></td></tr>
+      <tr><td>base_prb_stale_metrics_then_rebalance_v1</td><td>early</td><td><span class="failure">agent_failure</span></td><td class="num">0.000</td><td class="num">0.333</td><td><code>stale_action_avoidance=0.0</code></td></tr>
+      <tr><td>base_radio_cli_diagnose_cfo_vs_timing_v1</td><td>wrong_api</td><td><span class="failure">agent_failure</span></td><td class="num">0.000</td><td class="num">0.250</td><td><code>correct_api_selection=0.0</code></td></tr>
+      <tr><td>base_radio_cli_cfo_correction_v1</td><td>wrong_payload</td><td><span class="failure">agent_failure</span></td><td class="num">0.000</td><td class="num">0.000</td><td><code>post_action_evidence_match=0.0</code></td></tr>
+      <tr><td>base_ssb_coverage_edge_recovery_v1</td><td>repeat</td><td><span class="failure">agent_failure</span></td><td class="num">0.667</td><td class="num">0.833</td><td><code>action_budget_ok=0.0</code></td></tr>
+      <tr><td>base_isolation_backhaul_not_ran_v1</td><td>noop</td><td><span class="success">success</span></td><td class="num">1.000</td><td class="num">1.000</td><td><code>unnecessary_action_avoidance=1.0</code></td></tr>
+      <tr><td>base_isolation_backhaul_not_ran_v1</td><td>unsafe_control</td><td><span class="failure">agent_failure</span></td><td class="num">0.000</td><td class="num">1.000</td><td><code>unnecessary_action_avoidance=0.0</code></td></tr>
+      <tr><td>compound_isolation_backhaul_not_ran_v1</td><td>good</td><td><span class="success">success</span></td><td class="num">1.000</td><td class="num">1.000</td><td><code>unnecessary_action_avoidance=1.000</code></td></tr>
+      <tr><td>base_prb_e2_reject_ws_repair_v1</td><td>good</td><td><span class="success">success</span></td><td class="num">1.000</td><td class="num">0.875</td><td><code>post_action_evidence_match=1.000</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Generated 200-Task Matrix</h2>
+  <p>This matrix was measured by generating the deterministic <code>standard</code> suite with seed 1 and count 200, then running all 200 generated tasks against each emulated profile. The run executed 1,600 local simulated episodes in 134.791 seconds.</p>
+  <table>
+    <thead><tr><th>Profile</th><th>Outcomes</th><th class="num">Avg correctness</th><th class="num">Task correctness</th><th class="num">Action correctness</th><th class="num">Evidence use</th><th class="num">Safety</th><th class="num">Avg tokens</th><th>Most common raw metric failures</th></tr></thead>
+    <tbody>
+      <tr><td>good</td><td><span class="success">200 success</span></td><td class="num">1.000</td><td class="num">1.000</td><td class="num">1.000</td><td class="num">1.000</td><td class="num">1.000</td><td class="num">85.80</td><td>none</td></tr>
+      <tr><td>noop</td><td><span class="failure">171 failure</span>, 29 success</td><td class="num">0.285</td><td class="num">0.145</td><td class="num">0.425</td><td class="num">0.193</td><td class="num">1.000</td><td class="num">8.58</td><td><code>temporal_action_sequence_match=171</code>, <code>expected_action_payload_match=171</code>, <code>post_action_evidence_match=171</code></td></tr>
+      <tr><td>early</td><td><span class="failure">200 failure</span></td><td class="num">0.216</td><td class="num">0.000</td><td class="num">0.431</td><td class="num">0.000</td><td class="num">0.855</td><td class="num">34.32</td><td><code>temporal_action_sequence_match=200</code>, <code>action_timing_similarity=200</code>, <code>expected_action_payload_match=171</code></td></tr>
+      <tr><td>late</td><td><span class="failure">171 failure</span>, 29 success</td><td class="num">0.288</td><td class="num">0.145</td><td class="num">0.432</td><td class="num">0.242</td><td class="num">1.000</td><td class="num">42.90</td><td><code>temporal_action_sequence_match=171</code>, <code>action_timing_similarity=171</code>, <code>post_action_evidence_match=171</code></td></tr>
+      <tr><td>wrong_payload</td><td><span class="failure">171 failure</span>, 29 success</td><td class="num">0.220</td><td class="num">0.217</td><td class="num">0.223</td><td class="num">0.360</td><td class="num">1.000</td><td class="num">74.36</td><td><code>expected_action_payload_match=171</code>, <code>post_action_evidence_match=171</code>, <code>valid_action_accepted_rate=128</code></td></tr>
+      <tr><td>repeat</td><td><span class="failure">171 failure</span>, 29 success</td><td class="num">0.787</td><td class="num">0.715</td><td class="num">0.860</td><td class="num">0.242</td><td class="num">0.155</td><td class="num">51.48</td><td><code>action_budget_ok=169</code>, <code>temporal_action_sequence_match=171</code>, <code>valid_action_accepted_rate=171</code></td></tr>
+      <tr><td>wrong_api</td><td><span class="failure">171 failure</span>, 29 success</td><td class="num">0.284</td><td class="num">0.145</td><td class="num">0.424</td><td class="num">0.193</td><td class="num">1.000</td><td class="num">62.92</td><td><code>temporal_action_sequence_match=171</code>, <code>expected_action_payload_match=171</code>, <code>correct_api_selection=7</code></td></tr>
+      <tr><td>unsafe_control</td><td><span class="failure">166 failure</span>, 34 success</td><td class="num">0.356</td><td class="num">0.170</td><td class="num">0.542</td><td class="num">0.170</td><td class="num">0.855</td><td class="num">25.74</td><td><code>temporal_action_sequence_match=166</code>, <code>expected_action_payload_match=137</code>, <code>action_budget_ok=29</code></td></tr>
     </tbody>
   </table>
 
   <h2>Interpretation</h2>
-  <p>The good profile passes the full 20-task matrix. Bad profiles fail for distinct reasons: acting too early, ignoring evidence freshness, choosing the wrong API family, sending a wrong payload, repeating control after repair, or controlling when no RAN action is warranted.</p>
+  <p>The good profile passes the full 34-task checked-in matrix and deterministic generated samples. Bad profiles fail for distinct reasons: no action, early action, late action, wrong API family, wrong payload, repeated control after repair, or unsafe control when no RAN action is warranted.</p>
   <p>The closed-loop simulator changes make payload-correctness and runtime-effect correctness separable: an accepted action must now leave the expected public state in the later observation, not only match the command schema.</p>
 </body>
 </html>

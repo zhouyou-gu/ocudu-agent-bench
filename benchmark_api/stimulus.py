@@ -436,6 +436,12 @@ def _apply_event_to_runtime(event: StimulusEvent, runtime: RuntimeHandle) -> Non
         }
         ue_runtime.update({"traffic_active": True, "traffic_profile": traffic_profile})
         runtime.state["traffic_load"] = dict(traffic_profile)
+        if "queue_pressure" in event.parameters or "prb_utilization" in event.parameters:
+            slice_runtime = runtime.state.setdefault("slice_runtime", {})
+            if "queue_pressure" in event.parameters:
+                slice_runtime["queue_pressure"] = _stimulus_float(event.parameters["queue_pressure"], "queue_pressure")
+            if "prb_utilization" in event.parameters:
+                slice_runtime["prb_utilization"] = _stimulus_float(event.parameters["prb_utilization"], "prb_utilization")
         event.evidence = {"profile": profile, "packet_rate_pps": packet_rate_pps, "active_ues": active_ues}
     elif event.kind == StimulusDriverKind.MOBILITY_PATH:
         ue_identity = runtime.state.setdefault("ue_identity", {})
@@ -468,6 +474,9 @@ def _apply_event_to_runtime(event: StimulusEvent, runtime: RuntimeHandle) -> Non
         for field in ("target_cfo_hz", "target_tx_time_offset_us", "target_ssb_block_power_dbm"):
             if field in event.parameters:
                 radio_runtime[field] = event.parameters[field]
+        for field in ("rsrp_dbm", "rsrq_db"):
+            if field in event.parameters:
+                radio_runtime[field] = _stimulus_float(event.parameters[field], field)
         event.evidence = {"condition_profile": profile, "sinr_db": radio_runtime["sinr_db"], "cqi": radio_runtime["cqi"]}
     elif event.kind == StimulusDriverKind.SLICE_DEMAND_SHIFT:
         plmn = str(event.parameters.get("plmn", "00101"))
@@ -485,6 +494,9 @@ def _apply_event_to_runtime(event: StimulusEvent, runtime: RuntimeHandle) -> Non
                 "target_prb_policy": {"min_prb_policy_ratio": min_ratio, "max_prb_policy_ratio": max_ratio},
             }
         )
+        for field in ("queue_pressure", "prb_utilization"):
+            if field in event.parameters:
+                slice_runtime[field] = _stimulus_float(event.parameters[field], field)
         event.evidence = {"slice": dict(slice_runtime["active_slice"]), "demand_level": demand_level}
     elif event.kind == StimulusDriverKind.TELEMETRY_GAP:
         sources = [str(source) for source in event.parameters.get("sources", ["json_metrics"])]

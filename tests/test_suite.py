@@ -20,7 +20,7 @@ class SuiteTests(unittest.TestCase):
         self.assertFalse(hasattr(suite, "run_suite"))
 
     def test_controller_owns_repeated_runs(self) -> None:
-        result = run_repeated(ControllerConfig(task_id="slice_congestion_prb_rebalance_v1", controller_id="auto", runs=2, seed=5))
+        result = run_repeated(ControllerConfig(task_id="base_prb_slice_congestion_rebalance_v1", controller_id="auto", runs=2, seed=5))
 
         self.assertEqual(result["suite_summary"]["run_count"], 2)
         self.assertEqual(result["suite_summary"]["scored_count"], 2)
@@ -28,13 +28,32 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(result["run_manifest"]["seed_identifiers"], [5, 6])
 
     def test_auto_controller_covers_stale_and_repair_tasks(self) -> None:
-        for task_id in ("stale_metrics_then_prb_v1", "invalid_action_repair_regression_v1"):
+        for task_id in ("base_prb_stale_metrics_then_rebalance_v1", "regression_harness_invalid_action_repair_v1"):
             with self.subTest(task_id=task_id):
-                result = run_repeated(ControllerConfig(task_id=task_id, controller_id="auto", runs=1, seed=9))
+                suite = "regression" if task_id.startswith("regression_") else "base"
+                result = run_repeated(ControllerConfig(task_id=task_id, controller_id="auto", runs=1, seed=9, suite=suite))
 
                 self.assertEqual(result["suite_summary"]["run_count"], 1)
                 self.assertEqual(result["suite_summary"]["scored_count"], 1)
                 self.assertEqual(result["suite_summary"]["outcomes"], {"success": 1})
+
+    def test_generated_suite_repeated_runs_keep_variant_selection_seed_stable(self) -> None:
+        result = run_repeated(
+            ControllerConfig(
+                controller_id="auto",
+                runs=2,
+                seed=1,
+                suite="generated",
+                suite_count=5,
+            )
+        )
+
+        self.assertEqual(result["suite_summary"]["run_count"], 10)
+        self.assertEqual(result["suite_summary"]["scored_count"], 10)
+        self.assertEqual(result["suite_summary"]["outcomes"], {"success": 10})
+        self.assertEqual(result["run_manifest"]["seed_identifiers"], [1, 2] * 5)
+        generated_task_ids = {run["task"] for run in result["runs"]}
+        self.assertEqual(len(generated_task_ids), 5)
 
 
 if __name__ == "__main__":

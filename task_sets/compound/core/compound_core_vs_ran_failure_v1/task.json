@@ -1,0 +1,194 @@
+{
+  "id": "compound_core_vs_ran_failure_v1",
+  "version": 1,
+  "G": "Infer that service degradation is core-side while RAN symptoms are healthy, then restart the degraded core NF once.",
+  "E": {
+    "runtime_adapter": "simulated_ocudu",
+    "runtime": "ocudu_zmq_open5gs",
+    "components": [
+      "ocudu_websocket",
+      "open5gs",
+      "srsue_zmq"
+    ]
+  },
+  "U": {
+    "steps": 3,
+    "timing_policy": {
+      "clock_mode": "fixed_tick",
+      "step_interval_s": 0.01,
+      "decision_deadline_s": 0.01
+    },
+    "events": [
+      {
+        "kind": "docker_zmq_runtime_launch",
+        "phase": "pre_observation",
+        "parameters": {},
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "metrics_staleness_mask",
+        "phase": "pre_observation",
+        "parameters": {
+          "stale_until_step": 0
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "pre_observation",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "in_step",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "core_latency_profile",
+        "phase": "pre_observation",
+        "parameters": {
+          "latency_ms": 80.0,
+          "jitter_ms": 15.0,
+          "loss_rate": 0.1,
+          "degraded_nf": "open5gs"
+        },
+        "start_step": 2,
+        "end_step": 2
+      },
+      {
+        "kind": "core_latency_profile",
+        "phase": "in_step",
+        "parameters": {
+          "latency_ms": 80.0,
+          "jitter_ms": 15.0,
+          "loss_rate": 0.1,
+          "degraded_nf": "open5gs"
+        },
+        "start_step": 2,
+        "end_step": 2
+      },
+      {
+        "kind": "core_latency_profile",
+        "phase": "pre_observation",
+        "parameters": {
+          "latency_ms": 25.0,
+          "jitter_ms": 4.0,
+          "loss_rate": 0.0,
+          "degraded_nf": "open5gs"
+        },
+        "apply_steps": [
+          3
+        ]
+      }
+    ]
+  },
+  "I": {
+    "api_kinds": [
+      "core_nf_lifecycle_control",
+      "ocudu_websocket_prb_policy",
+      "ocudu_websocket_ssb_power",
+      "ocudu_json_metrics"
+    ],
+    "allowed_actions": [
+      "RESTART_CORE_NF",
+      "SET_PRB_POLICY_RATIO_WS",
+      "SET_SSB_BLOCK_POWER_WS"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "core_runtime",
+      "slice_runtime",
+      "radio_runtime",
+      "websocket_control_outcomes"
+    ],
+    "allow_no_action": true,
+    "observation_detail": "diagnosis_symptoms"
+  },
+  "J": {
+    "scoring_rule": "latent_core_vs_ran_failure",
+    "raw_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "post_action_evidence_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "critical_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "post_action_evidence_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "success_threshold": 1.0,
+    "oracle_requirements": [
+      "core_runtime",
+      "control_outcome"
+    ],
+    "expected_action_type": "RESTART_CORE_NF",
+    "max_actions": 1,
+    "require_evidence_before_action": true,
+    "temporal_expectations": [
+      {
+        "step_id": 1,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 2,
+        "action_type": "RESTART_CORE_NF"
+      },
+      {
+        "step_id": 3,
+        "action_type": "NO_ACTION"
+      }
+    ],
+    "expected_action_fields": [
+      {
+        "step_id": 2,
+        "action_type": "RESTART_CORE_NF",
+        "fields": {
+          "nf": "open5gs"
+        }
+      }
+    ],
+    "expected_post_action_evidence": [
+      {
+        "after_step_id": 2,
+        "step_id": 3,
+        "fields": {
+          "core_runtime.restart_counts.open5gs": 1,
+          "core_runtime.last_restarted_nf": "open5gs"
+        }
+      }
+    ]
+  },
+  "allowed_observation_context": [
+    "task_id",
+    "step_id",
+    "backend"
+  ],
+  "public_constraints": [
+    "Use only task-selected APIs and avoid repeated control after accepted repair."
+  ],
+  "M": {
+    "task_set": "compound",
+    "family": "core",
+    "role": "compound"
+  }
+}

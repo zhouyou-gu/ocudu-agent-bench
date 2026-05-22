@@ -3,12 +3,12 @@ import unittest
 from benchmark.benchmark_api.conformance import run_readiness_checks
 from benchmark.benchmark_api.runtime_setup import instantiate_runtime
 from benchmark.benchmark_api.stimulus import expand_stimulus_plan
-from benchmark.benchmark_api.task_definition import load_task
+from benchmark.tests.task_helpers import load_checked_in_task as load_task
 
 
 class RuntimeSetupTests(unittest.TestCase):
     def test_unavailable_live_adapter_blocks_readiness(self) -> None:
-        task = load_task("slice_congestion_prb_rebalance_v1")
+        task = load_task("base_prb_slice_congestion_rebalance_v1")
         setup = dict(task.E)
         setup["runtime_adapter"] = "ocudu_live"
         runtime = instantiate_runtime(setup, "unit-live")

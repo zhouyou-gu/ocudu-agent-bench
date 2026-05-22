@@ -3,20 +3,20 @@ import unittest
 from benchmark.benchmark_api.ran_api import read_evidence
 from benchmark.benchmark_api.stimulus import apply_in_step, apply_pre_observation, expand_stimulus_plan
 from benchmark.benchmark_api.runtime_setup import instantiate_runtime
-from benchmark.benchmark_api.task_definition import load_task
+from benchmark.tests.task_helpers import load_checked_in_task as load_task
 from benchmark.benchmark_api.types import IMPLEMENTED_STIMULUS_DRIVERS, StimulusDriverKind, StimulusPhase
 
 
 class StimulusTests(unittest.TestCase):
     def test_same_seed_expands_to_same_private_schedule(self) -> None:
-        task = load_task("slice_congestion_prb_rebalance_v1")
+        task = load_task("base_prb_slice_congestion_rebalance_v1")
         first = expand_stimulus_plan(task.U, seed=7)
         second = expand_stimulus_plan(task.U, seed=7)
 
         self.assertEqual([event.event_id for event in first.events], [event.event_id for event in second.events])
 
     def test_pre_observation_and_in_step_windows_are_distinct(self) -> None:
-        task = load_task("slice_congestion_prb_rebalance_v1")
+        task = load_task("base_prb_slice_congestion_rebalance_v1")
         plan = expand_stimulus_plan(task.U, seed=1)
         phases = {event.phase for event in plan.events}
 
@@ -24,7 +24,7 @@ class StimulusTests(unittest.TestCase):
         self.assertIn(StimulusPhase.IN_STEP, phases)
 
     def test_in_step_event_records_reasoning_action_interval(self) -> None:
-        task = load_task("slice_congestion_prb_rebalance_v1")
+        task = load_task("base_prb_slice_congestion_rebalance_v1")
         runtime = instantiate_runtime(task.E, "unit")
         plan = expand_stimulus_plan(task.U, seed=1)
         apply_pre_observation(plan, runtime, step_id=1)
@@ -36,7 +36,7 @@ class StimulusTests(unittest.TestCase):
             self.assertGreaterEqual(event.active_end_time_s, 10.2)
 
     def test_decision_deadline_cannot_exceed_step_interval(self) -> None:
-        task = load_task("slice_congestion_prb_rebalance_v1")
+        task = load_task("base_prb_slice_congestion_rebalance_v1")
         stimulus = dict(task.U)
         stimulus["timing_policy"] = dict(task.U["timing_policy"])
         stimulus["timing_policy"]["decision_deadline_s"] = 2.0
@@ -46,7 +46,7 @@ class StimulusTests(unittest.TestCase):
             expand_stimulus_plan(stimulus, seed=1)
 
     def test_ue_ping_traffic_updates_ue_runtime_as_stimulus(self) -> None:
-        task = load_task("slice_congestion_prb_rebalance_v1")
+        task = load_task("base_prb_slice_congestion_rebalance_v1")
         runtime = instantiate_runtime(task.E, "unit-ue-traffic-stimulus")
         plan = expand_stimulus_plan(task.U, seed=1)
         apply_pre_observation(plan, runtime, step_id=1)
@@ -83,7 +83,7 @@ class StimulusTests(unittest.TestCase):
         self.assertIn("ue_activity_churn", [event.kind.value for event in events])
 
     def test_core_ue_registration_misconfig_is_private_stimulus(self) -> None:
-        task = load_task("core_ue_registration_repair_multistep_v1")
+        task = load_task("base_core_ue_registration_repair_v1")
         runtime = instantiate_runtime(task.E, "unit-core-registration-stimulus")
         plan = expand_stimulus_plan(task.U, seed=1)
         events = apply_pre_observation(plan, runtime, step_id=1)

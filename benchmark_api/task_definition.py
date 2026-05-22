@@ -19,8 +19,11 @@ from benchmark.benchmark_api.types import (
 )
 
 
-DEFAULT_TASKS_DIR = Path(__file__).resolve().parents[1] / "tasks"
 _TASK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_]*_v[0-9]+$")
+_ANCHOR_TASK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_]*_v[0-9]+$")
+_TASK_SETS = {"base", "regression", "compound", "generated"}
+_TASK_FAMILIES = {"prb", "ssb", "mobility", "radio_cli", "core", "diagnosis", "isolation", "restraint", "backend", "harness"}
+_TASK_ROLES = {"primary", "regression", "compound"}
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,7 @@ class PrivateTask:
     U: dict[str, Any]
     I: dict[str, Any]
     J: dict[str, Any]
+    M: dict[str, Any]
     allowed_observation_context: tuple[str, ...]
     public_constraints: tuple[str, ...]
     source: Path
@@ -83,8 +87,8 @@ class AgentVisibleTask:
         }
 
 
-def load_task(task_id: str, tasks_dir: Path | str | None = None) -> PrivateTask:
-    root = Path(tasks_dir) if tasks_dir is not None else DEFAULT_TASKS_DIR
+def load_task(task_id: str, tasks_dir: Path | str) -> PrivateTask:
+    root = Path(tasks_dir)
     path = root / task_id / "task.json"
     if not path.exists():
         raise FileNotFoundError(f"Task manifest not found: {path}")
@@ -104,8 +108,8 @@ def load_task_file(path: Path | str) -> PrivateTask:
     return task
 
 
-def load_all_tasks(tasks_dir: Path | str | None = None) -> dict[str, PrivateTask]:
-    root = Path(tasks_dir) if tasks_dir is not None else DEFAULT_TASKS_DIR
+def load_all_tasks(tasks_dir: Path | str) -> dict[str, PrivateTask]:
+    root = Path(tasks_dir)
     tasks: dict[str, PrivateTask] = {}
     for path in sorted(root.glob("*/task.json")):
         task = load_task_file(path)
@@ -163,6 +167,9 @@ def validate_private_task(task: PrivateTask) -> None:
         raise ValueError(f"allowed_actions must be backed by selected api_kinds: {names}")
     for source in task.observation_sources:
         RanObservationSource(source)
+    observation_detail = str(task.I.get("observation_detail", "repair_targets"))
+    if observation_detail not in {"repair_targets", "diagnosis_symptoms"}:
+        raise ValueError("I.observation_detail must be repair_targets or diagnosis_symptoms")
     stimulus_events = _stimulus_events(task.U)
     steps = task.step_count
     if steps <= 0:
@@ -183,6 +190,7 @@ def validate_private_task(task: PrivateTask) -> None:
     _validate_temporal_expectations(task)
     _validate_expected_action_fields(task)
     _validate_expected_post_action_evidence(task)
+    _validate_manifest_metadata(task)
 
 
 def task_summary(task: PrivateTask) -> dict[str, Any]:
@@ -197,11 +205,49 @@ def task_summary(task: PrivateTask) -> dict[str, Any]:
         "allow_no_action": task.allow_no_action,
         "steps": task.step_count,
         "scoring_rule": task.J.get("scoring_rule"),
+        "task_set": task.M.get("task_set"),
+        "family": task.M.get("family"),
+        "role": task.M.get("role"),
     }
 
 
+def clone_task_with_overrides(
+    task: PrivateTask,
+    *,
+    task_id: str,
+    goal: str | None = None,
+    E: dict[str, Any] | None = None,
+    U: dict[str, Any] | None = None,
+    I: dict[str, Any] | None = None,
+    J: dict[str, Any] | None = None,
+    M: dict[str, Any] | None = None,
+    allowed_observation_context: tuple[str, ...] | None = None,
+    public_constraints: tuple[str, ...] | None = None,
+    source: Path | None = None,
+) -> PrivateTask:
+    cloned = PrivateTask(
+        task_id=task_id,
+        version=task.version,
+        G=goal if goal is not None else task.G,
+        E=E if E is not None else json.loads(json.dumps(task.E)),
+        U=U if U is not None else json.loads(json.dumps(task.U)),
+        I=I if I is not None else json.loads(json.dumps(task.I)),
+        J=J if J is not None else json.loads(json.dumps(task.J)),
+        M=M if M is not None else json.loads(json.dumps(task.M)),
+        allowed_observation_context=(
+            allowed_observation_context
+            if allowed_observation_context is not None
+            else tuple(task.allowed_observation_context)
+        ),
+        public_constraints=public_constraints if public_constraints is not None else tuple(task.public_constraints),
+        source=source if source is not None else Path("<generated>") / task_id / "task.json",
+    )
+    validate_private_task(cloned)
+    return cloned
+
+
 def _task_from_mapping(data: dict[str, Any], source: Path) -> PrivateTask:
-    required = ("id", "version", "G", "E", "U", "I", "J")
+    required = ("id", "version", "G", "E", "U", "I", "J", "M")
     missing = [key for key in required if key not in data]
     if missing:
         raise ValueError(f"Task manifest {source} missing required keys: {', '.join(missing)}")
@@ -213,6 +259,7 @@ def _task_from_mapping(data: dict[str, Any], source: Path) -> PrivateTask:
         U=_required_dict(data, "U", source),
         I=_required_dict(data, "I", source),
         J=_required_dict(data, "J", source),
+        M=_required_dict(data, "M", source),
         allowed_observation_context=tuple(str(item) for item in data.get("allowed_observation_context", [])),
         public_constraints=tuple(str(item) for item in data.get("public_constraints", [])),
         source=source,
@@ -305,3 +352,48 @@ def _validate_expected_post_action_evidence(task: PrivateTask) -> None:
             tolerance = expectation["numeric_tolerance"]
             if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or float(tolerance) < 0:
                 raise ValueError("numeric_tolerance must be a non-negative number")
+
+
+def _validate_manifest_metadata(task: PrivateTask) -> None:
+    if "variant_axes" in task.J:
+        raise ValueError("J.variant_axes is retired; use private M.variant")
+    task_set = task.M.get("task_set")
+    family = task.M.get("family")
+    role = task.M.get("role")
+    if task_set not in _TASK_SETS:
+        raise ValueError("M.task_set must be base, regression, compound, or generated")
+    if family not in _TASK_FAMILIES:
+        raise ValueError("M.family has an unknown task family")
+    if role not in _TASK_ROLES:
+        raise ValueError("M.role must be primary, regression, or compound")
+    expected_role = {
+        "base": "primary",
+        "regression": "regression",
+        "compound": "compound",
+        "generated": "primary",
+    }[str(task_set)]
+    if role != expected_role:
+        raise ValueError(f"M.role must be {expected_role!r} when M.task_set is {task_set!r}")
+    variant = task.M.get("variant")
+    if task_set == "generated":
+        if not isinstance(variant, dict):
+            raise ValueError("generated tasks must declare M.variant")
+        required = ("family", "axis", "level", "anchor_task_id", "suite", "variant_id", "seed", "axis_values", "expected_failure_modes")
+        missing = [field for field in required if field not in variant]
+        if missing:
+            raise ValueError(f"M.variant missing required fields: {', '.join(missing)}")
+        for field in ("family", "axis", "level", "anchor_task_id", "suite", "variant_id"):
+            value = variant[field]
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"M.variant.{field} must be a non-empty string")
+        if not _ANCHOR_TASK_ID_RE.match(variant["anchor_task_id"]):
+            raise ValueError("M.variant.anchor_task_id must be a valid task id")
+        if isinstance(variant["seed"], bool) or not isinstance(variant["seed"], int):
+            raise ValueError("M.variant.seed must be an integer")
+        if not isinstance(variant["axis_values"], dict):
+            raise ValueError("M.variant.axis_values must be an object")
+        modes = variant["expected_failure_modes"]
+        if not isinstance(modes, list) or not modes or not all(isinstance(item, str) and item for item in modes):
+            raise ValueError("M.variant.expected_failure_modes must be a non-empty string list")
+    elif variant is not None and not isinstance(variant, dict):
+        raise ValueError("M.variant must be an object when present")

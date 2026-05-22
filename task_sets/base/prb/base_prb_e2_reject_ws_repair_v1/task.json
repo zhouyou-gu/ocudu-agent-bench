@@ -1,0 +1,199 @@
+{
+  "id": "base_prb_e2_reject_ws_repair_v1",
+  "version": 1,
+  "G": "Use rejection feedback from an E2 outage to repair the same PRB issue through WebSocket, then stop.",
+  "E": {
+    "runtime_adapter": "simulated_ocudu",
+    "runtime": "ocudu_zmq_open5gs",
+    "components": [
+      "ocudu_websocket",
+      "open5gs",
+      "srsue_zmq",
+      "flexric",
+      "e2_kpm_decoder",
+      "e2_control_xapp",
+      "du_ue_identity"
+    ]
+  },
+  "U": {
+    "steps": 3,
+    "timing_policy": {
+      "clock_mode": "fixed_tick",
+      "step_interval_s": 0.01,
+      "decision_deadline_s": 0.01
+    },
+    "events": [
+      {
+        "kind": "docker_zmq_runtime_launch",
+        "phase": "pre_observation",
+        "parameters": {},
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "metrics_staleness_mask",
+        "phase": "pre_observation",
+        "parameters": {
+          "stale_until_step": 0
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "pre_observation",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "in_step",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "e2_kpm_availability_window",
+        "phase": "pre_observation",
+        "parameters": {
+          "available_from_step": 1,
+          "kpm_indications": 4
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "slice_demand_shift",
+        "phase": "pre_observation",
+        "parameters": {
+          "sst": 1,
+          "demand_level": "high",
+          "active_ues": 4,
+          "min_prb_policy_ratio": 36,
+          "max_prb_policy_ratio": 88,
+          "queue_pressure": 0.79,
+          "prb_utilization": 0.91
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ric_xapp_lifecycle",
+        "phase": "in_step",
+        "parameters": {
+          "action": "stop",
+          "xapp": "control"
+        },
+        "apply_steps": [
+          1
+        ]
+      }
+    ]
+  },
+  "I": {
+    "api_kinds": [
+      "e2sm_kpm_v05_observation",
+      "e2sm_ccc_prb_policy_control",
+      "ocudu_websocket_prb_policy",
+      "ocudu_json_metrics"
+    ],
+    "allowed_actions": [
+      "SET_PRB_POLICY_RATIO_CCC",
+      "SET_PRB_POLICY_RATIO_WS"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "e2_kpm_v05",
+      "e2_control_outcome",
+      "slice_runtime",
+      "websocket_control_outcomes"
+    ],
+    "allow_no_action": true
+  },
+  "J": {
+    "scoring_rule": "e2_reject_then_ws_repair",
+    "raw_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "post_action_evidence_match",
+      "valid_action_accepted_rate",
+      "correct_api_selection",
+      "action_budget_ok",
+      "clean_teardown"
+    ],
+    "critical_metrics": [
+      "temporal_action_sequence_match",
+      "expected_action_payload_match",
+      "post_action_evidence_match",
+      "correct_api_selection",
+      "action_budget_ok",
+      "clean_teardown"
+    ],
+    "success_threshold": 1.0,
+    "oracle_requirements": [
+      "ric_xapp_lifecycle",
+      "control_outcome"
+    ],
+    "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+    "max_actions": 2,
+    "require_evidence_before_action": true,
+    "temporal_expectations": [
+      {
+        "step_id": 1,
+        "action_type": "SET_PRB_POLICY_RATIO_CCC",
+        "accepted": false
+      },
+      {
+        "step_id": 2,
+        "action_type": "SET_PRB_POLICY_RATIO_WS",
+        "accepted": true
+      },
+      {
+        "step_id": 3,
+        "action_type": "NO_ACTION"
+      }
+    ],
+    "expected_action_fields": [
+      {
+        "step_id": 2,
+        "action_type": "SET_PRB_POLICY_RATIO_WS",
+        "fields": {
+          "min_prb_policy_ratio": 36,
+          "max_prb_policy_ratio": 88
+        }
+      }
+    ],
+    "expected_post_action_evidence": [
+      {
+        "after_step_id": 2,
+        "step_id": 3,
+        "fields": {
+          "slice_runtime.current_prb_policy.min_prb_policy_ratio": 36,
+          "slice_runtime.current_prb_policy.max_prb_policy_ratio": 88,
+          "slice_runtime.current_prb_policy.backend": "websocket",
+          "slice_runtime.current_prb_policy.action_type": "SET_PRB_POLICY_RATIO_WS"
+        }
+      }
+    ]
+  },
+  "allowed_observation_context": [
+    "task_id",
+    "step_id",
+    "backend"
+  ],
+  "public_constraints": [
+    "Use only task-selected APIs and avoid repeated control after accepted repair."
+  ],
+  "M": {
+    "task_set": "base",
+    "family": "prb",
+    "role": "primary"
+  }
+}
