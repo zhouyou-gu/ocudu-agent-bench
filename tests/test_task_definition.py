@@ -41,9 +41,15 @@ class TaskDefinitionTests(unittest.TestCase):
         for task in generated_a.values():
             with self.subTest(task_id=task.task_id):
                 variant = task.M["variant"]
+                self.assertRegex(task.task_id, r"^generated_s[0-9]{4}_[0-9a-f]{6}_v1$")
+                self.assertNotIn(variant["axis"], task.task_id)
+                self.assertNotIn(variant["anchor_task_id"], task.task_id)
+                self.assertNotIn(variant["family"], task.task_id)
                 self.assertEqual(task.M["task_set"], "generated")
                 self.assertEqual(variant["suite"], "generated")
                 self.assertIn(variant["anchor_task_id"], base)
+                self.assertRegex(variant["axis_registry_sha256"], r"^[0-9a-f]{64}$")
+                self.assertRegex(variant["suite_policies_sha256"], r"^[0-9a-f]{64}$")
                 self.assertNotIn("M", agent_visible_task(task).to_dict())
                 self.assertNotIn("axis_values", repr(agent_visible_task(task).to_dict()))
                 self.assertNotIn("expected_failure_modes", repr(agent_visible_task(task).to_dict()))
@@ -55,8 +61,22 @@ class TaskDefinitionTests(unittest.TestCase):
 
     def test_generated_suite_policy_counts_and_family_filters(self) -> None:
         self.assertEqual(len(load_tasks_for_suite(suite="generated", seed=1)), 200)
-        self.assertEqual(len(load_tasks_for_suite(suite="standard", seed=1)), 200)
+        standard = load_tasks_for_suite(suite="standard", seed=1)
+        self.assertEqual(len(standard), 200)
         self.assertEqual(len(load_tasks_for_suite(suite="diagnostic", seed=1)), 1000)
+        expected_modes = {
+            "eager",
+            "noop",
+            "repeat",
+            "wrong_api",
+            "wrong_payload",
+        }
+        selected_modes = {
+            mode
+            for task in standard.values()
+            for mode in task.M["variant"].get("expected_failure_modes", [])
+        }
+        self.assertTrue(expected_modes.issubset(selected_modes))
 
         core = load_tasks_for_suite(suite="standard", seed=1, family="core")
         self.assertEqual(len(core), 10)

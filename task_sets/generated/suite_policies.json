@@ -4,7 +4,11 @@
     "generated": {
       "default_count": 200,
       "selection": "balanced",
-      "interaction_depth": 1
+      "interaction_depth": 1,
+      "balance_by": [
+        "family",
+        "expected_failure_modes"
+      ]
     },
     "standard": {
       "default_count": 200,

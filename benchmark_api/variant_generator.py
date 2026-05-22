@@ -31,6 +31,8 @@ def generate_variant_tasks(
     root = Path(task_sets_dir)
     registry = _load_registry(root)
     policy = _load_policy(root, suite)
+    registry_sha256 = _file_sha256(root / "generated" / "axis_registry.json")
+    policy_sha256 = _file_sha256(root / "generated" / "suite_policies.json")
     axes = [axis for axis in registry["axes"] if axis.get("anchor_task_id") in anchors]
     if family is not None:
         axes = [axis for axis in axes if _public_family(axis.get("family", "")) == family.strip().lower()]
@@ -57,7 +59,7 @@ def generate_variant_tasks(
         available_axes = _available_axes(ordered_axes, axis_offsets, policy)
         if not available_axes:
             raise ValueError("variant axis space exhausted before requested count")
-        axis = _select_axis(available_axes, tasks.values(), policy, task_index)
+        axis = _select_axis(available_axes, tasks.values(), policy, task_index, axis_offsets)
         candidate = _candidate_from_axis(axis, axis_offsets.get(_axis_key(axis), 0), seed, task_index)
         axis_offsets[_axis_key(axis)] = axis_offsets.get(_axis_key(axis), 0) + 1
         vector_key = _vector_key(axis, candidate)
@@ -70,7 +72,16 @@ def generate_variant_tasks(
         if vector_key in seen_vectors and not policy.get("allow_duplicates_after_exhaustion", False):
             raise ValueError("variant axis space exhausted before requested count")
         seen_vectors.add(vector_key)
-        task = _build_variant(anchors[str(axis["anchor_task_id"])], axis, candidate, suite, seed, task_index)
+        task = _build_variant(
+            anchors[str(axis["anchor_task_id"])],
+            axis,
+            candidate,
+            suite,
+            seed,
+            task_index,
+            registry_sha256=registry_sha256,
+            policy_sha256=policy_sha256,
+        )
         tasks[task.task_id] = task
         task_index += 1
     return tasks
@@ -138,18 +149,44 @@ def _axis_space_capacity(axes: list[dict[str, Any]]) -> int | None:
     return total
 
 
-def _select_axis(axes: list[dict[str, Any]], existing_tasks: Any, policy: dict[str, Any], index: int) -> dict[str, Any]:
+def _select_axis(
+    axes: list[dict[str, Any]],
+    existing_tasks: Any,
+    policy: dict[str, Any],
+    index: int,
+    axis_offsets: dict[str, int],
+) -> dict[str, Any]:
     if policy.get("selection") != "balanced":
         return axes[(index - 1) % len(axes)]
+    balance_by = set(policy.get("balance_by") or ("family",))
     family_counts: dict[str, int] = {}
+    failure_mode_counts: dict[str, int] = {}
     for task in existing_tasks:
-        family_counts[str(task.M.get("variant", {}).get("family", ""))] = family_counts.get(str(task.M.get("variant", {}).get("family", "")), 0) + 1
+        variant = task.M.get("variant", {})
+        family = _public_family(str(variant.get("family", "")))
+        family_counts[family] = family_counts.get(family, 0) + 1
+        for mode in variant.get("expected_failure_modes", []):
+            mode_key = str(mode)
+            failure_mode_counts[mode_key] = failure_mode_counts.get(mode_key, 0) + 1
+
+    def balance_key(axis: dict[str, Any]) -> tuple[Any, ...]:
+        keys: list[Any] = []
+        keys.append(axis_offsets.get(_axis_key(axis), 0))
+        if "family" in balance_by:
+            keys.append(family_counts.get(_public_family(str(axis.get("family", ""))), 0))
+        if "expected_failure_modes" in balance_by:
+            modes = [str(mode) for mode in axis.get("expected_failure_modes", [])]
+            if modes:
+                keys.append(min(failure_mode_counts.get(mode, 0) for mode in modes))
+                keys.append(sum(failure_mode_counts.get(mode, 0) for mode in modes) / len(modes))
+            else:
+                keys.extend((0, 0.0))
+        keys.append(axes.index(axis))
+        return tuple(keys)
+
     return min(
         axes,
-        key=lambda axis: (
-            family_counts.get(str(axis.get("family", "")), 0),
-            axes.index(axis),
-        ),
+        key=balance_key,
     )
 
 
@@ -178,6 +215,9 @@ def _build_variant(
     suite: str,
     seed: int,
     index: int,
+    *,
+    registry_sha256: str,
+    policy_sha256: str,
 ) -> PrivateTask:
     U = json.loads(json.dumps(anchor.U))
     I = json.loads(json.dumps(anchor.I))
@@ -215,7 +255,7 @@ def _build_variant(
         ).encode("utf-8")
     ).hexdigest()[:6]
     family = str(axis["family"])
-    task_id = f"generated_{_public_family(family)}_{_anchor_slug(anchor.task_id)}_{_slug(str(axis['axis']))}_s{index:04d}_{variant_hash}_v1"
+    task_id = f"generated_s{index:04d}_{variant_hash}_v1"
     M = {
         "task_set": "generated",
         "family": _public_family(family),
@@ -230,6 +270,8 @@ def _build_variant(
             "seed": seed,
             "axis_values": candidate["values"],
             "expected_failure_modes": list(axis.get("expected_failure_modes", [])),
+            "axis_registry_sha256": registry_sha256,
+            "suite_policies_sha256": policy_sha256,
         },
     }
     if candidate.get("legacy_task_id"):
@@ -534,3 +576,7 @@ def _anchor_slug(task_id: str) -> str:
 def _slug(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
     return slug or "variant"
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()

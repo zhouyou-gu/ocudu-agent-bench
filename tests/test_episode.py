@@ -62,6 +62,40 @@ class EpisodeTests(unittest.TestCase):
             self.assertTrue(trace_payload["artifacts_finalized"])
             self.assertTrue(trace_payload["oracle"])
 
+    def test_generated_trace_uses_opaque_public_id_and_private_provenance(self) -> None:
+        tasks = load_tasks_for_suite(suite="standard", seed=3, count=12)
+        task = next(iter(tasks.values()))
+        variant = task.M["variant"]
+
+        result = run_episode(
+            EpisodeConfig(
+                task_id=task.task_id,
+                run_id="unit-generated-provenance",
+                seed=5,
+                suite="standard",
+                suite_count=12,
+                suite_seed=3,
+            ),
+            BaselineController("auto"),
+        )
+
+        self.assertEqual(result["summary"]["outcome"], "success")
+        self.assertRegex(result["task"], r"^generated_s[0-9]{4}_[0-9a-f]{6}_v1$")
+        interaction_blob = json.dumps(result["trace"]["interaction"], sort_keys=True)
+        self.assertNotIn(variant["axis"], interaction_blob)
+        self.assertNotIn(variant["anchor_task_id"], interaction_blob)
+        self.assertNotIn("axis_values", interaction_blob)
+        provenance = result["summary"]["task_provenance"]
+        self.assertEqual(provenance["suite"], "standard")
+        self.assertEqual(provenance["suite_seed"], 3)
+        self.assertEqual(provenance["suite_count"], 12)
+        self.assertRegex(provenance["task_definition_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(provenance["generated_variant"]["variant_id"], variant["variant_id"])
+        self.assertEqual(
+            provenance["generated_variant"]["axis_registry_sha256"],
+            variant["axis_registry_sha256"],
+        )
+
     def test_episode_finalizes_artifacts_before_cleanup(self) -> None:
         order: list[str] = []
         original_finalize_artifacts = TraceRecorder.finalize_artifacts

@@ -29,6 +29,7 @@ def score_episode(task: PrivateTask, trace_package: dict[str, Any]) -> dict[str,
         "efficiency": efficiency,
         "scored": outcome in {ScoreOutcome.SUCCESS, ScoreOutcome.AGENT_FAILURE},
         "artifact_manifest": trace_package.get("artifact_manifest", []),
+        "task_provenance": trace_package.get("run_metadata", {}).get("task_provenance", {}),
     }
 
 

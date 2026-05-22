@@ -17,7 +17,7 @@ from benchmark.benchmark_api.runtime_setup import cleanup_runtime, instantiate_r
 from benchmark.benchmark_api.scoring import score_episode
 from benchmark.benchmark_api.stimulus import apply_pre_observation, expand_stimulus_plan, finish_in_step, start_in_step
 from benchmark.benchmark_api.task_catalog import load_task_for_suite
-from benchmark.benchmark_api.task_definition import agent_visible_task
+from benchmark.benchmark_api.task_definition import agent_visible_task, task_provenance
 from benchmark.benchmark_api.trace import TraceRecorder
 
 
@@ -46,6 +46,15 @@ def run_episode(config: EpisodeConfig, agent: Callable[[dict[str, Any]], Any]) -
         task_sets_dir=config.tasks_dir,
     )
     agent_view = agent_visible_task(task)
+    suite_seed = config.suite_seed if config.suite_seed is not None else config.seed
+    provenance = task_provenance(
+        task,
+        suite=config.suite,
+        episode_seed=config.seed,
+        suite_seed=suite_seed,
+        suite_count=config.suite_count,
+        family=config.family,
+    )
     runtime = instantiate_runtime(task.E, config.run_id)
     stimulus_plan = expand_stimulus_plan(task.U, config.seed)
     trace = TraceRecorder(
@@ -53,6 +62,11 @@ def run_episode(config: EpisodeConfig, agent: Callable[[dict[str, Any]], Any]) -
         run_metadata={
             "task_id": task.task_id,
             "seed": config.seed,
+            "suite": config.suite,
+            "suite_seed": suite_seed,
+            "suite_count": config.suite_count,
+            "family": config.family,
+            "task_provenance": provenance,
             "started_at_s": started_at,
             "agent_session_id": config.agent_session_id or f"{config.run_id}-session",
         },

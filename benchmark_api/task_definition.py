@@ -1,7 +1,8 @@
-"""Task contract loading and agent-view redaction."""
+"""Task contract loading, digesting, and agent-view redaction."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -211,6 +212,48 @@ def task_summary(task: PrivateTask) -> dict[str, Any]:
     }
 
 
+def task_definition_digest(task: PrivateTask) -> str:
+    """Stable SHA-256 over the private task contract, excluding local source paths."""
+
+    return hashlib.sha256(
+        json.dumps(_task_digest_payload(task), sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def task_provenance(
+    task: PrivateTask,
+    *,
+    suite: str,
+    episode_seed: int,
+    suite_seed: int,
+    suite_count: int | None,
+    family: str | None,
+) -> dict[str, Any]:
+    provenance = {
+        "task_id": task.task_id,
+        "task_definition_sha256": task_definition_digest(task),
+        "task_set": task.M.get("task_set"),
+        "family": task.M.get("family"),
+        "role": task.M.get("role"),
+        "suite": suite,
+        "episode_seed": episode_seed,
+        "suite_seed": suite_seed,
+        "suite_count": suite_count,
+        "family_filter": family,
+        "source": str(task.source),
+    }
+    variant = task.M.get("variant")
+    if isinstance(variant, dict):
+        provenance["generated_variant"] = {
+            "variant_id": variant.get("variant_id"),
+            "anchor_task_id": variant.get("anchor_task_id"),
+            "axis_registry_sha256": variant.get("axis_registry_sha256"),
+            "suite_policies_sha256": variant.get("suite_policies_sha256"),
+            "expected_failure_modes": list(variant.get("expected_failure_modes", [])),
+        }
+    return provenance
+
+
 def clone_task_with_overrides(
     task: PrivateTask,
     *,
@@ -244,6 +287,21 @@ def clone_task_with_overrides(
     )
     validate_private_task(cloned)
     return cloned
+
+
+def _task_digest_payload(task: PrivateTask) -> dict[str, Any]:
+    return {
+        "id": task.task_id,
+        "version": task.version,
+        "G": task.G,
+        "E": task.E,
+        "U": task.U,
+        "I": task.I,
+        "J": task.J,
+        "M": task.M,
+        "allowed_observation_context": list(task.allowed_observation_context),
+        "public_constraints": list(task.public_constraints),
+    }
 
 
 def _task_from_mapping(data: dict[str, Any], source: Path) -> PrivateTask:

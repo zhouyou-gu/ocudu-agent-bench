@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OCUDUAgentBench Technical Details</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #526071;
+      --line: #d8e0ea;
+      --soft: #f5f7fa;
+      --head: #edf2f7;
+      --code: #f1f5f9;
+      --accent: #245c91;
+      --private: #7c2d12;
+      --public: #166534;
+    }
+    body {
+      max-width: 1180px;
+      margin: 32px auto 56px;
+      padding: 0 22px;
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.48;
+      background: #fff;
+    }
+    h1 { font-size: 30px; margin: 0 0 8px; }
+    h2 { font-size: 21px; margin: 32px 0 10px; padding-top: 4px; border-top: 1px solid var(--line); }
+    h3 { font-size: 16px; margin: 20px 0 8px; }
+    p { margin: 8px 0 12px; color: var(--muted); }
+    a { color: var(--accent); }
+    code {
+      background: var(--code);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 1px 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.94em;
+    }
+    pre {
+      background: #111827;
+      color: #f8fafc;
+      border-radius: 6px;
+      padding: 12px 14px;
+      overflow: auto;
+      font-size: 13px;
+    }
+    pre code { background: transparent; border: 0; padding: 0; color: inherit; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 13px; }
+    th, td { border: 1px solid var(--line); padding: 8px 9px; text-align: left; vertical-align: top; }
+    th { background: var(--head); color: #243044; }
+    tr:nth-child(even) td { background: #fbfcfe; }
+    ul { margin-top: 6px; color: var(--muted); }
+    .lede { font-size: 15px; max-width: 900px; }
+    .note {
+      border-left: 4px solid var(--accent);
+      background: var(--soft);
+      padding: 10px 12px;
+      margin: 14px 0 18px;
+      color: var(--ink);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+      margin: 12px 0 18px;
+    }
+    .box {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 6px;
+      padding: 12px;
+    }
+    .box strong { display: block; margin-bottom: 4px; }
+    .tag {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 1px 8px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+    }
+    .public { color: var(--public); font-weight: 600; }
+    .private { color: var(--private); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>OCUDUAgentBench Technical Details</h1>
+  <p class="lede">This document is the implementation reference for the executable benchmark under <code>benchmark/</code>. It explains task loading, generated variants, episode flow, simulated runtime effects, scoring, trace partitions, and remote sync boundaries.</p>
+
+  <div class="note">
+    <strong>Documentation boundary.</strong>
+    The repo-root <code>benchmark/README.md</code> is the short entry point: what the harness is, what command to run, and where the task sets live. This file is the technical reference for maintainers changing the benchmark internals. Design authority remains in <code>skillful-ran-research/benchmark_design/</code>.
+  </div>
+
+  <h2>Task Contract</h2>
+  <p>Every task is loaded as a private manifest shaped around <code>T = &lt;G, E, U, I, J&gt;</code>, plus private metadata <code>M</code>.</p>
+  <table>
+    <thead><tr><th>Field</th><th>Owner</th><th>Visibility</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>G</code></td><td>task manifest</td><td><span class="public">agent-visible after redaction</span></td><td>Goal text shown to the agent.</td></tr>
+      <tr><td><code>E</code></td><td>runtime setup</td><td><span class="private">benchmark-private</span></td><td>Runtime adapter and requirements. Current runnable tasks use <code>simulated_ocudu</code>.</td></tr>
+      <tr><td><code>U</code></td><td>stimulus</td><td><span class="private">benchmark-private</span></td><td>Deterministic step-targeted runtime dynamics.</td></tr>
+      <tr><td><code>I</code></td><td>API projection</td><td><span class="public">partly visible</span></td><td>Allowed action APIs, observation sources, feedback shape, and observation detail mode.</td></tr>
+      <tr><td><code>J</code></td><td>scoring</td><td><span class="private">benchmark-private during run</span></td><td>Raw metrics, temporal expectations, payload expectations, and post-action evidence checks.</td></tr>
+      <tr><td><code>M</code></td><td>catalog/generator</td><td><span class="private">benchmark-private</span></td><td>Task set, family, role, and generated-variant metadata. Never serialized to agent observations or feedback.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>File Boundaries</h2>
+  <table>
+    <thead><tr><th>Path</th><th>Function</th><th>Boundary</th></tr></thead>
+    <tbody>
+      <tr><td><code>benchmark/README.md</code></td><td>Operational quickstart.</td><td>Does not duplicate this technical reference or the design documents.</td></tr>
+      <tr><td><code>benchmark/docs/technical_details.html</code></td><td>Implementation reference.</td><td>Explains current executable mechanics; avoids becoming a design backlog.</td></tr>
+      <tr><td><code>benchmark/task_sets/</code></td><td>Task surface.</td><td>Checked-in base, regression, compound tasks; generated registry and suite policies.</td></tr>
+      <tr><td><code>benchmark/benchmark_api/task_definition.py</code></td><td>One-manifest parsing and validation.</td><td>No suite discovery and no filesystem ownership policy.</td></tr>
+      <tr><td><code>benchmark/benchmark_api/task_catalog.py</code></td><td>Suite and family loading.</td><td>Owns checked-in discovery and generated-suite lookup.</td></tr>
+      <tr><td><code>benchmark/benchmark_api/variant_generator.py</code></td><td>In-memory generated variants.</td><td>Owns axis registry, suite policies, opaque deterministic IDs, generated metadata, and policy balancing.</td></tr>
+      <tr><td><code>benchmark/benchmark_api/episode.py</code></td><td>One episode.</td><td>Runs setup, stimulus, observation, action, feedback, trace finalization, cleanup, and scoring for one task.</td></tr>
+      <tr><td><code>benchmark/benchmark_api/controller.py</code></td><td>Repeated runs and baselines.</td><td>Owns repeated-run loops and deterministic built-in controllers.</td></tr>
+      <tr><td><code>benchmark/benchmark_api/suite.py</code></td><td>Aggregation.</td><td>Aggregates completed scored summaries only.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Task Sets</h2>
+  <div class="grid">
+    <div class="box"><strong><code>base</code></strong><span class="tag">25 tasks</span><p>Primary checked-in task set, grouped by family under <code>benchmark/task_sets/base/&lt;family&gt;/</code>.</p></div>
+    <div class="box"><strong><code>regression</code></strong><span class="tag">1 task</span><p>Harness regression surface. It is runnable but not a primary agent-benefit benchmark family.</p></div>
+    <div class="box"><strong><code>compound</code></strong><span class="tag">8 tasks</span><p>Checked-in latent-cause diagnosis tasks. The agent sees symptoms over time, not cause labels.</p></div>
+    <div class="box"><strong><code>generated</code>, <code>standard</code>, <code>diagnostic</code>, <code>stress</code></strong><span class="tag">in memory</span><p>Single-anchor generated variants from <code>axis_registry.json</code> and <code>suite_policies.json</code>.</p></div>
+  </div>
+
+  <p>Generated tasks are deterministic for the same suite, seed, count, and family filter. The generator model is:</p>
+  <pre><code>anchor task + variant axis/vector + suite seed = concrete in-memory PrivateTask</code></pre>
+
+  <h2>Generated Variants</h2>
+  <p>Generated variants scale coverage without committing hundreds of task directories. They tune one anchor family at a time so failures stay interpretable.</p>
+  <table>
+    <thead><tr><th>Input</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>axis_registry.json</code></td><td>Defines anchor task, family, axis name, levels or sampler transform, expected failure modes, and manifest overrides.</td></tr>
+      <tr><td><code>suite_policies.json</code></td><td>Defines default counts and balancing policy for generated suites.</td></tr>
+      <tr><td><code>--seed</code></td><td>Controls deterministic variant selection and opaque generated IDs.</td></tr>
+      <tr><td><code>--count</code></td><td>Controls generated suite size. If omitted, the suite policy default is used.</td></tr>
+      <tr><td><code>--family</code></td><td>Restricts generation to axes with the requested public family.</td></tr>
+    </tbody>
+  </table>
+  <p>Generated public IDs use the form <code>generated_sNNNN_hash_v1</code>. Axis names, anchor task IDs, sampled values, expected failure modes, and registry/policy checksums stay in private <code>M.variant</code> and run provenance, not in observations or feedback.</p>
+
+  <h2>Episode Lifecycle</h2>
+  <p>One episode is owned by <code>episode.py</code>. Scoring is deliberately post-run: the agent never sees scores during the interaction.</p>
+  <ol>
+    <li>Load one <code>PrivateTask</code> through <code>task_catalog.py</code>.</li>
+    <li>Build the redacted agent-visible task view.</li>
+    <li>Instantiate the runtime handle from <code>E</code>.</li>
+    <li>Expand the deterministic stimulus plan from <code>U</code> and the episode seed.</li>
+    <li>Run readiness checks before the scored interaction.</li>
+    <li>For each step, apply pre-observation stimulus, emit observation, run in-step stimulus, accept an agent decision, dispatch action if needed, and record feedback.</li>
+    <li>Finalize artifact manifest, cleanup runtime, finalize trace, then score the finalized trace.</li>
+  </ol>
+
+  <h2>Simulated OCUDU Runtime</h2>
+  <p><code>simulated_ocudu</code> is an executable benchmark adapter, not live OCUDU/FlexRIC. It makes local and remote simulation runs closed-loop by applying deterministic state transitions after accepted actions.</p>
+  <table>
+    <thead><tr><th>Action family</th><th>Simulated effect</th><th>Representative rejection</th></tr></thead>
+    <tbody>
+      <tr><td>PRB policy</td><td>Updates <code>slice_runtime.current_prb_policy</code> and later slice evidence.</td><td>Wrong active slice identifiers, unavailable E2/KPM, duplicate repaired policy.</td></tr>
+      <tr><td>SSB power</td><td>Updates <code>radio_runtime.current_ssb_block_power_dbm</code>.</td><td>Stale or wrong cell identity, duplicate repaired power.</td></tr>
+      <tr><td>HO/CHO</td><td>Updates UE serving PCI or conditional handover plan.</td><td>Wrong RNTI, wrong serving PCI, target outside candidate set.</td></tr>
+      <tr><td>CFO/TX offset</td><td>Updates radio impairment state and correction flags.</td><td>Wrong sector or duplicate correction.</td></tr>
+      <tr><td>Core NF restart</td><td>Updates NF status, restart counts, and degradation state.</td><td>Unavailable NF or repeated restart after recovery.</td></tr>
+      <tr><td>Core UE registration</td><td>Updates visible registration status to the desired profile.</td><td>Payload does not match desired visible profile.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Observation And Privacy Boundary</h2>
+  <p>The agent-visible path is intentionally smaller than the private benchmark trace.</p>
+  <table>
+    <thead><tr><th>Partition</th><th>Contents</th><th>Agent-visible?</th></tr></thead>
+    <tbody>
+      <tr><td><code>interaction</code></td><td>Observations, public action records, and redacted feedback.</td><td><span class="public">Yes</span>, during or after the run depending on consumer.</td></tr>
+      <tr><td><code>private_benchmark</code></td><td>Stimulus records, readiness checks, seeds, and benchmark-private event details.</td><td><span class="private">No</span>.</td></tr>
+      <tr><td><code>oracle</code></td><td>Cleanup and scorer-only records.</td><td><span class="private">No</span>.</td></tr>
+      <tr><td><code>artifact_manifest</code></td><td>Private artifact location, checksum, producer, and retention class.</td><td><span class="private">Summary only after finalization</span>.</td></tr>
+      <tr><td><code>run_metadata.task_provenance</code></td><td>Task definition digest, suite seed/count, source path, and generated registry/policy checksums.</td><td><span class="private">No during interaction</span>; copied to scored summaries for replay.</td></tr>
+    </tbody>
+  </table>
+  <p><code>I.observation_detail = diagnosis_symptoms</code> hides direct repair targets for diagnosis tasks and exposes symptoms such as SINR, CQI, RSRP, RSRQ, queue pressure, utilization, backhaul delay/loss, and redacted core state.</p>
+
+  <h2>Scoring</h2>
+  <p>Scoring is implemented in <code>scoring.py</code> and requires finalized artifacts plus finalized trace. Raw metrics are authoritative; component scores are explanatory rollups.</p>
+  <table>
+    <thead><tr><th>Layer</th><th>Definition</th></tr></thead>
+    <tbody>
+      <tr><td><code>raw_metrics</code></td><td>Task-selected checks from <code>J.raw_metrics</code>, normalized to <code>[0.0, 1.0]</code>. Critical metrics determine pass/fail.</td></tr>
+      <tr><td><code>critical_metrics</code></td><td>Subset of raw metrics that must meet <code>J.success_threshold</code>. If omitted, all requested raw metrics are critical.</td></tr>
+      <tr><td><code>component_scores</code></td><td>Averages for task correctness, action correctness, evidence use, RAN health, safety, and cleanup. These explain performance but do not override critical raw metrics.</td></tr>
+      <tr><td><code>efficiency</code></td><td>Decision latency, control round-trip, and token telemetry. These do not affect correctness.</td></tr>
+      <tr><td><code>outcome</code></td><td><code>success</code> only when every critical raw metric reaches the threshold; otherwise a scored failure receives a safe failure category.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>CLI Reference</h2>
+  <pre><code>python3 benchmark/benchctl.py --json tasks list --suite all_checked_in
+python3 benchmark/benchctl.py --json tasks list --suite standard --seed 1 --count 200
+python3 benchmark/benchctl.py --json episode run --suite base --task base_prb_slice_congestion_rebalance_v1 --controller auto
+python3 benchmark/benchctl.py --json run --suite all_checked_in --controller auto
+python3 benchmark/benchctl.py --json run --suite standard --controller auto --seed 1 --count 200
+python3 benchmark/benchctl.py --json remote check --config .config
+python3 benchmark/benchctl.py --json remote sync --config .config --dry-run</code></pre>
+
+  <h2>Remote Workflow Boundary</h2>
+  <p><code>remote sync</code> copies the local <code>benchmark/</code> tree to <code>&lt;remote.workspace&gt;/synced/benchmark/</code>. It is an implementation utility for running the same simulated benchmark on the configured remote workstation. It does not make the run a live OCUDU/FlexRIC benchmark. Live-runtime claims require a separate live adapter with readiness, dispatch, artifact, cleanup, and oracle support.</p>
+
+  <h2>Validation Checklist</h2>
+  <pre><code>python3 -m unittest discover benchmark/tests
+python3 -m compileall -q benchmark
+python3 benchmark/benchctl.py --json tasks list --suite all_checked_in
+python3 benchmark/benchctl.py --json tasks list --suite standard --seed 1 --count 200
+python3 benchmark/benchctl.py --json run --suite all_checked_in --controller auto
+python3 benchmark/benchctl.py --json run --suite standard --controller auto --seed 1 --count 200</code></pre>
+
+  <h2>Design References</h2>
+  <ul>
+    <li><code>skillful-ran-research/benchmark_design/benchmark_design.md</code>: architecture and component responsibilities.</li>
+    <li><code>skillful-ran-research/benchmark_design/benchmark_task_list.md</code>: task inventory and task-set meanings.</li>
+    <li><code>skillful-ran-research/benchmark_design/benchmark_stimulus_list.md</code>: benchmark-controlled stimulus drivers.</li>
+    <li><code>skillful-ran-research/benchmark_design/benchmark_runtime_api_list.md</code>: task-selected RAN/control API inventory.</li>
+    <li><code>skillful-ran-research/benchmark_design/benchmark_sum_type_list.md</code>: closed enums and score definitions.</li>
+    <li><code>benchmark/docs/reference_index.md</code>: tracked index for ignored local benchmark-design reference code, papers, and reports.</li>
+  </ul>
+</body>
+</html>
