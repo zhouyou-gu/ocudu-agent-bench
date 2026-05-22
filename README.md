@@ -30,7 +30,7 @@ in `skillful-ran-research/benchmark_design/benchmark_stimulus_list.md` and
 
 This README is the short operational entry point for the executable harness:
 task-set layout, common commands, and remote sync basics. Detailed implementation
-mechanics live in `benchmark/docs/technical_details.html`. The broader design
+mechanics live in `benchmark/docs/benchmark-doc.html`. The broader design
 authority remains under `skillful-ran-research/benchmark_design/`.
 
 Downloaded benchmark-design reference code, papers, and reports are kept out of
