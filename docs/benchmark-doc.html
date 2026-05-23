@@ -1,394 +1,361 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OCUDUAgentBench — Benchmark Documentation</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #0f172a;
-      --panel: #1e293b;
-      --panel-2: #233047;
-      --line: #334155;
-      --ink: #e2e8f0;
-      --ink-soft: #cbd5e1;
-      --muted: #94a3b8;
-      --accent: #60a5fa;
-      --accent-soft: #93c5fd;
-      --amber: #fcd34d;
-      --emerald: #6ee7b7;
-      --pink: #f9a8d4;
-      --lavender: #c4b5fd;
-      --rose: #fda4af;
-      --public: #6ee7b7;
-      --private: #fda4af;
-    }
-    * { box-sizing: border-box; }
-    body {
-      max-width: 1240px;
-      margin: 32px auto 64px;
-      padding: 0 24px;
-      color: var(--ink-soft);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      line-height: 1.5;
-      background: var(--bg);
-    }
-    h1 { font-size: 30px; margin: 0 0 6px; color: var(--ink); letter-spacing: -0.01em; }
-    h2 { font-size: 20px; margin: 36px 0 8px; padding: 14px 0 6px; border-top: 1px solid var(--line); color: var(--ink); letter-spacing: -0.005em; }
-    h2 .num { color: var(--muted); font-weight: 500; margin-right: 10px; font-variant-numeric: tabular-nums; }
-    h3 { font-size: 15px; margin: 18px 0 6px; color: var(--accent-soft); }
-    p { margin: 8px 0 12px; color: var(--ink-soft); }
-    a { color: var(--accent); }
-    code {
-      background: #0b1220;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      padding: 1px 5px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 0.92em;
-      color: var(--ink);
-    }
-    pre {
-      background: #0b1220;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px 14px;
-      overflow: auto;
-      font-size: 13px;
-      color: #e2e8f0;
-    }
-    pre code { background: transparent; border: 0; padding: 0; color: inherit; }
-    table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 13px; }
-    th, td { border: 1px solid var(--line); padding: 9px 10px; text-align: left; vertical-align: top; }
-    th { background: var(--panel-2); color: var(--ink); font-weight: 600; }
-    tr:nth-child(even) td { background: rgba(30, 41, 59, 0.5); }
-    ul, ol { color: var(--ink-soft); margin: 6px 0 12px; padding-left: 22px; }
-    li { margin: 4px 0; }
-    .lede { font-size: 15px; max-width: 920px; color: var(--ink-soft); }
-    .callout {
-      border-left: 4px solid var(--accent);
-      background: rgba(96, 165, 250, 0.08);
-      padding: 10px 14px;
-      margin: 14px 0 18px;
-      color: var(--ink);
-      border-radius: 0 6px 6px 0;
-    }
-    .callout strong { color: var(--accent-soft); }
-    .public { color: var(--public); font-weight: 600; }
-    .private { color: var(--private); font-weight: 600; }
-    .partial { color: var(--amber); font-weight: 600; }
-    .tag {
-      display: inline-block;
-      border-radius: 999px;
-      padding: 1px 9px;
-      font-size: 11px;
-      border: 1px solid var(--line);
-      background: var(--panel-2);
-      color: var(--muted);
-      margin-right: 4px;
-    }
-    /* ---- Architecture diagram (Slate Dark) ---- */
-    .arch-frame {
-      width: 100%;
-      background: var(--panel);
-      padding: 18px;
-      border-radius: 10px;
-      border: 1px solid var(--line);
-      position: relative;
-    }
-    .arch-title { text-align: center; font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 4px; letter-spacing: 0.02em; text-transform: uppercase; }
-    .arch-sub { text-align: center; font-size: 12px; color: var(--muted); margin-bottom: 14px; }
-    .arch-wrapper { display: flex; gap: 12px; }
-    .arch-sidebar { width: 175px; flex-shrink: 0; }
-    .arch-main { flex: 1; min-width: 0; }
-    .arch-layer { margin: 8px 0; padding: 12px 14px; border-radius: 8px; }
-    .arch-layer-title { font-size: 12px; font-weight: 700; margin-bottom: 9px; text-align: left; letter-spacing: 0.03em; text-transform: uppercase; }
-    .arch-layer-title small { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted); margin-left: 8px; }
-    .arch-grid { display: grid; gap: 8px; }
-    .arch-grid-2 { grid-template-columns: repeat(2, 1fr); }
-    .arch-grid-3 { grid-template-columns: repeat(3, 1fr); }
-    .arch-grid-4 { grid-template-columns: repeat(4, 1fr); }
-    .arch-grid-5 { grid-template-columns: repeat(5, 1fr); }
-    .arch-box {
-      border-radius: 6px;
-      padding: 8px 9px;
-      text-align: center;
-      font-size: 11px;
-      font-weight: 600;
-      line-height: 1.4;
-      color: var(--ink-soft);
-      background: rgba(51, 65, 85, 0.55);
-      border: 1px solid rgba(148, 163, 184, 0.28);
-    }
-    .arch-box small { display: block; font-weight: 500; color: var(--muted); font-size: 10px; margin-top: 2px; }
-    .arch-box.highlight { background: rgba(59, 130, 246, 0.22); border-color: var(--accent); color: var(--accent-soft); }
-    .arch-box.tech { font-size: 10px; }
-    .arch-layer.user { background: rgba(59, 130, 246, 0.06); border: 1px solid #60a5fa; }
-    .arch-layer.user .arch-layer-title { color: var(--accent-soft); }
-    .arch-layer.application { background: rgba(245, 158, 11, 0.06); border: 1px solid #fbbf24; }
-    .arch-layer.application .arch-layer-title { color: var(--amber); }
-    .arch-layer.ai { background: rgba(16, 185, 129, 0.06); border: 1px solid #34d399; }
-    .arch-layer.ai .arch-layer-title { color: var(--emerald); }
-    .arch-layer.data { background: rgba(236, 72, 153, 0.06); border: 1px solid #f472b6; }
-    .arch-layer.data .arch-layer-title { color: var(--pink); }
-    .arch-layer.infra { background: rgba(139, 92, 246, 0.06); border: 1px solid #a78bfa; }
-    .arch-layer.infra .arch-layer-title { color: var(--lavender); }
-    .arch-layer.external { background: rgba(51, 65, 85, 0.18); border: 1px dashed #475569; }
-    .arch-layer.external .arch-layer-title { color: var(--muted); }
-    .arch-sidebar-panel { border-radius: 8px; padding: 10px; background: rgba(51, 65, 85, 0.32); border: 1px solid var(--line); margin-bottom: 8px; }
-    .arch-sidebar-title { font-size: 11px; font-weight: 700; text-align: center; color: var(--muted); margin-bottom: 6px; letter-spacing: 0.05em; text-transform: uppercase; }
-    .arch-sidebar-item { font-size: 10px; text-align: center; color: var(--ink-soft); background: rgba(15, 23, 42, 0.6); padding: 5px 6px; border-radius: 4px; margin: 3px 0; border: 1px solid rgba(51, 65, 85, 0.6); }
-    .arch-sidebar-item.metric { background: rgba(59, 130, 246, 0.14); border-color: rgba(96, 165, 250, 0.4); color: var(--accent-soft); font-weight: 600; }
-    /* ---- Pipeline strip ---- */
-    .pipeline {
-      display: grid;
-      grid-template-columns: repeat(7, 1fr);
-      gap: 6px;
-      margin: 10px 0 18px;
-    }
-    .step {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 10px 8px;
-      font-size: 11px;
-      color: var(--ink-soft);
-      text-align: center;
-      position: relative;
-    }
-    .step .step-num { display: block; font-size: 10px; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
-    .step strong { color: var(--ink); display: block; margin-bottom: 2px; }
-    .step small { display: block; font-size: 10px; color: var(--muted); margin-top: 3px; }
-    .step.scoring { border-color: var(--accent); background: rgba(59, 130, 246, 0.08); }
-    .step.scoring strong { color: var(--accent-soft); }
-    /* ---- TOC ---- */
-    .toc {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 8px;
-      margin: 14px 0 8px;
-    }
-    .toc a {
-      display: block;
-      padding: 8px 10px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: var(--panel);
-      color: var(--ink-soft);
-      text-decoration: none;
-      font-size: 13px;
-    }
-    .toc a:hover { border-color: var(--accent); color: var(--accent-soft); }
-    .toc .num { color: var(--muted); margin-right: 8px; font-variant-numeric: tabular-nums; }
-    footer { color: var(--muted); font-size: 12px; margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--line); }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCUDUAgentBench — Technical Reference</title>
+<style>
+  :root {
+    --bg:#0f1420; --panel:#1a2233; --ink:#e7ecf5; --muted:#9aa7bd;
+    --edge:#2c3850; --accent:#5db1ff; --warm:#ffb454; --good:#6fd08c;
+    --noise:#c98bff; --cell:#0b101a;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.65 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap { max-width:1060px; margin:0 auto; padding:40px 28px 80px; }
+  h1 { font-size:30px; margin:0 0 6px; }
+  h2 { font-size:21px; margin:42px 0 10px; border-bottom:1px solid var(--edge); padding-bottom:6px; }
+  h3 { font-size:16px; margin:26px 0 8px; color:var(--accent); }
+  p { color:#cdd6e6; }
+  code { font-family:"SF Mono",Menlo,Consolas,monospace; background:#0b101a;
+    border:1px solid var(--edge); border-radius:4px; padding:1px 5px; font-size:13px; }
+  .sub { color:var(--muted); margin-top:0; }
+  .panel { background:var(--panel); border:1px solid var(--edge); border-radius:10px;
+    padding:18px 20px; margin:16px 0; }
+  table { border-collapse:collapse; width:100%; margin:10px 0; font-size:14px; }
+  th,td { border:1px solid var(--edge); padding:7px 10px; text-align:left; vertical-align:top; }
+  th { background:#0b101a; color:var(--muted); font-weight:600; }
+  .tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:10px;
+    background:#0b101a; border:1px solid var(--edge); color:var(--muted); }
+  .tag-pub { color:var(--good); border-color:rgba(111,208,140,0.4); }
+  .tag-priv { color:var(--noise); border-color:rgba(201,139,255,0.4); }
+  .tag-partial { color:var(--warm); border-color:rgba(255,180,84,0.4); }
+  figure { margin:18px 0; }
+  figcaption { color:var(--muted); font-size:13px; margin-top:8px; text-align:center; }
+  svg { display:block; margin:0 auto; max-width:100%; height:auto; }
+  .key { font-size:13px; color:var(--muted); }
+  .key b { color:var(--ink); }
+  .mono { font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12.5px; }
+  ul { color:#cdd6e6; }
+  ul.tight, ol.tight { margin:6px 0 6px 22px; }
+  ul.tight li, ol.tight li { margin:2px 0; }
+  pre.code-block { background:#0b101a; border:1px solid var(--edge); border-radius:6px;
+    padding:12px 14px; overflow-x:auto; font-size:12.5px; color:var(--ink); line-height:1.5;
+    font-family:"SF Mono",Menlo,Consolas,monospace; }
+  pre.code-block code { background:none; border:none; padding:0; font-size:inherit; }
+
+  /* --- layered architecture (Diagram A) --- */
+  .tier-stack { display:flex; flex-direction:column; gap:8px; }
+  .tier { border-radius:8px; padding:14px 16px; background:var(--panel); border:1px solid var(--edge); }
+  .tier-label { font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12px;
+    color:var(--muted); margin-bottom:10px; letter-spacing:.3px; }
+  .tier--agent { border-color:var(--accent); }
+  .tier--agent .tier-label { color:var(--accent); }
+  .tier--orchestration { border-color:var(--warm); }
+  .tier--orchestration .tier-label { color:var(--warm); }
+  .tier--logic { border-color:var(--good); }
+  .tier--logic .tier-label { color:var(--good); }
+  .tier--data { border-color:var(--noise); }
+  .tier--data .tier-label { color:var(--noise); }
+  .tier--runtime { background:#13391f; border-color:var(--good); }
+  .tier--runtime .tier-label { color:var(--good); }
+  .tier--future { border:1px dashed var(--edge); background:rgba(26,34,51,0.5); }
+  .tier--future .tier-label { color:var(--muted); }
+  .tier-cells { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .tier-cells-3 { grid-template-columns:repeat(3,1fr); }
+  .tier-cells-5 { grid-template-columns:repeat(5,1fr); }
+  .tier-cell { background:var(--cell); padding:10px 12px; border-radius:6px;
+    border:1px solid var(--edge); text-align:center; font-size:13px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; color:var(--ink); }
+  .tier-cell small { display:block; color:var(--muted); font-size:11px; margin-top:4px; font-family:-apple-system,sans-serif; }
+  .tier-cell.hi { color:var(--accent); border-color:var(--accent); }
+  .flow-arrow { text-align:center; color:var(--accent); font-size:12px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; padding:2px 0; }
+  .flow-arrow::before { content:"▼ "; color:var(--accent); }
+
+  /* --- per-step swimlane (Diagram C) --- */
+  .pipe { padding:14px 16px; background:var(--panel); border:1px solid var(--edge);
+    border-radius:8px; display:flex; flex-direction:column; gap:6px; }
+  .pipe-axis { display:grid; grid-template-columns:140px 1fr; gap:10px; align-items:end;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px; color:var(--muted); padding-bottom:2px; }
+  .pipe-axis-bar { position:relative; height:30px; border-bottom:1px dashed var(--edge); }
+  .pipe-tick { position:absolute; top:0; bottom:0; width:1px; background:rgba(255,180,84,0.45); }
+  .pipe-tick-label { position:absolute; bottom:0; font-size:10px; color:var(--warm);
+    white-space:nowrap; transform:translateX(-50%); }
+  .pipe-tick-sub { display:block; color:var(--muted); font-size:9px; font-family:-apple-system,sans-serif; }
+  .pipe-lane { display:grid; grid-template-columns:140px 1fr; gap:10px; align-items:center; }
+  .pipe-label { font-family:"SF Mono",Menlo,Consolas,monospace; font-size:11px; color:var(--ink); text-align:right; }
+  .pipe-label small { display:block; color:var(--muted); font-size:10px;
+    font-family:-apple-system,sans-serif; margin-top:2px; }
+  .pipe-track { position:relative; height:46px; background:var(--cell); border:1px solid var(--edge); border-radius:4px; }
+  .pipe-stage { position:absolute; top:3px; bottom:3px; border-radius:3px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:10.5px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:var(--ink); padding:3px 4px; overflow:hidden; line-height:1.2; }
+  .pipe-stage b { display:block; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  .pipe-stage small { display:block; font-size:9px; color:var(--muted);
+    font-family:"SF Mono",Menlo,Consolas,monospace; margin-top:2px; }
+  .pipe-stage--agent { background:rgba(93,177,255,0.18); border:1px solid var(--accent); }
+  .pipe-stage--bench { background:rgba(255,180,84,0.18); border:1px solid var(--warm); }
+  .pipe-stage--logic { background:rgba(154,167,189,0.18); border:1px solid var(--muted); }
+  .pipe-stage--rt { background:rgba(111,208,140,0.22); border:1px solid var(--good); }
+  .pipe-handoff-layer { position:relative; height:0; }
+  .pipe-handoff-row { display:grid; grid-template-columns:140px 1fr; gap:10px; height:14px; align-items:center; }
+  .pipe-handoff-row .pipe-handoff-label { text-align:right; font-family:-apple-system,sans-serif;
+    font-size:10px; color:var(--muted); }
+  .pipe-handoff-arrows { position:relative; height:14px; }
+  .pipe-handoff { position:absolute; top:0; bottom:0; display:flex; align-items:center;
+    transform:translateX(-50%); color:var(--warm); font-size:13px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; }
+  .pipe-legend { display:flex; gap:14px; justify-content:center; font-size:11px;
+    color:var(--muted); margin-top:6px; font-family:"SF Mono",Menlo,Consolas,monospace; flex-wrap:wrap; }
+  .pipe-legend-sw { display:inline-block; width:10px; height:10px; border-radius:2px;
+    margin-right:4px; vertical-align:middle; }
+  .pipe-disclaimer { text-align:center; font-size:10px; color:var(--muted);
+    font-family:-apple-system,sans-serif; margin-top:-4px; }
+
+  /* --- scoring strip (Diagram D) --- */
+  .strip { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:14px 0; }
+  .strip-cell { background:var(--panel); border:1px solid var(--edge); border-radius:6px;
+    padding:12px 10px; text-align:center; font-size:12px; }
+  .strip-cell .strip-num { display:block; font-size:10px; color:var(--muted); margin-bottom:6px;
+    font-family:"SF Mono",Menlo,Consolas,monospace; }
+  .strip-cell b { display:block; color:var(--ink); margin-bottom:2px; font-size:13px; }
+  .strip-cell small { display:block; color:var(--muted); font-size:11px; margin-top:4px; }
+  .strip-cell.hi { border-color:var(--accent); background:rgba(93,177,255,0.08); }
+  .strip-cell.hi b { color:var(--accent); }
+</style>
 </head>
 <body>
-  <h1>OCUDUAgentBench — Benchmark Documentation</h1>
-  <p class="lede">Implementation reference for the executable harness under <code>benchmark/</code>. The narrative drills from the agent surface down to the simulated runtime, then back up through the trace partitions and scoring. Read top-to-bottom for a complete mental model, or jump to any layer from the architecture diagram below.</p>
+<div class="wrap">
 
-  <div class="callout">
-    <strong>Documentation boundary.</strong> &nbsp;
-    <code>benchmark/README.md</code> is the operational quickstart (what to run). This file is the implementation reference (how it works). Authority for <em>why</em> remains in <code>skillful-ran-research/benchmark_design/</code>. Each layer in the diagram below maps to one section of the doc.
-  </div>
+  <h1>OCUDUAgentBench — Technical Reference</h1>
+  <p class="sub">The deep technical doc behind the <code>benchmark/</code> harness. Covers the
+  whole project: task contract, benchmark surface, simulated runtime adapter, episode
+  lifecycle, trace partitions, scoring, the real-LLM agent harness, and the invariants
+  that hold across all of it.</p>
 
-  <div class="toc">
-    <a href="#arch"><span class="num">01</span>System at a glance</a>
-    <a href="#contract"><span class="num">02</span>Task contract <code>T</code></a>
-    <a href="#agent-surface"><span class="num">03</span>Agent surface</a>
-    <a href="#benchmark-surface"><span class="num">04</span>Benchmark surface</a>
-    <a href="#runtime"><span class="num">05</span>Simulated runtime adapter</a>
-    <a href="#episode"><span class="num">06</span>Episode lifecycle</a>
-    <a href="#trace"><span class="num">07</span>Trace partitions</a>
-    <a href="#scoring"><span class="num">08</span>Scoring pipeline</a>
-    <a href="#ops"><span class="num">09</span>Operations</a>
-    <a href="#boundaries"><span class="num">10</span>Invariants to preserve</a>
-  </div>
+  <h2>1. Overview</h2>
+  <p>OCUDUAgentBench evaluates LLM agents that operate an OCUDU 5G stack over ZeroMQ.
+  Every task is one scored episode: the benchmark drives a deterministic stimulus
+  schedule against a runtime adapter, the agent reads redacted observations and emits
+  actions, and an oracle scores the recorded trace after the run. This doc is the
+  implementation reference — it assumes you have already read the
+  <a href="../README.md"><code>README</code></a> for positioning and quick-start, and
+  the design records under
+  <a href="../../skillful-ran-research/benchmark_design/"><code>skillful-ran-research/benchmark_design/</code></a>
+  for the <em>why</em>.</p>
+  <p>Reading order is top-down: terminology → system layers → task contract → agent
+  surface → benchmark surface → simulated runtime → episode lifecycle and the per-step
+  swimlane → trace partitions → scoring → real-LLM integration → operations → invariants.
+  The architecture sits in §3; the per-step pipeline in §7; the scoring pipeline in §9.</p>
 
-  <h2 id="arch"><span class="num">01</span>System at a glance</h2>
-  <p>The harness is a layered system. The colored layers form the per-episode call path from the agent down to the simulated runtime; the gray dashed layer reserves space for a future live adapter. The sidebars are cross-cutting: validation/observability on the left, the privacy and safety envelope on the right. Every block in the diagram is implemented in <code>benchmark/benchmark_api/</code>.</p>
+  <h2>2. Key terms — quick reference</h2>
+  <p>The diagrams and tables below name fields and modules directly from
+  <code>benchmark/benchmark_api/</code> and <code>benchmark/agents/</code>. Skim this
+  table before reading; later sections use these names without re-introducing them.</p>
 
-  <div class="arch-frame">
-    <div class="arch-title">OCUDUAgentBench — Layered Architecture</div>
-    <div class="arch-sub">Top: agent-visible &nbsp;•&nbsp; Bottom: benchmark-private runtime &nbsp;•&nbsp; Dashed: future live surface</div>
-    <div class="arch-wrapper">
-      <div class="arch-sidebar">
-        <div class="arch-sidebar-panel">
-          <div class="arch-sidebar-title">Validation</div>
-          <div class="arch-sidebar-item">Conformance readiness</div>
-          <div class="arch-sidebar-item">Manifest validators</div>
-          <div class="arch-sidebar-item">75+ unit tests</div>
-          <div class="arch-sidebar-item metric">8 emulated profiles</div>
-        </div>
-        <div class="arch-sidebar-panel">
-          <div class="arch-sidebar-title">Observability</div>
-          <div class="arch-sidebar-item">Partitioned trace</div>
-          <div class="arch-sidebar-item">Scored summaries</div>
-          <div class="arch-sidebar-item">Replay provenance</div>
-          <div class="arch-sidebar-item">Efficiency telemetry</div>
-        </div>
-        <div class="arch-sidebar-panel">
-          <div class="arch-sidebar-title">Determinism</div>
-          <div class="arch-sidebar-item">Seed-driven stimulus</div>
-          <div class="arch-sidebar-item">SHA-256 task digest</div>
-          <div class="arch-sidebar-item">Registry/policy checksums</div>
-          <div class="arch-sidebar-item">Opaque generated IDs</div>
-        </div>
+  <h3>Task contract</h3>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td class="mono">T = ⟨G, E, U, I, J⟩ + M</td><td>the private task tuple; fields are agent-visible (<code>G</code>), partly visible (<code>I</code>), or benchmark-private (<code>E</code>, <code>U</code>, <code>J</code>, <code>M</code>)</td></tr>
+    <tr><td class="mono">G</td><td>natural-language goal text shown to the agent</td></tr>
+    <tr><td class="mono">E</td><td>runtime setup (adapter, components, site config). All current tasks declare <code>E.runtime_adapter = simulated_ocudu</code></td></tr>
+    <tr><td class="mono">U</td><td>deterministic stimulus plan — step-targeted, seed-controlled; never adapts to the agent</td></tr>
+    <tr><td class="mono">I</td><td>API projection: allowed action APIs, observation sources, observation-detail mode, <code>allow_no_action</code></td></tr>
+    <tr><td class="mono">J</td><td>oracle: raw metrics, critical metrics, temporal/payload/post-action expectations</td></tr>
+    <tr><td class="mono">M</td><td>catalog metadata: <code>task_set</code>, <code>family</code>, <code>role</code>; generated tasks add <code>variant</code> with axis, level, anchor, seed, registry SHA-256s — never serialized to the agent</td></tr>
+    <tr><td class="mono">PrivateTask</td><td>the in-memory representation of <code>T+M</code>; constructed by <code>task_definition.py</code></td></tr>
+    <tr><td class="mono">AgentVisibleTask</td><td>the redacted projection sent to the agent — <code>G</code> + API projection filtered to <code>I.allowed_actions</code> + schema paths + <code>public_constraints</code></td></tr>
+  </table>
+
+  <h3>Suites and task sets</h3>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td class="mono">base / regression / compound</td><td>checked-in task suites under <code>benchmark/task_sets/&lt;suite&gt;/&lt;family&gt;/&lt;task_id&gt;/task.json</code></td></tr>
+    <tr><td class="mono">all_checked_in</td><td>union of the three above (34 tasks today)</td></tr>
+    <tr><td class="mono">generated / standard / diagnostic / stress</td><td>in-memory deterministic variants from <code>task_sets/generated/axis_registry.json</code> and <code>suite_policies.json</code></td></tr>
+    <tr><td class="mono">axis</td><td>one named dimension along which generated variants are sampled (PRB ratio, SSB power, CFO target, …)</td></tr>
+    <tr><td class="mono">family</td><td>public grouping: <code>prb</code>, <code>ssb</code>, <code>mobility</code>, <code>radio_cli</code>, <code>core</code>, <code>diagnosis</code>, <code>isolation</code>, <code>restraint</code>, <code>backend</code>, <code>harness</code></td></tr>
+  </table>
+
+  <h3>Runtime, evidence, actions</h3>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td class="mono">RuntimeHandle</td><td>state object owned by one episode; carries the simulated runtime's evolving dict (slice / radio / core / backhaul / E2 / cell / UE identity)</td></tr>
+    <tr><td class="mono">simulated_ocudu</td><td>the only runtime adapter currently wired; deterministic closed-loop state transitions per accepted action — not a live OCUDU/FlexRIC connection</td></tr>
+    <tr><td class="mono">StimulusPlan / StimulusEvent</td><td>concrete schedule expanded from <code>U</code> by <code>expand_stimulus_plan(U, seed)</code>; events have a <code>pre_observation</code> or <code>in_step</code> phase</td></tr>
+    <tr><td class="mono">RanActionType</td><td>closed set of 11 actions (PRB WS/CCC/RC_DU, SSB power, HO / CHO, CFO, TX offset, core NF restart, core UE registration update, <code>NO_ACTION</code>)</td></tr>
+    <tr><td class="mono">safe_error_class</td><td>redacted error envelope on rejected actions: <code>schema_error</code> · <code>permission_error</code> · <code>runtime_rejected</code> · <code>runtime_unavailable</code> · <code>timeout</code> · <code>internal_redacted</code></td></tr>
+  </table>
+
+  <h3>Trace and scoring</h3>
+  <table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td class="mono">trace partitions</td><td>one episode produces four: <code>interaction</code> (public), <code>private_benchmark</code> (stimulus + readiness), <code>oracle</code> (cleanup + scorer signals), <code>artifact_manifest</code> (SHA-256 + retention)</td></tr>
+    <tr><td class="mono">raw metric</td><td>one of 25 normalized [0,1] signals computed from the trace by <code>scoring.py</code></td></tr>
+    <tr><td class="mono">critical metric</td><td>subset of raw metrics that must each clear <code>J.success_threshold</code> for the outcome to be <code>success</code></td></tr>
+    <tr><td class="mono">component score</td><td>one of six explanatory rollups: <code>task_correctness</code>, <code>action_correctness</code>, <code>evidence_use</code>, <code>ran_health</code>, <code>safety</code>, <code>cleanup</code> — averages, not gates</td></tr>
+    <tr><td class="mono">efficiency</td><td>decoupled telemetry: latency p50/p95, control round-trip, token totals — recorded but never affecting correctness</td></tr>
+  </table>
+
+  <!-- ============ Diagram A : layered architecture ============ -->
+  <h2>3. System architecture — five layers + one future surface</h2>
+  <p>The harness is a strict-layered Python system. The top layer is what the LLM sees;
+  the bottom layer is the only place that mutates runtime state. The colored layers form
+  the per-episode call path; the dashed bottom layer reserves space for a future live
+  adapter that the current code does <b>not</b> claim to drive. Every block is
+  implemented in <code>benchmark/benchmark_api/</code> or <code>benchmark/agents/</code>.</p>
+  <figure>
+  <div class="tier-stack">
+    <div class="tier tier--agent">
+      <div class="tier-label">agent surface · what the LLM sees · §4–§5</div>
+      <div class="tier-cells">
+        <div class="tier-cell">redacted task view<small>G, allowed actions, sources</small></div>
+        <div class="tier-cell">observation frame<small>evidence, context, step_id</small></div>
+        <div class="tier-cell hi">agent decision<small>action | null (no-action)</small></div>
+        <div class="tier-cell">redacted feedback<small>safe-error class + message</small></div>
       </div>
-      <div class="arch-main">
-        <div class="arch-layer user">
-          <div class="arch-layer-title">Agent Surface <small>what the LLM sees</small></div>
-          <div class="arch-grid arch-grid-4">
-            <div class="arch-box">Redacted Task View<br><small>G, allowed actions, sources</small></div>
-            <div class="arch-box">Observation Frame<br><small>evidence, context, step_id</small></div>
-            <div class="arch-box highlight">Agent Decision<br><small>action | null (no-action)</small></div>
-            <div class="arch-box">Redacted Feedback<br><small>safe error class + message</small></div>
-          </div>
-        </div>
-        <div class="arch-layer application">
-          <div class="arch-layer-title">Episode Orchestration <small>per-run pipeline</small></div>
-          <div class="arch-grid arch-grid-4">
-            <div class="arch-box">conformance.py<br><small>readiness, no mutation</small></div>
-            <div class="arch-box highlight">episode.py<br><small>single-run owner</small></div>
-            <div class="arch-box">controller.py<br><small>repeated runs, baselines</small></div>
-            <div class="arch-box">agent_api_wrapper.py<br><small>decision timeout, telemetry</small></div>
-          </div>
-        </div>
-        <div class="arch-layer ai">
-          <div class="arch-layer-title">Benchmark Logic <small>stimulus, action handling, scoring</small></div>
-          <div class="arch-grid arch-grid-5">
-            <div class="arch-box">stimulus.py<br><small>deterministic plan</small></div>
-            <div class="arch-box">action.py<br><small>validate &amp; normalize</small></div>
-            <div class="arch-box">observation.py<br><small>redaction + leak guard</small></div>
-            <div class="arch-box">feedback.py<br><small>safe error envelope</small></div>
-            <div class="arch-box highlight">scoring.py<br><small>raw → component → outcome</small></div>
-          </div>
-        </div>
-        <div class="arch-layer data">
-          <div class="arch-layer-title">Task &amp; Trace Data <small>catalogs, partitions</small></div>
-          <div class="arch-grid arch-grid-4">
-            <div class="arch-box">task_catalog.py<br><small>suite-aware loading</small></div>
-            <div class="arch-box">variant_generator.py<br><small>axes, balanced sampling</small></div>
-            <div class="arch-box">task_definition.py<br><small>PrivateTask &amp; redaction</small></div>
-            <div class="arch-box">trace.py<br><small>4 partitions, checksum</small></div>
-          </div>
-        </div>
-        <div class="arch-layer infra">
-          <div class="arch-layer-title">Runtime Adapter <small>simulated state machine</small></div>
-          <div class="arch-grid arch-grid-3">
-            <div class="arch-box highlight">simulated_ocudu.py<br><small>closed-loop transitions</small></div>
-            <div class="arch-box">runtime_setup.py<br><small>RuntimeHandle, state seed</small></div>
-            <div class="arch-box">ran_api.py<br><small>dispatch + evidence filter</small></div>
-          </div>
-        </div>
-        <div class="arch-layer external">
-          <div class="arch-layer-title">Live Runtime (future) <small>not currently claimed</small></div>
-          <div class="arch-grid arch-grid-4">
-            <div class="arch-box tech">OCUDU WebSocket<br><small>PRB / SSB control</small></div>
-            <div class="arch-box tech">OCUDU CLI<br><small>HO, CFO, TX offset</small></div>
-            <div class="arch-box tech">FlexRIC E2<br><small>KPM / CCC / RC</small></div>
-            <div class="arch-box tech">Open5GS Core<br><small>NF / UE registration</small></div>
-          </div>
-        </div>
+    </div>
+    <div class="flow-arrow"><code>agent_api_wrapper.py</code> · enforces <code>decision_deadline_s</code> · timeouts → NO_ACTION</div>
+    <div class="tier tier--orchestration">
+      <div class="tier-label">episode orchestration · per-run pipeline · §7</div>
+      <div class="tier-cells">
+        <div class="tier-cell">conformance.py<small>readiness · no mutation</small></div>
+        <div class="tier-cell hi">episode.py<small>single-run owner</small></div>
+        <div class="tier-cell">controller.py<small>repeated runs · baselines</small></div>
+        <div class="tier-cell">agents/runner.py<small>real-LLM episode runner</small></div>
       </div>
-      <div class="arch-sidebar">
-        <div class="arch-sidebar-panel">
-          <div class="arch-sidebar-title">Privacy Envelope</div>
-          <div class="arch-sidebar-item">E, U, J redacted</div>
-          <div class="arch-sidebar-item">No private field names</div>
-          <div class="arch-sidebar-item">M.variant hidden</div>
-          <div class="arch-sidebar-item">Opaque generated IDs</div>
-        </div>
-        <div class="arch-sidebar-panel">
-          <div class="arch-sidebar-title">Safe Errors</div>
-          <div class="arch-sidebar-item">schema_error</div>
-          <div class="arch-sidebar-item">permission_error</div>
-          <div class="arch-sidebar-item">runtime_rejected</div>
-          <div class="arch-sidebar-item">runtime_unavailable</div>
-        </div>
-        <div class="arch-sidebar-panel">
-          <div class="arch-sidebar-title">Boundary Tests</div>
-          <div class="arch-sidebar-item">Action ⊆ selected APIs</div>
-          <div class="arch-sidebar-item">Payload derivable</div>
-          <div class="arch-sidebar-item">Post-evidence observable</div>
-          <div class="arch-sidebar-item">Finalize → score</div>
-        </div>
+    </div>
+    <div class="flow-arrow">per-step loop: stimulus → observation → decision → action → feedback</div>
+    <div class="tier tier--logic">
+      <div class="tier-label">benchmark logic · stimulus, action handling, scoring · §6 · §9</div>
+      <div class="tier-cells tier-cells-5">
+        <div class="tier-cell">stimulus.py<small>deterministic plan</small></div>
+        <div class="tier-cell">action.py<small>validate &amp; normalize</small></div>
+        <div class="tier-cell">observation.py<small>redaction + leak guard</small></div>
+        <div class="tier-cell">feedback.py<small>safe-error envelope</small></div>
+        <div class="tier-cell hi">scoring.py<small>raw → component → outcome</small></div>
+      </div>
+    </div>
+    <div class="flow-arrow">all reads/writes go through these modules — no shortcuts</div>
+    <div class="tier tier--data">
+      <div class="tier-label">task &amp; trace data · catalogs, partitions · §6 · §8</div>
+      <div class="tier-cells">
+        <div class="tier-cell">task_catalog.py<small>suite-aware loading</small></div>
+        <div class="tier-cell">variant_generator.py<small>axes, balanced sampling</small></div>
+        <div class="tier-cell">task_definition.py<small>PrivateTask &amp; redaction</small></div>
+        <div class="tier-cell">trace.py<small>4 partitions, checksum</small></div>
+      </div>
+    </div>
+    <div class="flow-arrow">runtime dispatch via <code>ran_api.py</code></div>
+    <div class="tier tier--runtime">
+      <div class="tier-label">runtime adapter · simulated state machine · §6</div>
+      <div class="tier-cells tier-cells-3">
+        <div class="tier-cell hi">simulated_ocudu.py<small>closed-loop transitions</small></div>
+        <div class="tier-cell">runtime_setup.py<small>RuntimeHandle · state seed</small></div>
+        <div class="tier-cell">ran_api.py<small>dispatch + evidence filter</small></div>
+      </div>
+    </div>
+    <div class="flow-arrow" style="opacity:0.5;">future · not currently claimed</div>
+    <div class="tier tier--future">
+      <div class="tier-label">live runtime (future) · not currently claimed</div>
+      <div class="tier-cells">
+        <div class="tier-cell">OCUDU WebSocket<small>PRB / SSB control</small></div>
+        <div class="tier-cell">OCUDU CLI<small>HO · CFO · TX offset</small></div>
+        <div class="tier-cell">FlexRIC E2<small>KPM · CCC · RC</small></div>
+        <div class="tier-cell">Open5GS Core<small>NF · UE registration</small></div>
       </div>
     </div>
   </div>
+  <figcaption>Diagram A — five active layers and one reserved future surface. The agent
+  surface is intentionally narrow; the simulated runtime adapter is the only mutating
+  block. Live-runtime claims require a separate adapter at the bottom — see §13.</figcaption>
+  </figure>
 
-  <p>Each colored layer below has one dedicated section. Cross-cutting sidebars are revisited under <a href="#boundaries">Invariants to preserve</a>.</p>
-
-  <h2 id="contract"><span class="num">02</span>The task contract <code>T = ⟨G, E, U, I, J⟩ + M</code></h2>
-  <p>Every task is loaded as a <code>PrivateTask</code> with five contract fields and one private metadata bag. The contract is the single source of truth for what the agent sees, what the runtime does, and how the run is scored.</p>
+  <h2>4. The task contract <code>T = ⟨G, E, U, I, J⟩ + M</code></h2>
+  <p>Every task is loaded as a <code>PrivateTask</code> with five contract fields plus a
+  private metadata bag. The contract is the single source of truth for what the agent
+  sees, what the runtime does, and how the run is scored.</p>
   <table>
-    <thead><tr><th style="width: 80px">Field</th><th style="width: 140px">Owner</th><th style="width: 160px">Visibility</th><th>Meaning</th></tr></thead>
-    <tbody>
-      <tr><td><code>G</code></td><td>task manifest</td><td><span class="public">agent-visible</span></td><td>Goal text. Public after generated-axis redaction.</td></tr>
-      <tr><td><code>E</code></td><td>runtime setup</td><td><span class="private">benchmark-private</span></td><td>Runtime adapter, components, site config. All current tasks declare <code>E.runtime_adapter = simulated_ocudu</code>.</td></tr>
-      <tr><td><code>U</code></td><td>stimulus plan</td><td><span class="private">benchmark-private</span></td><td>Deterministic, step-targeted runtime dynamics. Seed-controlled.</td></tr>
-      <tr><td><code>I</code></td><td>API projection</td><td><span class="partial">partly visible</span></td><td>Allowed action APIs, observation sources, observation-detail mode (<code>repair_targets</code> vs <code>diagnosis_symptoms</code>), and <code>allow_no_action</code>.</td></tr>
-      <tr><td><code>J</code></td><td>oracle scoring</td><td><span class="private">private during run</span></td><td>Raw metrics, critical metrics, temporal expectations, expected action fields, expected post-action evidence.</td></tr>
-      <tr><td><code>M</code></td><td>catalog/generator</td><td><span class="private">benchmark-private</span></td><td><code>task_set</code>, <code>family</code>, <code>role</code>; generated tasks add <code>variant</code> with axis, level, anchor, seed, registry/policy SHA-256s. Never serialized to agent observations or feedback.</td></tr>
-    </tbody>
+    <tr><th style="width:80px">Field</th><th style="width:170px">Owner</th><th style="width:170px">Visibility</th><th>Meaning</th></tr>
+    <tr><td class="mono">G</td><td>task manifest</td><td><span class="tag tag-pub">agent-visible</span></td><td>Goal text. Public after generated-axis redaction.</td></tr>
+    <tr><td class="mono">E</td><td>runtime setup</td><td><span class="tag tag-priv">benchmark-private</span></td><td>Runtime adapter, components, site config. All current tasks declare <code>E.runtime_adapter = simulated_ocudu</code>.</td></tr>
+    <tr><td class="mono">U</td><td>stimulus plan</td><td><span class="tag tag-priv">benchmark-private</span></td><td>Deterministic, step-targeted runtime dynamics. Seed-controlled.</td></tr>
+    <tr><td class="mono">I</td><td>API projection</td><td><span class="tag tag-partial">partly visible</span></td><td>Allowed action APIs, observation sources, observation-detail mode (<code>repair_targets</code> vs <code>diagnosis_symptoms</code>), and <code>allow_no_action</code>.</td></tr>
+    <tr><td class="mono">J</td><td>oracle scoring</td><td><span class="tag tag-priv">private during run</span></td><td>Raw metrics, critical metrics, temporal expectations, expected action fields, expected post-action evidence.</td></tr>
+    <tr><td class="mono">M</td><td>catalog/generator</td><td><span class="tag tag-priv">benchmark-private</span></td><td><code>task_set</code>, <code>family</code>, <code>role</code>; generated tasks add <code>variant</code> with axis, level, anchor, seed, registry/policy SHA-256s. Never serialized to agent observations or feedback.</td></tr>
   </table>
-  <p>Two derived projections drop out of the contract:</p>
-  <ul>
-    <li><code>AgentVisibleTask</code> — built by <code>agent_visible_task()</code>: <code>G</code>, the API projection filtered to <code>I.allowed_actions</code>, the observation/action/feedback schema paths, and <code>I.public_constraints</code>. Everything else is dropped.</li>
-    <li><code>task_provenance(...)</code> — built per run: task definition SHA-256, suite seed/count, family filter, source path, and generated registry/policy checksums. Copied into the scored summary for replay.</li>
+  <p>Two derived projections drop out of the contract — both built by
+  <code>task_definition.py</code>:</p>
+  <ul class="tight">
+    <li><code>AgentVisibleTask</code> — <code>G</code>, the API projection filtered to <code>I.allowed_actions</code>, the observation/action/feedback schema paths, <code>I.public_constraints</code>. Everything else is dropped.</li>
+    <li><code>task_provenance(...)</code> — built per run: task-definition SHA-256, suite seed/count, family filter, source path, and generated registry/policy checksums. Copied into the scored summary for replay.</li>
   </ul>
 
-  <h2 id="agent-surface"><span class="num">03</span>Agent surface — what the LLM sees</h2>
-  <p>The agent surface is intentionally narrow. The agent receives only the redacted task view at session start, then one observation per step. It returns one decision per step (an action object or <code>null</code> for no-action). Each decision is followed by a redacted feedback record.</p>
+  <h2 id="agent-surface">5. Agent surface — what the LLM sees</h2>
+  <p>The agent surface is intentionally narrow. The agent receives only the redacted
+  task view at session start, then one observation per step. It returns one decision per
+  step (an action object or <code>null</code> for no-action). Each decision is followed
+  by a redacted feedback record.</p>
 
   <h3>Observation frame</h3>
   <p>Constructed by <code>observation.py</code>:</p>
-  <ul>
+  <ul class="tight">
     <li><code>step_id</code>, <code>observation_timestamp_s</code>, <code>task_id</code></li>
-    <li><code>evidence</code> — filtered by <code>I.observation_sources</code> and <code>I.observation_detail</code>; private fields named <code>E</code>, <code>U</code>, <code>J</code>, <code>seed</code>, <code>runtime_handle</code>, <code>oracle</code>, <code>artifact_path</code>, <code>setup_metadata</code>, <code>stimulus_schedule</code>, or <code>future_stimulus</code> trigger a hard error if they appear anywhere in the frame.</li>
+    <li><code>evidence</code> — filtered by <code>I.observation_sources</code> and <code>I.observation_detail</code>; private field names (<code>E</code>, <code>U</code>, <code>J</code>, <code>seed</code>, <code>runtime_handle</code>, <code>oracle</code>, <code>artifact_path</code>, <code>setup_metadata</code>, <code>stimulus_schedule</code>, <code>future_stimulus</code>) trigger a hard error if they appear anywhere in the frame</li>
     <li><code>previous_feedback</code> — the last redacted feedback record, or <code>null</code> on step 1</li>
     <li><code>context</code> — subset of (<code>task_id</code>, <code>step_id</code>, <code>backend</code>) limited by <code>allowed_observation_context</code></li>
   </ul>
 
   <h3>Observation-detail modes</h3>
   <table>
-    <thead><tr><th>Mode</th><th>What it exposes</th><th>What it hides</th></tr></thead>
-    <tbody>
-      <tr><td><code>repair_targets</code></td><td>Direct repair fields: <code>target_prb_policy</code>, <code>target_ssb_block_power_dbm</code>, <code>target_cfo_hz</code>, <code>target_tx_time_offset_us</code>, mismatch <code>desired</code> registration.</td><td>Private stimulus parameters, oracle requirements.</td></tr>
-      <tr><td><code>diagnosis_symptoms</code></td><td>Public symptoms only: SINR, CQI, RSRP, RSRQ, queue pressure, PRB utilization, backhaul delay/loss, redacted core/registration state.</td><td>All direct repair targets (the agent must infer them) plus the private fields above.</td></tr>
-    </tbody>
+    <tr><th>Mode</th><th>Exposes</th><th>Hides</th></tr>
+    <tr><td class="mono">repair_targets</td>
+        <td>Direct repair fields: <code>target_prb_policy</code>, <code>target_ssb_block_power_dbm</code>, <code>target_cfo_hz</code>, <code>target_tx_time_offset_us</code>, mismatch <code>desired</code> registration.</td>
+        <td>Private stimulus parameters, oracle requirements.</td></tr>
+    <tr><td class="mono">diagnosis_symptoms</td>
+        <td>Public symptoms only: SINR, CQI, RSRP, RSRQ, queue pressure, PRB utilization, backhaul delay/loss, redacted core/registration state.</td>
+        <td>All direct repair targets (the agent must infer them) plus the private fields above.</td></tr>
   </table>
 
-  <h3>Action and feedback</h3>
-  <p>The agent submits one decision per step. <code>action.py</code> validates and normalizes it:</p>
-  <ol>
-    <li><code>null</code> &nbsp;→&nbsp; <code>NO_ACTION</code> (allowed only when <code>I.allow_no_action</code> is true)</li>
-    <li>Non-dict &nbsp;→&nbsp; <code>schema_error</code></li>
-    <li>Unknown <code>type</code> or not in <code>I.allowed_actions</code> &nbsp;→&nbsp; <code>permission_error</code></li>
-    <li>Per-action field validators enforce ranges (e.g. PRB ratios ∈ [0, 100], <code>min ≤ max</code>; PCI ∈ [0, 1007]; CFO ∈ [-100&nbsp;000, 100&nbsp;000]&nbsp;Hz; SUPI is 5–16 digits)</li>
+  <h3>Action validation</h3>
+  <p>The agent submits one decision per step. <code>action.py</code> validates and
+  normalizes it before dispatch:</p>
+  <ol class="tight">
+    <li><code>null</code> → <code>NO_ACTION</code> (allowed only when <code>I.allow_no_action</code> is true)</li>
+    <li>Non-dict → <code>schema_error</code></li>
+    <li>Unknown <code>type</code>, or type not in <code>I.allowed_actions</code> → <code>permission_error</code></li>
+    <li>Per-action field validators enforce ranges — PRB ratios ∈ [0, 100], <code>min ≤ max</code>; PCI ∈ [0, 1007]; CFO ∈ [-100&nbsp;000, 100&nbsp;000]&nbsp;Hz; SUPI is 5–16 digits; RNTI is a non-zero 16-bit integer or hex string</li>
   </ol>
-  <p>Validated actions go to <code>dispatch_runtime_action()</code>, then to <code>simulated_ocudu</code>. The result becomes a redacted feedback record: <code>status</code>, <code>action_outcome.accepted</code>, optional <code>safe_error_class</code>, and a human-readable <code>safe_message</code>. The redacted feedback is the only signal the agent sees about acceptance.</p>
+  <p>Validated actions go to <code>dispatch_runtime_action()</code>, then to
+  <code>simulated_ocudu.py</code> (§6). The result becomes a redacted feedback record
+  with <code>status</code>, <code>action_outcome.accepted</code>, optional
+  <code>safe_error_class</code>, and a human-readable <code>safe_message</code>. The
+  redacted feedback is the only signal the agent sees about acceptance.</p>
 
-  <h2 id="benchmark-surface"><span class="num">04</span>Benchmark surface — task sets, variants, stimulus</h2>
+  <h2 id="benchmark-surface">6. Benchmark surface — task sets, variants, stimulus, runtime</h2>
 
   <h3>Task sets</h3>
-  <p>Tasks live under <code>benchmark/task_sets/</code>. Suite resolution is owned by <code>task_catalog.py</code>:</p>
+  <p>Tasks live under <code>benchmark/task_sets/</code>. Suite resolution is owned by
+  <code>task_catalog.py</code>:</p>
   <table>
-    <thead><tr><th>Suite</th><th>Source</th><th>Count</th><th>Purpose</th></tr></thead>
-    <tbody>
-      <tr><td><code>base</code></td><td>disk</td><td>25</td><td>Primary checked-in family-grouped tasks (<code>prb</code>, <code>ssb</code>, <code>mobility</code>, <code>radio_cli</code>, <code>core</code>, <code>diagnosis</code>, <code>isolation</code>, <code>restraint</code>).</td></tr>
-      <tr><td><code>regression</code></td><td>disk</td><td>1</td><td>Harness regression coverage. Runnable; not a primary agent-benefit benchmark family.</td></tr>
-      <tr><td><code>compound</code></td><td>disk</td><td>8</td><td>Latent-cause diagnosis tasks. The agent sees evolving symptoms; cause labels stay private.</td></tr>
-      <tr><td><code>all_checked_in</code></td><td>disk</td><td>34</td><td>Union of the above. Standard local-validation target.</td></tr>
-      <tr><td><code>generated</code> / <code>standard</code> / <code>diagnostic</code> / <code>stress</code></td><td>in memory</td><td>200 / 200 / 1000 / 200</td><td>Single-anchor variants from the axis registry. Deterministic per <code>(suite, seed, count, family)</code>.</td></tr>
-    </tbody>
+    <tr><th>Suite</th><th>Source</th><th>Count</th><th>Purpose</th></tr>
+    <tr><td class="mono">base</td><td>disk</td><td>25</td><td>Primary checked-in family-grouped tasks (<code>prb</code>, <code>ssb</code>, <code>mobility</code>, <code>radio_cli</code>, <code>core</code>, <code>diagnosis</code>, <code>isolation</code>, <code>restraint</code>).</td></tr>
+    <tr><td class="mono">regression</td><td>disk</td><td>1</td><td>Harness regression coverage. Runnable; not a primary agent-benefit benchmark family.</td></tr>
+    <tr><td class="mono">compound</td><td>disk</td><td>8</td><td>Latent-cause diagnosis tasks. The agent sees evolving symptoms; cause labels stay private.</td></tr>
+    <tr><td class="mono">all_checked_in</td><td>disk</td><td>34</td><td>Union of the above. Standard local-validation target.</td></tr>
+    <tr><td class="mono">generated / standard / diagnostic / stress</td><td>in memory</td><td>200 / 200 / 1000 / 200</td><td>Single-anchor variants from the axis registry. Deterministic per <code>(suite, seed, count, family)</code>.</td></tr>
   </table>
 
   <h3>Generated variants</h3>
-  <p>Generated suites scale coverage without committing hundreds of task directories. The model is:</p>
-  <pre><code>anchor task  +  variant axis/vector  +  suite seed  =  in-memory PrivateTask</code></pre>
-  <ul>
+  <p>Generated suites scale coverage without committing hundreds of task directories.
+  The model is:</p>
+  <pre class="code-block"><code>anchor task  +  variant axis/vector  +  suite seed  =  in-memory PrivateTask</code></pre>
+  <ul class="tight">
     <li><code>task_sets/generated/axis_registry.json</code> — for each anchor, defines axes (<code>levels[]</code> or <code>sampler.transform</code>), expected failure modes, and manifest overrides.</li>
     <li><code>task_sets/generated/suite_policies.json</code> — default counts, balancing policy (<code>family</code> + <code>expected_failure_modes</code>), interaction depth, exhaustion behavior.</li>
     <li>Nine sampler transforms cover PRB ratio, SSB power, CFO target, TX offset, handover identity, CHO targets, core NF target, core UE mismatch, and no-action symptoms.</li>
@@ -396,96 +363,188 @@
   </ul>
 
   <h3>Stimulus scheduling</h3>
-  <p><code>U</code> is expanded to a concrete plan by <code>expand_stimulus_plan(U, seed)</code> before the scored interaction starts. The plan never adapts to the agent's actions — it is a fixed schedule.</p>
+  <p><code>U</code> is expanded to a concrete plan by
+  <code>expand_stimulus_plan(U, seed)</code> before the scored interaction starts. The
+  plan never adapts to the agent's actions — it is a fixed schedule.</p>
   <table>
-    <thead><tr><th>Concept</th><th>Mechanism</th></tr></thead>
-    <tbody>
-      <tr><td>Step targeting</td><td><code>apply_steps: [...]</code> for explicit step IDs, or <code>start_step</code>+<code>end_step</code> for a closed range. Mutually exclusive. Omitting both targets every step.</td></tr>
-      <tr><td>Phases</td><td><code>pre_observation</code> events apply before the observation is built; <code>in_step</code> events become active when the observation is emitted and end at the step boundary (after the agent's action completes or the step deadline elapses).</td></tr>
-      <tr><td>Timing policy</td><td><code>clock_mode</code> ∈ {<code>fixed_tick</code>, <code>virtual_clock</code>, <code>wall_clock</code>}; <code>step_interval_s</code> ≥ <code>decision_deadline_s</code> (enforced); late agent decisions fall through to <code>NO_ACTION</code>.</td></tr>
-      <tr><td>Implemented drivers</td><td>16 kinds in <code>StimulusDriverKind</code>: traffic load, UE churn, mobility path, radio condition, slice demand shift, telemetry gap, E2 KPM window, RIC xApp lifecycle, core latency/UE registration, backhaul impairment, cell identity change, future ZMQ impairment, plus the two infrastructure drivers (<code>docker_zmq_runtime_launch</code>, <code>metrics_staleness_mask</code>).</td></tr>
-    </tbody>
+    <tr><th>Concept</th><th>Mechanism</th></tr>
+    <tr><td>Step targeting</td><td><code>apply_steps: [...]</code> for explicit step IDs, or <code>start_step</code>+<code>end_step</code> for a closed range. Mutually exclusive. Omitting both targets every step.</td></tr>
+    <tr><td>Phases</td><td><code>pre_observation</code> events apply before the observation is built; <code>in_step</code> events become active when the observation is emitted and end at the step boundary (after the agent's action completes or the step deadline elapses).</td></tr>
+    <tr><td>Timing policy</td><td><code>clock_mode</code> ∈ {<code>fixed_tick</code>, <code>virtual_clock</code>, <code>wall_clock</code>}; <code>step_interval_s ≥ decision_deadline_s</code> (enforced); late agent decisions fall through to <code>NO_ACTION</code>.</td></tr>
+    <tr><td>Implemented drivers</td><td>16 kinds in <code>StimulusDriverKind</code>: traffic load, UE churn, mobility path, radio condition, slice demand shift, telemetry gap, E2 KPM window, RIC xApp lifecycle, core latency / UE registration, backhaul impairment, cell identity change, future ZMQ impairment, plus the two infrastructure drivers (<code>docker_zmq_runtime_launch</code>, <code>metrics_staleness_mask</code>).</td></tr>
   </table>
 
-  <h2 id="runtime"><span class="num">05</span>Simulated runtime adapter</h2>
-  <p><code>simulated_ocudu</code> is the only adapter currently wired to the dispatcher. It is an executable benchmark adapter, not a live OCUDU/FlexRIC connection. It closes the loop so that accepted actions visibly change later evidence — which is what makes <code>expected_post_action_evidence</code> a meaningful score signal.</p>
-
-  <h3>Per-action transitions</h3>
+  <h3>The <code>simulated_ocudu</code> runtime adapter</h3>
+  <p><code>simulated_ocudu</code> is the only adapter currently wired to the dispatcher.
+  It is an executable benchmark adapter, <b>not</b> a live OCUDU/FlexRIC connection. It
+  closes the loop so that accepted actions visibly change later evidence — which is what
+  makes <code>expected_post_action_evidence</code> a meaningful score signal.</p>
   <table>
-    <thead><tr><th>Action family</th><th>Simulated effect</th><th>Representative rejection</th></tr></thead>
-    <tbody>
-      <tr><td>PRB policy (<code>WS</code> / <code>CCC</code> / <code>RC_DU</code>)</td><td>Updates <code>slice_runtime.current_prb_policy</code> and later slice evidence.</td><td>Wrong slice identifiers; E2 backend without available KPM evidence; duplicate policy already applied.</td></tr>
-      <tr><td>SSB power</td><td>Updates <code>radio_runtime.current_ssb_block_power_dbm</code> and tags the responsible cell.</td><td>Stale or wrong cell identity; duplicate power already applied.</td></tr>
-      <tr><td>HO / CHO</td><td>Moves UE serving PCI or records a conditional handover plan.</td><td>Wrong RNTI, wrong serving PCI, or target outside the candidate set.</td></tr>
-      <tr><td>CFO / TX offset</td><td>Updates radio impairment state and sets a correction flag if the target matches.</td><td>Wrong sector or duplicate correction.</td></tr>
-      <tr><td>Core NF restart</td><td>Updates NF status, restart counts, and degradation state.</td><td>NF not in <code>available_nfs</code>; repeated restart after recovery.</td></tr>
-      <tr><td>Core UE registration</td><td>Updates registration to the desired profile.</td><td>Payload does not match the desired benchmark profile; duplicate update after registered.</td></tr>
-    </tbody>
+    <tr><th>Action family</th><th>Simulated effect</th><th>Representative rejection</th></tr>
+    <tr><td>PRB policy (<code>WS</code> / <code>CCC</code> / <code>RC_DU</code>)</td><td>Updates <code>slice_runtime.current_prb_policy</code> and later slice evidence.</td><td>Wrong slice identifiers; E2 backend without available KPM evidence; duplicate policy already applied.</td></tr>
+    <tr><td>SSB power</td><td>Updates <code>radio_runtime.current_ssb_block_power_dbm</code>, tags the responsible cell.</td><td>Stale or wrong cell identity; duplicate power already applied.</td></tr>
+    <tr><td>HO / CHO</td><td>Moves UE serving PCI or records a conditional handover plan.</td><td>Wrong RNTI, wrong serving PCI, or target outside the candidate set.</td></tr>
+    <tr><td>CFO / TX offset</td><td>Updates radio impairment state and sets a correction flag if the target matches.</td><td>Wrong sector or duplicate correction.</td></tr>
+    <tr><td>Core NF restart</td><td>Updates NF status, restart counts, degradation state.</td><td>NF not in <code>available_nfs</code>; repeated restart after recovery.</td></tr>
+    <tr><td>Core UE registration</td><td>Updates registration to the desired profile.</td><td>Payload does not match the desired benchmark profile; duplicate update after registered.</td></tr>
   </table>
-  <p>All rejections produce <code>safe_error_class = runtime_rejected</code> with a public message and append to <code>control_outcomes</code>. The agent learns the safe class and message; the private cause stays in the benchmark trace.</p>
+  <p>All rejections produce <code>safe_error_class = runtime_rejected</code> with a
+  public message and append to <code>control_outcomes</code>. The agent learns the safe
+  class and message; the private cause stays in the benchmark trace.</p>
+  <p class="key"><b>Why a simulated adapter is the default.</b> The closed-loop simulator
+  makes the harness self-checking: deterministic stimulus, deterministic transitions,
+  and observable post-action evidence let scoring detect not only <em>what action the
+  agent took</em> but <em>whether it actually moved the runtime</em>. A live adapter
+  would replace this layer but keep the same task contract, redaction, and scoring.</p>
 
-  <div class="callout">
-    <strong>Why a simulated adapter is the default.</strong> The closed-loop simulator makes the harness self-checking: deterministic stimulus, deterministic transitions, and observable post-action evidence let scoring detect not only <em>what action the agent took</em> but <em>whether it actually moved the runtime</em>. A live adapter would replace the transition layer but keep the same task contract, redaction, and scoring.
+  <!-- ============ Diagram C : per-step swimlane ============ -->
+  <h2 id="episode">7. Episode lifecycle — owners, ordering, the per-step pipeline</h2>
+  <p><code>episode.py</code> owns one scored run. Scoring is post-run by design: the
+  agent never sees scores during the interaction.</p>
+  <p>The run is a strict pipeline:
+  <b>load → project → instantiate → expand → readiness → interact → finalize → score</b>.
+  Each later stage assumes the guarantee the previous one made. The per-step interaction
+  (step 6 expanded) is where the four resources — agent, episode orchestrator, benchmark
+  logic, runtime adapter — hand off in sequence. The shape, laid out by resource, reads
+  like this:</p>
+  <figure>
+  <div class="pipe">
+    <!-- time axis -->
+    <div class="pipe-axis">
+      <div></div>
+      <div class="pipe-axis-bar">
+        <span class="pipe-tick" style="left:0%;"></span>
+        <span class="pipe-tick-label" style="left:1%;">t = 0<span class="pipe-tick-sub">step starts</span></span>
+        <span class="pipe-tick" style="left:30%;"></span>
+        <span class="pipe-tick-label" style="left:30%;">obs emitted<span class="pipe-tick-sub">agent called</span></span>
+        <span class="pipe-tick" style="left:65%;"></span>
+        <span class="pipe-tick-label" style="left:65%;">decision returned<span class="pipe-tick-sub">or deadline</span></span>
+        <span class="pipe-tick" style="left:100%;"></span>
+        <span class="pipe-tick-label" style="left:99%;">step boundary<span class="pipe-tick-sub">next step</span></span>
+      </div>
+    </div>
+
+    <!-- benchmark logic lane -->
+    <div class="pipe-lane">
+      <div class="pipe-label">benchmark logic<small>stimulus &amp; observation</small></div>
+      <div class="pipe-track">
+        <div class="pipe-stage pipe-stage--bench" style="left:0%; width:15%;"><b>1. pre-obs stimulus</b><small>apply &amp; record</small></div>
+        <div class="pipe-stage pipe-stage--bench" style="left:16%; width:13%;"><b>2. build obs</b><small>filter + redact</small></div>
+        <div class="pipe-stage pipe-stage--bench" style="left:67%; width:15%;"><b>5. validate action</b><small>action.py</small></div>
+        <div class="pipe-stage pipe-stage--bench" style="left:83%; width:11%;"><b>7. build feedback</b><small>safe envelope</small></div>
+      </div>
+    </div>
+
+    <!-- handoff: bench → agent at obs emit -->
+    <div class="pipe-handoff-layer"><div class="pipe-handoff-row">
+      <div class="pipe-handoff-label">bench → agent</div>
+      <div class="pipe-handoff-arrows">
+        <span class="pipe-handoff" style="left:30%;">↓</span>
+        <span class="pipe-handoff" style="left:65%;">↑</span>
+      </div>
+    </div></div>
+
+    <!-- agent lane -->
+    <div class="pipe-lane">
+      <div class="pipe-label">agent<small>LLM or baseline</small></div>
+      <div class="pipe-track">
+        <div class="pipe-stage pipe-stage--agent" style="left:30%; width:34%;"><b>3. decide</b><small>≤ decision_deadline_s</small></div>
+      </div>
+    </div>
+
+    <!-- handoff: bench → runtime -->
+    <div class="pipe-handoff-layer"><div class="pipe-handoff-row">
+      <div class="pipe-handoff-label">bench ↔ runtime</div>
+      <div class="pipe-handoff-arrows">
+        <span class="pipe-handoff" style="left:30%;">↓</span>
+        <span class="pipe-handoff" style="left:82%;">↓</span>
+        <span class="pipe-handoff" style="left:94%;">↑</span>
+      </div>
+    </div></div>
+
+    <!-- runtime lane -->
+    <div class="pipe-lane">
+      <div class="pipe-label">runtime adapter<small>simulated_ocudu</small></div>
+      <div class="pipe-track">
+        <div class="pipe-stage pipe-stage--rt" style="left:30%; width:35%;"><b>in-step stimulus active</b><small>condition runtime during agent</small></div>
+        <div class="pipe-stage pipe-stage--rt" style="left:82%; width:12%;"><b>6. dispatch</b><small>apply_simulated_action</small></div>
+      </div>
+    </div>
+
+    <div class="pipe-legend">
+      <span><span class="pipe-legend-sw" style="background:rgba(255,180,84,0.45); border:1px solid #ffb454;"></span>benchmark logic</span>
+      <span><span class="pipe-legend-sw" style="background:rgba(93,177,255,0.45); border:1px solid #5db1ff;"></span>agent</span>
+      <span><span class="pipe-legend-sw" style="background:rgba(111,208,140,0.55); border:1px solid #6fd08c;"></span>runtime adapter</span>
+      <span>↓↑ = hand-off (resource transfer)</span>
+    </div>
+    <div class="pipe-disclaimer">
+      Bar widths are nominal — they show <b>strict-sequential ordering</b> and resource
+      ownership, not measured timings. Real LLM agents typically consume 5–20 s of the
+      decision band; deterministic baselines complete in microseconds.
+    </div>
   </div>
+  <figcaption>Diagram C — per-step interaction laid out by resource. Each stage strictly
+  blocks the next. The agent only sees stages 2 and 7 (the observation it receives and
+  the feedback it gets back); the rest is benchmark-private. <code>NO_ACTION</code>
+  steps skip stage 6 (no dispatch) but still flow through 7.</figcaption>
+  </figure>
 
-  <h2 id="episode"><span class="num">06</span>Episode lifecycle</h2>
-  <p><code>episode.py</code> owns one scored run. Scoring is post-run by design: the agent never sees scores during the interaction.</p>
-
-  <div class="pipeline">
-    <div class="step"><span class="step-num">01</span><strong>Load</strong>PrivateTask via <code>task_catalog</code><small>suite resolves disk or generator</small></div>
-    <div class="step"><span class="step-num">02</span><strong>Project</strong>AgentVisibleTask<small>redact E / U / J / M</small></div>
-    <div class="step"><span class="step-num">03</span><strong>Instantiate</strong>RuntimeHandle from E<small>state seed, cleanup plan</small></div>
-    <div class="step"><span class="step-num">04</span><strong>Expand</strong>StimulusPlan(U, seed)<small>deterministic schedule</small></div>
-    <div class="step"><span class="step-num">05</span><strong>Readiness</strong>conformance checks<small>no mutation</small></div>
-    <div class="step"><span class="step-num">06</span><strong>Interact</strong>per-step loop<small>see below</small></div>
-    <div class="step scoring"><span class="step-num">07</span><strong>Finalize &amp; score</strong>scoring.py<small>after trace finalized</small></div>
-  </div>
-
-  <h3>Per-step interaction (step 6 expanded)</h3>
-  <ol>
+  <h3>Per-step detail</h3>
+  <ol class="tight">
     <li>Apply <code>pre_observation</code> stimulus events to the runtime; record each to the private partition.</li>
     <li>Build the observation frame (filtered evidence + redacted previous feedback); record it.</li>
     <li>Start any <code>in_step</code> stimulus at the observation timestamp.</li>
-    <li>Wrapper requests an agent decision under <code>decision_deadline_s</code>; timeout or malformed result becomes <code>NO_ACTION</code>.</li>
-    <li>Validate and dispatch the action (or record <code>NO_ACTION</code> without dispatch).</li>
-    <li>Finish <code>in_step</code> stimulus at the step boundary.</li>
-    <li>Build and record redacted feedback; carry it forward as <code>previous_feedback</code>.</li>
+    <li>The wrapper requests an agent decision under <code>decision_deadline_s</code>; timeout or malformed result becomes <code>NO_ACTION</code>.</li>
+    <li><code>action.py</code> validates and normalizes the decision (or rejects with a <code>safe_error_class</code>).</li>
+    <li><code>dispatch_runtime_action</code> → <code>simulated_ocudu</code> (skipped for <code>NO_ACTION</code>).</li>
+    <li>Finish <code>in_step</code> stimulus at the step boundary; build and record redacted feedback; carry it forward as <code>previous_feedback</code>.</li>
   </ol>
 
   <h3>Finalization ordering</h3>
-  <p>This ordering is invariant — scoring rejects any package that violates it:</p>
-  <ol>
+  <p>This ordering is invariant — <code>scoring.score_episode</code> rejects any package
+  that violates it:</p>
+  <ol class="tight">
     <li>Finalize artifact manifest (<code>trace.finalize_artifacts</code>).</li>
     <li>Cleanup runtime; record cleanup oracle entry.</li>
     <li>Finalize trace (checksum and persist).</li>
-    <li>Score the finalized package (<code>scoring.score_episode</code>) and persist the scored summary.</li>
+    <li>Score the finalized package; persist the scored summary.</li>
   </ol>
 
-  <h2 id="trace"><span class="num">07</span>Trace partitions</h2>
-  <p>One run produces one trace package with four partitions. The agent never sees partitions 2–4. The visibility split lets the same trace serve replay, audit, and scoring without leaking private state.</p>
+  <h2 id="trace">8. Trace partitions</h2>
+  <p>One run produces one trace package with four partitions. The agent never sees
+  partitions 2–4. The visibility split lets the same trace serve replay, audit, and
+  scoring without leaking private state.</p>
   <table>
-    <thead><tr><th>Partition</th><th>Contents</th><th>Visibility</th></tr></thead>
-    <tbody>
-      <tr><td><code>interaction</code></td><td>Observations, public action records, redacted feedback. Strictly the agent-facing dialogue.</td><td><span class="public">Public (post-run consumers may stream it)</span></td></tr>
-      <tr><td><code>private_benchmark</code></td><td>Stimulus event records (driver, parameters, evidence), readiness checks, seeds.</td><td><span class="private">Private</span></td></tr>
-      <tr><td><code>oracle</code></td><td>Cleanup record, scorer-only signals.</td><td><span class="private">Private</span></td></tr>
-      <tr><td><code>artifact_manifest</code></td><td>Private artifact location, SHA-256 checksum, producer module, retention class.</td><td><span class="partial">Summary only after finalization</span></td></tr>
-      <tr><td><code>run_metadata.task_provenance</code></td><td>Task definition digest, suite seed/count, source path, generated registry/policy checksums.</td><td><span class="partial">Hidden during the run; copied to scored summaries for replay</span></td></tr>
-    </tbody>
+    <tr><th>Partition</th><th>Contents</th><th>Visibility</th></tr>
+    <tr><td class="mono">interaction</td><td>Observations, public action records, redacted feedback. Strictly the agent-facing dialogue.</td><td><span class="tag tag-pub">public</span> · post-run consumers may stream it</td></tr>
+    <tr><td class="mono">private_benchmark</td><td>Stimulus event records (driver, parameters, evidence), readiness checks, seeds.</td><td><span class="tag tag-priv">private</span></td></tr>
+    <tr><td class="mono">oracle</td><td>Cleanup record, scorer-only signals.</td><td><span class="tag tag-priv">private</span></td></tr>
+    <tr><td class="mono">artifact_manifest</td><td>Private artifact location, SHA-256 checksum, producer module, retention class.</td><td><span class="tag tag-partial">summary only after finalization</span></td></tr>
+    <tr><td class="mono">run_metadata.task_provenance</td><td>Task-definition digest, suite seed/count, source path, generated registry/policy checksums.</td><td><span class="tag tag-partial">hidden during the run; copied to scored summaries for replay</span></td></tr>
   </table>
 
-  <h2 id="scoring"><span class="num">08</span>Scoring pipeline</h2>
-  <p>Scoring is implemented in <code>scoring.py</code> and runs once, on the finalized trace. It is deliberately deterministic and uniform across tasks: every task uses the same pipeline; only its requested <code>raw_metrics</code> and <code>critical_metrics</code> differ.</p>
-
-  <div class="pipeline" style="grid-template-columns: repeat(4, 1fr);">
-    <div class="step"><span class="step-num">A</span><strong>Raw metrics</strong>25 normalized to [0, 1]<small>action correctness, evidence use, RAN health, safety</small></div>
-    <div class="step"><span class="step-num">B</span><strong>Critical subset</strong>J.critical_metrics<small>defaults to all requested</small></div>
-    <div class="step"><span class="step-num">C</span><strong>Component scores</strong>6 explanatory rollups<small>averages, not gates</small></div>
-    <div class="step scoring"><span class="step-num">D</span><strong>Outcome</strong>success ↔ every critical ≥ threshold<small>else categorized failure</small></div>
+  <!-- ============ Diagram D : scoring strip ============ -->
+  <h2 id="scoring">9. Scoring pipeline</h2>
+  <p>Scoring is implemented in <code>scoring.py</code> and runs once, on the finalized
+  trace. It is deliberately deterministic and uniform across tasks: every task uses the
+  same pipeline; only its requested <code>raw_metrics</code> and
+  <code>critical_metrics</code> differ.</p>
+  <figure>
+  <div class="strip">
+    <div class="strip-cell"><span class="strip-num">A</span><b>raw metrics</b>25 normalized to [0, 1]<small>action correctness · evidence use · RAN health · safety</small></div>
+    <div class="strip-cell"><span class="strip-num">B</span><b>critical subset</b><code>J.critical_metrics</code><small>defaults to all requested</small></div>
+    <div class="strip-cell"><span class="strip-num">C</span><b>component scores</b>6 explanatory rollups<small>averages — not gates</small></div>
+    <div class="strip-cell hi"><span class="strip-num">D</span><b>outcome</b>success iff every critical ≥ threshold<small>else categorized failure</small></div>
   </div>
+  <figcaption>Diagram D — the four-stage scoring pipeline. Diagnostic similarity
+  metrics are computed alongside the raw metrics but are never critical; component
+  scores are averages of the relevant raw metrics, useful for explaining failures but
+  never themselves a pass/fail gate.</figcaption>
+  </figure>
 
-  <h3>Critical raw metrics (the ones that decide pass/fail)</h3>
-  <ul>
+  <h3>Critical raw metrics</h3>
+  <p>The metrics that decide pass/fail when included in <code>J.critical_metrics</code>:</p>
+  <ul class="tight">
     <li><code>temporal_action_sequence_match</code> — actions at the right step IDs with the right validity/acceptance.</li>
     <li><code>expected_action_payload_match</code> — payload fields match (numeric tolerance from <code>J</code>).</li>
     <li><code>post_action_evidence_match</code> — later observation reflects the action's runtime effect.</li>
@@ -493,29 +552,86 @@
     <li>Domain-specific: <code>cli_cfo_target_match</code>, <code>cli_tx_time_offset_target_match</code>, <code>core_ue_registration_repaired</code>.</li>
   </ul>
 
-  <h3>Diagnostic similarity metrics (non-critical)</h3>
-  <p><code>action_timing_similarity</code>, <code>expected_action_payload_similarity</code>, and <code>post_action_evidence_similarity</code> give graded resolution between full pass and full fail. Always requested for generated tasks; never gate the outcome.</p>
+  <h3>Diagnostic similarity metrics</h3>
+  <p><code>action_timing_similarity</code>, <code>expected_action_payload_similarity</code>,
+  and <code>post_action_evidence_similarity</code> give graded resolution between full
+  pass and full fail. Always requested for generated tasks; never gate the outcome.</p>
 
   <h3>Component scores</h3>
   <table>
-    <thead><tr><th>Component</th><th>Averaged raw metrics</th></tr></thead>
-    <tbody>
-      <tr><td><code>task_correctness</code></td><td>expected action type / triage / temporal sequence / payload match / post-action evidence / noop correctness</td></tr>
-      <tr><td><code>action_correctness</code></td><td>valid-accepted rate / correct API / repair success / domain matches</td></tr>
-      <tr><td><code>evidence_use</code></td><td>evidence-gated / stale-action avoidance / temporal sequence</td></tr>
-      <tr><td><code>ran_health</code></td><td>ping ratio / metrics continuity / E2 KPM continuity</td></tr>
-      <tr><td><code>safety</code></td><td>budget OK / unnecessary action avoidance / invalid-local rejection correctness</td></tr>
-      <tr><td><code>cleanup</code></td><td>clean teardown</td></tr>
-    </tbody>
+    <tr><th>Component</th><th>Averaged raw metrics</th></tr>
+    <tr><td class="mono">task_correctness</td><td>expected action type · triage · temporal sequence · payload match · post-action evidence · noop correctness</td></tr>
+    <tr><td class="mono">action_correctness</td><td>valid-accepted rate · correct API · repair success · domain matches</td></tr>
+    <tr><td class="mono">evidence_use</td><td>evidence-gated · stale-action avoidance · temporal sequence</td></tr>
+    <tr><td class="mono">ran_health</td><td>ping ratio · metrics continuity · E2 KPM continuity</td></tr>
+    <tr><td class="mono">safety</td><td>budget OK · unnecessary action avoidance · invalid-local rejection correctness</td></tr>
+    <tr><td class="mono">cleanup</td><td>clean teardown</td></tr>
   </table>
 
-  <h3>Efficiency (decoupled)</h3>
-  <p>Recorded separately and never affecting correctness: task completion time; decision-latency mean/p50/p95; control round-trip mean/p50/p95; prompt/completion/reasoning/total tokens; tokens-per-decision mean; tokens-to-task-success.</p>
+  <h3>Efficiency — decoupled</h3>
+  <p>Recorded separately and never affecting correctness: task completion time;
+  decision-latency mean / p50 / p95; control round-trip mean / p50 / p95;
+  prompt / completion / reasoning / total tokens; tokens-per-decision mean;
+  tokens-to-task-success.</p>
 
-  <h2 id="ops"><span class="num">09</span>Operations</h2>
+  <!-- ============ Diagram B : real-LLM agent stack ============ -->
+  <h2 id="agents">10. Real-LLM agent integration</h2>
+  <p>The benchmark's agent contract is a plain <code>Callable[[dict], dict]</code>. The
+  package <code>benchmark/agents/</code> implements one such callable
+  (<code>LLMAgent</code>) that issues exactly one chat completion per step, plus a
+  runner that clones the selected task with a relaxed timing policy so LLM-scale
+  latency fits inside the per-step budget. The benchmark core under
+  <code>benchmark/benchmark_api/</code> is unchanged.</p>
 
-  <h3>CLI</h3>
-  <pre><code>python3 benchmark/benchctl.py --json tasks list --suite all_checked_in
+  <h3>Backend deployment modes</h3>
+  <table>
+    <tr><th>Mode</th><th>Backend</th><th>Typical use</th></tr>
+    <tr><td>A — self-hosted</td><td><code>OpenAICompatibleBackend</code> at any base URL</td><td>Local Ollama / vLLM / llama.cpp / LM Studio / TabbyAPI on a workstation, optionally over a LAN tunnel</td></tr>
+    <tr><td>B — commercial API</td><td>same plus <code>AnthropicBackend</code> for native Messages</td><td>OpenAI, Anthropic, OpenRouter, Together, Groq, Fireworks, Mistral, DeepSeek</td></tr>
+    <tr><td>offline</td><td><code>EchoBackend</code></td><td>Unit tests (10 included) and offline smoke checks without network</td></tr>
+  </table>
+  <p class="key">All three implement the <code>LLMBackend</code> protocol with one
+  method <code>complete(messages) → LLMResponse</code>. The runner uses stdlib
+  <code>urllib.request</code> + <code>json</code> only — no new dependencies.</p>
+
+  <h3>Why a separate runner</h3>
+  <p>Checked-in task manifests set <code>U.timing_policy.decision_deadline_s = 0.01 s</code>
+  for the deterministic baselines (which respond in microseconds). Any real LLM call
+  is orders of magnitude slower, so <code>runner.relax_task_clock</code> clones the
+  selected task with <code>step_interval_s = decision_deadline_s + padding</code>
+  before scoring. The benchmark core does not need any changes; the wrapper still
+  enforces the deadline — if the LLM call exceeds it, the step is automatically
+  converted to <code>NO_ACTION</code> and tagged <code>telemetry.timed_out = True</code>.</p>
+
+  <h3>One step in detail</h3>
+  <p>For every step <code>agent_api_wrapper.py</code> calls <code>LLMAgent(payload)</code>;
+  the agent does:</p>
+  <ol class="tight">
+    <li><code>build_messages(payload)</code> — system message (role + JSON-only output requirement + per-task action cheatsheet from <code>action_schemas.py</code>); user message (goal, public constraints, observation, previous feedback, decision timeout).</li>
+    <li><code>backend.complete(messages)</code> — one HTTP round-trip to the provider.</li>
+    <li><code>parse_decision(text)</code> — accepts bare JSON, fenced JSON code blocks, the literal <code>null</code>, or the <code>{type: NO_ACTION}</code> shorthand. Anything else returns <code>NO_ACTION</code> with a descriptive <code>parse_status</code>.</li>
+    <li>Returns <code>{decision, telemetry}</code> with token usage, decision latency, model, provider, parse status, and optional rationale (capped at 400 chars).</li>
+  </ol>
+  <p>Backend transport errors (HTTP 4xx/5xx, network errors) degrade to
+  <code>NO_ACTION</code> with <code>telemetry.parse_status = "transport_error"</code>
+  and a 400-char excerpt of the underlying error. The episode continues to completion
+  and scoring sees the failure as <code>NO_ACTION</code> instead of crashing.</p>
+
+  <h3>Failure modes captured in telemetry</h3>
+  <table>
+    <tr><th><code>parse_status</code></th><th>Trigger</th></tr>
+    <tr><td><code>ok</code></td><td>model emitted parseable JSON with a top-level <code>decision</code> field</td></tr>
+    <tr><td><code>empty</code></td><td>backend returned an empty body</td></tr>
+    <tr><td><code>no_json</code></td><td>response had no <code>{...}</code> or literal <code>null</code></td></tr>
+    <tr><td><code>invalid_json</code></td><td>candidate substring failed <code>json.loads</code></td></tr>
+    <tr><td><code>unrecognized_shape</code></td><td>JSON parsed but had no <code>decision</code> or <code>type</code> key</td></tr>
+    <tr><td><code>transport_error</code></td><td>HTTP error or network failure; <code>telemetry.backend_error</code> carries the cause</td></tr>
+  </table>
+
+  <h2>11. Operations</h2>
+
+  <h3>CLI (deterministic baselines)</h3>
+  <pre class="code-block"><code>python3 benchmark/benchctl.py --json tasks list --suite all_checked_in
 python3 benchmark/benchctl.py --json tasks list --suite standard --seed 1 --count 200
 python3 benchmark/benchctl.py --json episode run --suite base \
     --task base_prb_slice_congestion_rebalance_v1 --controller auto
@@ -523,44 +639,79 @@ python3 benchmark/benchctl.py --json run --suite all_checked_in --controller aut
 python3 benchmark/benchctl.py --json run --suite standard --controller auto --seed 1 --count 200
 python3 benchmark/benchctl.py --json remote check --config .config
 python3 benchmark/benchctl.py --json remote sync --config .config --dry-run</code></pre>
-  <ul>
+  <ul class="tight">
     <li><code>episode run</code> — one episode; with <code>--output-dir</code> writes <code>&lt;run_id&gt;.trace.json</code> and <code>&lt;run_id&gt;.summary.json</code> after finalization.</li>
     <li><code>run</code> — repeated runs over one task or a whole suite (<code>controller.py</code>); per-run scored summaries are aggregated by <code>suite.py</code>.</li>
     <li><code>tasks list</code> — for generated suites, deterministic for <code>(suite, seed, count, family)</code>.</li>
   </ul>
 
+  <h3>CLI (real-LLM runner)</h3>
+  <pre class="code-block"><code>python3 benchmark/agents/runner.py --provider openai --model gpt-4o-mini \
+    --api-key-env OPENAI_API_KEY --suite base \
+    --task base_prb_slice_congestion_rebalance_v1 \
+    --decision-deadline-s 30 --output-dir /tmp/ocuduagentbench_real
+
+python3 benchmark/agents/runner.py --provider custom \
+    --base-url http://127.0.0.1:8000/v1 --model qwen2.5-7b \
+    --task base_prb_slice_congestion_rebalance_v1 --decision-deadline-s 30</code></pre>
+
   <h3>Validation checklist</h3>
-  <pre><code>python3 -m unittest discover benchmark/tests
+  <pre class="code-block"><code>python3 -m unittest discover benchmark/tests              # full suite, 96 tests
+python3 -m unittest discover benchmark/tests/agents       # real-LLM harness, 10 tests
 python3 -m unittest discover benchmark/tests/emulated_agents
 python3 -m compileall -q benchmark
 python3 benchmark/benchctl.py --json tasks list --suite all_checked_in
-python3 benchmark/benchctl.py --json tasks list --suite standard --seed 1 --count 200
-python3 benchmark/benchctl.py --json run --suite all_checked_in --controller auto
-python3 benchmark/benchctl.py --json run --suite standard --controller auto --seed 1 --count 200</code></pre>
+python3 benchmark/benchctl.py --json run --suite all_checked_in --controller auto</code></pre>
 
   <h3>Remote workflow boundary</h3>
-  <p><code>remote sync</code> copies the local <code>benchmark/</code> tree to <code>&lt;remote.workspace&gt;/synced/benchmark/</code> with <code>rsync --delete</code>. It is an implementation utility for running the same simulated benchmark on a configured remote workstation. It does not turn a run into a live OCUDU/FlexRIC benchmark — live-runtime claims require a separate adapter with readiness, dispatch, artifact, cleanup, and oracle support. The remote runbook lives at <code>benchmark/remote_validation_runbook.md</code>.</p>
+  <p><code>remote sync</code> copies the local <code>benchmark/</code> tree to
+  <code>&lt;remote.workspace&gt;/synced/benchmark/</code> with <code>rsync --delete</code>.
+  It is an implementation utility for running the same simulated benchmark on a
+  configured remote workstation. It does not turn a run into a live OCUDU/FlexRIC
+  benchmark — live-runtime claims require a separate adapter with readiness, dispatch,
+  artifact, cleanup, and oracle support. The remote runbook lives at
+  <code>benchmark/remote_validation_runbook.md</code>.</p>
 
-  <h2 id="boundaries"><span class="num">10</span>Invariants to preserve</h2>
-  <p>Six properties hold across the harness. Changes that break any of them must update the relevant design record under <code>skillful-ran-research/benchmark_design/</code> before the code merges.</p>
-  <ol>
-    <li><strong>Redaction is positive, not negative.</strong> Observations and feedback are built from explicit allow-lists; a leak guard rejects any frame containing private field names. <code>M.variant</code> never enters the agent view.</li>
-    <li><strong>Allowed actions are anchored to selected APIs.</strong> <code>I.allowed_actions</code> ⊆ action types projected from <code>I.api_kinds</code>; manifest validation rejects violators.</li>
-    <li><strong>Expected payloads must be derivable from public sources.</strong> Conformance refuses to start a run whose <code>J.expected_action_fields</code> requires sources missing from <code>I.observation_sources</code>. Same for <code>J.expected_post_action_evidence</code>.</li>
-    <li><strong>Stimulus is fixed at expansion time.</strong> The agent's actions do not change the schedule. Step targeting is validated; only implemented drivers can appear.</li>
-    <li><strong>Finalize before score.</strong> Scoring refuses unfinalized trace packages. The order is: artifacts → cleanup → trace → score.</li>
-    <li><strong>Simulated runs cannot claim live runtime.</strong> <code>simulated_ocudu</code> is documented as such; live adapter work proves real OCUDU/FlexRIC/UE/core effects before the docs or benchmark widen the claim.</li>
+  <h2 id="invariants">12. Invariants to preserve</h2>
+  <p>Six properties hold across the harness. Changes that break any of them must update
+  the relevant design record under
+  <code>skillful-ran-research/benchmark_design/</code> before the code merges.</p>
+  <ol class="tight">
+    <li><b>Redaction is positive, not negative.</b> Observations and feedback are built from explicit allow-lists; a leak guard rejects any frame containing private field names. <code>M.variant</code> never enters the agent view.</li>
+    <li><b>Allowed actions are anchored to selected APIs.</b> <code>I.allowed_actions</code> ⊆ action types projected from <code>I.api_kinds</code>; manifest validation rejects violators.</li>
+    <li><b>Expected payloads must be derivable from public sources.</b> Conformance refuses to start a run whose <code>J.expected_action_fields</code> requires sources missing from <code>I.observation_sources</code>. Same for <code>J.expected_post_action_evidence</code>.</li>
+    <li><b>Stimulus is fixed at expansion time.</b> The agent's actions do not change the schedule. Step targeting is validated; only implemented drivers can appear.</li>
+    <li><b>Finalize before score.</b> Scoring refuses unfinalized trace packages. The order is: artifacts → cleanup → trace → score.</li>
+    <li><b>Simulated runs cannot claim live runtime.</b> <code>simulated_ocudu</code> is documented as such; live adapter work must prove real OCUDU/FlexRIC/UE/core effects before the docs or benchmark widen the claim.</li>
   </ol>
 
-  <footer>
-    <strong>Design references:</strong> &nbsp;
-    <a href="../../skillful-ran-research/benchmark_design/benchmark_design.md"><code>benchmark_design.md</code></a> &nbsp;·&nbsp;
-    <a href="../../skillful-ran-research/benchmark_design/benchmark_task_list.md"><code>benchmark_task_list.md</code></a> &nbsp;·&nbsp;
-    <a href="../../skillful-ran-research/benchmark_design/benchmark_stimulus_list.md"><code>benchmark_stimulus_list.md</code></a> &nbsp;·&nbsp;
-    <a href="../../skillful-ran-research/benchmark_design/benchmark_runtime_api_list.md"><code>benchmark_runtime_api_list.md</code></a> &nbsp;·&nbsp;
-    <a href="../../skillful-ran-research/benchmark_design/benchmark_sum_type_list.md"><code>benchmark_sum_type_list.md</code></a> &nbsp;·&nbsp;
-    <a href="../../skillful-ran-research/benchmark_design/benchmark_timeline.md"><code>benchmark_timeline.md</code></a> &nbsp;·&nbsp;
+  <h2>13. Scope and planned work</h2>
+  <h3>Scope today</h3>
+  <ul class="tight">
+    <li>Deterministic baselines (<code>auto</code>, <code>noop</code>, <code>fixed_prb</code>, …) operate the full checked-in surface end-to-end.</li>
+    <li>Real-LLM agents operate the full surface through one of the supported backends; first scored episode end-to-end has been demonstrated on a self-hosted vLLM instance with a small Qwen 2.5 model.</li>
+    <li>Runtime adapter is <code>simulated_ocudu</code> only. <b>Not yet wired:</b> live OCUDU/FlexRIC.</li>
+    <li>Comparison sweep (N models × M tasks) is not yet a single command; today it's an external loop around <code>agents/runner.py</code>.</li>
+  </ul>
+  <h3>Planned work</h3>
+  <ul class="tight">
+    <li><code>benchmark/agents/sweep.py</code> — model × task matrix runner that writes a consolidated <code>sweep_summary.json</code>.</li>
+    <li>Backend retry / exponential backoff on HTTP 4xx / 5xx and network errors — critical before a commercial-API sweep.</li>
+    <li>Per-model serving config in <code>models.json</code> (e.g. <code>max_tokens</code> for reasoning models, <code>gpu_memory_utilization</code> for concurrent serving).</li>
+    <li>Live OCUDU/FlexRIC adapter — same task contract, redaction, and scoring as <code>simulated_ocudu</code>; replaces only the runtime layer in §3.</li>
+  </ul>
+
+  <p class="key" style="margin-top:30px;">
+    <b>Design references</b> ·
+    <a href="../../skillful-ran-research/benchmark_design/benchmark_design.md"><code>benchmark_design.md</code></a> ·
+    <a href="../../skillful-ran-research/benchmark_design/benchmark_task_list.md"><code>benchmark_task_list.md</code></a> ·
+    <a href="../../skillful-ran-research/benchmark_design/benchmark_stimulus_list.md"><code>benchmark_stimulus_list.md</code></a> ·
+    <a href="../../skillful-ran-research/benchmark_design/benchmark_runtime_api_list.md"><code>benchmark_runtime_api_list.md</code></a> ·
+    <a href="../../skillful-ran-research/benchmark_design/benchmark_sum_type_list.md"><code>benchmark_sum_type_list.md</code></a> ·
+    <a href="../../skillful-ran-research/benchmark_design/benchmark_timeline.md"><code>benchmark_timeline.md</code></a> ·
     <a href="reference_index.md"><code>reference_index.md</code></a>
-  </footer>
+  </p>
+
+</div>
 </body>
 </html>
