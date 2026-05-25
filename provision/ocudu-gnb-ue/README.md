@@ -106,26 +106,36 @@ connects to `ws://127.0.0.1:8001/` to dispatch actions and read metrics.
 Set `E.runtime_adapter = "live_ocudu"` in a task manifest to route
 actions through this transport:
 
-| Action type | Routed live? | Notes |
+| Action type | Routed live? | Transport |
 |---|---|---|
-| `SET_PRB_POLICY_RATIO_WS` | ✅ via `rrm_policy_ratio_set` | tested 2026-05-25 |
-| `SET_SSB_BLOCK_POWER_WS` | ✅ via `ssb_set` | tested 2026-05-25 |
-| `TRIGGER_HANDOVER_CLI` | ❌ falls through to simulated | OCUDU `ho` is stdin-only |
-| `TRIGGER_CONDITIONAL_HANDOVER_CLI` | ❌ falls through to simulated | OCUDU `cho` is stdin-only |
-| `SET_CFO_CLI` | ❌ falls through to simulated | OCUDU `cfo` is stdin-only |
-| `SET_TX_TIME_OFFSET_CLI` | ❌ falls through to simulated | OCUDU `tx_time_offset` is stdin-only |
+| `SET_PRB_POLICY_RATIO_WS` | ✅ via `rrm_policy_ratio_set` | WebSocket port 8001 |
+| `SET_SSB_BLOCK_POWER_WS` | ✅ via `ssb_set` | WebSocket port 8001 |
+| `TRIGGER_HANDOVER_CLI` | ✅ via `ho <svp> <rnti> <tp> <pl> <tac>` | stdin FIFO (`/tmp/gnb_stdin`) |
+| `TRIGGER_CONDITIONAL_HANDOVER_CLI` | ✅ via `cho <svp> <rnti> <tp1> [...] [timeout <s>]` | stdin FIFO |
+| `SET_CFO_CLI` | ✅ via `cfo <sector> <hz>` | stdin FIFO |
+| `SET_TX_TIME_OFFSET_CLI` | ✅ via `tx_time_offset <sector> <us>` | stdin FIFO |
 
-OCUDU's remote_control WebSocket dispatcher only registers handlers for
-`rrm_policy_ratio_set`, `ssb_set`, `metrics_subscribe`,
-`metrics_unsubscribe`, `quit`. The four CLI commands live in
-`*_cmdline_commands.h` and would need a separate stdin / pseudo-TTY
-mechanism to wire live — noted as a follow-up.
+OCUDU's remote_control WebSocket only registers `rrm_policy_ratio_set`,
+`ssb_set`, `metrics_subscribe`, `metrics_unsubscribe`, `quit`. The four
+cmdline_command actions (`ho`, `cho`, `cfo`, `tx_time_offset`) live in
+`*_cmdline_commands.h` and are stdin-only.
+
+The compose wrapper enables a stdin path:
+`touch /tmp/gnb_stdin && stdbuf -oL tail -F /tmp/gnb_stdin | gnb -c <cfg>`.
+The adapter writes commands via `docker exec ocudu-gnb sh -c "echo '<line>' >> /tmp/gnb_stdin"`,
+then scans `docker logs` for `Invalid `/`Usage:` lines (success-silent
+commands are reported as accepted by default).
+
+Caveat: gnb's argument parsers are lenient on type errors (e.g.,
+`cfo abc xyz` coerces to `cfo 0 0` silently). The adapter can only
+detect failures gnb actually emits — well-formed but semantically
+wrong inputs may show as accepted.
 
 Metrics evidence reads use `live_ocudu.read_metrics(cfg, count=N)`.
 
 ## Not in this slice
 
-* Stdin / pseudo-TTY mechanism for the four CLI-only OCUDU commands
-* FlexRIC / E2 control
+* FlexRIC / E2 control (live_e2 adapter for `SET_PRB_POLICY_RATIO_CCC`,
+  `SET_PRB_POLICY_RATIO_RC_DU`, `E2_KPM` observation)
 * Multiple UEs, mobility, handover scenarios
 * Portable (Docker Hub) rebuilds of `ocudu/gnb` and `srsue`
