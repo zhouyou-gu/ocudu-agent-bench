@@ -92,3 +92,4 @@ e2:
   bind_addrs: 10.53.1.20
   e2sm_kpm_enabled: true
   e2sm_rc_enabled: true
+  e2sm_ccc_enabled: true
