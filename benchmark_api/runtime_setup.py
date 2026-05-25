@@ -24,6 +24,8 @@ class RuntimeHandle:
 
 
 SIMULATED_ADAPTER = "simulated_ocudu"
+LIVE_CORE_ADAPTER = "live_core"
+KNOWN_ADAPTERS = (SIMULATED_ADAPTER, LIVE_CORE_ADAPTER)
 
 
 def default_core_ue_registration() -> dict[str, Any]:
@@ -36,6 +38,27 @@ def default_core_ue_registration() -> dict[str, Any]:
         "sd": None,
         "auth_profile_id": "ue1_test_profile",
     }
+
+
+def _live_core_config_from_setup(setup: dict[str, Any]) -> "live_core.LiveCoreConfig":
+    """Build a LiveCoreConfig from a task `setup` dict's optional `live_core` block.
+
+    Recognized keys under setup["live_core"]:
+      compose_project (default "open5gs")
+      compose_file (default None — uses -p <project> only)
+      mongo_uri (default "mongodb://127.0.0.1:27017/")
+      mongo_db (default "open5gs")
+      timeout_s (default 10.0)
+    """
+    from benchmark.benchmark_api import live_core  # local import to keep module-load cheap
+    block = setup.get("live_core") or {}
+    return live_core.LiveCoreConfig(
+        compose_project=str(block.get("compose_project", "open5gs")),
+        compose_file=block.get("compose_file"),
+        mongo_uri=str(block.get("mongo_uri", "mongodb://127.0.0.1:27017/")),
+        mongo_db=str(block.get("mongo_db", "open5gs")),
+        timeout_s=float(block.get("timeout_s", 10.0)),
+    )
 
 
 def normalize_core_ue_registration(data: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -81,16 +104,66 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
     runtime = str(setup.get("runtime", "ocudu_zmq_open5gs"))
     runtime_adapter = str(setup.get("runtime_adapter", SIMULATED_ADAPTER))
     now = time.time()
-    ready = runtime_adapter == SIMULATED_ADAPTER
-    state = {
-        "backend": {
+
+    # --- adapter-specific readiness gate ---
+    if runtime_adapter == SIMULATED_ADAPTER:
+        ready = True
+        blocking_reason = None
+        live_core_state = None
+    elif runtime_adapter == LIVE_CORE_ADAPTER:
+        # Lazy import — live_core does subprocess + (lazy) pymongo at module load
+        from benchmark.benchmark_api import live_core
+        cfg = _live_core_config_from_setup(setup)
+        readiness_result = live_core.readiness(cfg)
+        ready = bool(readiness_result["ready"])
+        blocking_reason = (
+            None if ready
+            else "live_core readiness failed: " + ", ".join(readiness_result.get("failures", []))
+        )
+        if ready:
+            live_core_state = live_core.read_runtime(cfg)
+        else:
+            live_core_state = None
+    else:
+        ready = False
+        blocking_reason = f"runtime adapter is not available: {runtime_adapter}"
+        live_core_state = None
+
+    # --- backend capabilities ---
+    if runtime_adapter == LIVE_CORE_ADAPTER:
+        backend_block = {
+            "websocket": False,
+            "ocudu_cli": False,
+            "core_control": ready,
+            "json_metrics": False,
+            "e2_kpm": False,
+            "e2_control": False,
+        }
+    else:
+        backend_block = {
             "websocket": ready and "ocudu_websocket" in components,
             "ocudu_cli": ready and "ocudu_cli" in components,
             "core_control": ready and "open5gs" in components,
             "json_metrics": ready and "ocudu_websocket" in components,
             "e2_kpm": ready and "flexric" in components and "e2_kpm_decoder" in components,
             "e2_control": ready and "flexric" in components and "e2_control_xapp" in components,
-        },
+        }
+
+    # --- core_runtime state ---
+    if live_core_state is not None:
+        core_runtime_state = live_core_state
+    else:
+        core_runtime_state = {
+            "running": ready and "open5gs" in components,
+            "available_nfs": ["amf", "smf", "upf", "open5gs"],
+            "nf_status": {"amf": "running", "smf": "running", "upf": "running", "open5gs": "running"},
+            "restart_counts": {},
+            "last_restarted_nf": None,
+            "ue_registration": core_ue_registration_state(last_updated_by="runtime_setup"),
+        }
+
+    state = {
+        "backend": backend_block,
         "ping": {"packets_transmitted": 0, "packets_received": 0, "success_ratio": 0.0},
         "metrics": {"present": False, "stale": True, "sample_count": 0, "parse_errors": 0},
         "cell_identity": {"plmn": "00101", "nci": 6733824, "gnb_id": 411, "sector_id": 0},
@@ -140,14 +213,7 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
             "loss_rate": 0.0,
             "throughput_mbps": None,
         },
-        "core_runtime": {
-            "running": ready and "open5gs" in components,
-            "available_nfs": ["amf", "smf", "upf", "open5gs"],
-            "nf_status": {"amf": "running", "smf": "running", "upf": "running", "open5gs": "running"},
-            "restart_counts": {},
-            "last_restarted_nf": None,
-            "ue_registration": core_ue_registration_state(last_updated_by="runtime_setup"),
-        },
+        "core_runtime": core_runtime_state,
         "e2": {
             "enabled": ready and "flexric" in components,
             "kpm_indications": 3 if ready and "flexric" in components else 0,
@@ -167,10 +233,11 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
             "runtime": runtime,
             "runtime_adapter": runtime_adapter,
             "live_ocudu": False,
+            "live_core": runtime_adapter == LIVE_CORE_ADAPTER and ready,
             "components": list(components),
             "created_at": now,
             "site_config": setup.get("site_config", "local"),
-            "blocking_reason": None if ready else f"runtime adapter is not available: {runtime_adapter}",
+            "blocking_reason": blocking_reason,
         },
         cleanup_plan={
             "run_id": run_id,
@@ -182,5 +249,8 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
 
 
 def cleanup_runtime(runtime: RuntimeHandle) -> dict[str, Any]:
+    # NOTE: the live_core adapter intentionally does NOT bring the compose
+    # stack down. Operators manage the open5gs lifecycle externally; per-episode
+    # teardown would be wasteful (image pulls + UPF TUN setup take ~30s).
     runtime.closed = True
     return {"status": "ok", "run_id": runtime.run_id, "cleanup_completed_at": time.time()}
