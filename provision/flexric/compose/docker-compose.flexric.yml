@@ -39,16 +39,35 @@ services:
       # Custom ric.conf binds on 0.0.0.0 so the gNB (outside the container)
       # can reach the E2 listener.
       - ./configs/ric.conf:/usr/local/etc/flexric/flexric.conf:ro
-      # JSONL output dir for decoded OCUDU KPM v05 indications.
+      # Custom xApp ORAN-SM subscription config: only OCUDU-DU-advertised
+      # measurements (RRU.PrbAvail/Used/TotDl/Ul + a few DRB.*). The stock
+      # xapp_oran_sm.conf requests DRB.PdcpSduVolume[DL|UL] which are
+      # CU-UP measurements; we disable the CU-UP E2 agent so those don't
+      # show up and the subscription would fail (which would crash this
+      # FlexRIC build via an unimplemented failure-handler assertion).
+      - ./configs/xapp_oran_sm.conf:/etc/xapp/xapp_oran_sm.conf:ro
+      # JSONL output dir for decoded OCUDU KPM v05 indications. The RIC
+      # appends one JSON object per indication (the env var below makes
+      # the patched KPM decoder do this).
       - flexric-kpm:/var/log/flexric
     environment:
-      # The OCUDU KPM v05 decoder appends one JSON object per line to this
-      # path as KPM indications arrive. live_e2.read_kpm() tails this file.
       FLEXRIC_KPM_V05_JSONL: "/var/log/flexric/kpm.jsonl"
+    # Run the RIC + the monitor xApp together: start the RIC in the
+    # background, wait a few seconds for it to listen on the E42 port,
+    # then start the xApp which issues the KPM subscription that makes
+    # the gNB emit indications. wait keeps the container alive while
+    # either child is running.
     command:
-      - flexric-ric
+      - /bin/sh
       - -c
-      - /usr/local/etc/flexric/flexric.conf
+      - |
+        flexric-ric -c /usr/local/etc/flexric/flexric.conf > /tmp/ric.log 2>&1 &
+        RIC_PID=$$!
+        sleep 5
+        /usr/local/bin/flexric/xApp/c/xapp_oran_moni -c /etc/xapp/xapp_oran_sm.conf > /tmp/xapp.log 2>&1 &
+        XAPP_PID=$$!
+        echo "ric pid=$$RIC_PID, xapp pid=$$XAPP_PID"
+        wait
 
 volumes:
   flexric-kpm: {}
