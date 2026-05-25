@@ -76,10 +76,16 @@ metrics:
 # E2 agent → nearRT-RIC at 10.53.1.30:36421 (FlexRIC service on the same
 # open5gs_ran network). The live_e2 adapter reads decoded KPM v05
 # indications from the RIC container's /var/log/flexric/kpm.jsonl.
-# DU/CU-CP/CU-UP all advertised + KPM and RC service models enabled.
+#
+# Only CU-CP and DU E2 agents enabled. The CU-UP agent's E2 SETUP carries
+# an E2_NODE_COMP_ID with E1 interface type, which the FlexRIC build at
+# skillful-ran/flexric-bench:br-flexric-1a3903a7-kpm-v5-ocudu-26_04
+# asserts against (only NG_E2AP_NODE_COMP_INTERFACE_TYPE +
+# F1_E2AP_NODE_COMP_INTERFACE_TYPE are supported). Leaving CU-UP E2
+# disabled keeps the RIC stable; KPM and RC are CU-CP/DU concerns anyway.
 e2:
   enable_cu_cp_e2: true
-  enable_cu_up_e2: true
+  enable_cu_up_e2: false
   enable_du_e2: true
   addrs: 10.53.1.30
   port: 36421
