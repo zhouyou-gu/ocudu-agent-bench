@@ -21,7 +21,7 @@ import json
 import re
 from typing import Any
 
-from benchmark.agents.action_schemas import cheatsheet_for
+from agents.action_schemas import cheatsheet_for
 
 
 SYSTEM_PREAMBLE = """You are a control agent operating an OCUDU 5G radio testbed.

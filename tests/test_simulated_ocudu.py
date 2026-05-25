@@ -1,11 +1,11 @@
 import unittest
 
-from benchmark.benchmark_api.action import handle_agent_decision
-from benchmark.benchmark_api.controller import BaselineController
-from benchmark.benchmark_api.episode import EpisodeConfig, run_episode
-from benchmark.benchmark_api.runtime_setup import instantiate_runtime
-from benchmark.benchmark_api.stimulus import apply_pre_observation, expand_stimulus_plan
-from benchmark.tests.task_helpers import load_checked_in_task as load_task
+from benchmark_api.action import handle_agent_decision
+from benchmark_api.controller import BaselineController
+from benchmark_api.episode import EpisodeConfig, run_episode
+from benchmark_api.runtime_setup import instantiate_runtime
+from benchmark_api.stimulus import apply_pre_observation, expand_stimulus_plan
+from tests.task_helpers import load_checked_in_task as load_task
 
 
 class SimulatedOcuduTransitionTests(unittest.TestCase):

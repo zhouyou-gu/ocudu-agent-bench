@@ -50,7 +50,7 @@ def _live_ocudu_config_from_setup(setup: dict[str, Any]) -> "live_ocudu.LiveOcud
       connect_timeout_s (default 5.0)
       recv_timeout_s (default 3.0)
     """
-    from benchmark.benchmark_api import live_ocudu  # local import to keep module-load cheap
+    from benchmark_api import live_ocudu  # local import to keep module-load cheap
     block = setup.get("live_ocudu") or {}
     return live_ocudu.LiveOcuduConfig(
         ws_url=str(block.get("ws_url", "ws://127.0.0.1:8001/")),
@@ -69,7 +69,7 @@ def _live_core_config_from_setup(setup: dict[str, Any]) -> "live_core.LiveCoreCo
       mongo_db (default "open5gs")
       timeout_s (default 30.0)
     """
-    from benchmark.benchmark_api import live_core  # local import to keep module-load cheap
+    from benchmark_api import live_core  # local import to keep module-load cheap
     block = setup.get("live_core") or {}
     return live_core.LiveCoreConfig(
         compose_project=str(block.get("compose_project", "open5gs")),
@@ -95,7 +95,7 @@ def _live_e2_config_from_setup(setup: dict[str, Any]) -> "live_e2.LiveE2Config":
       ccc_xapp_conf (default "/etc/xapp/xapp_oran_sm.conf")
       ccc_xapp_timeout_s (default 30.0)
     """
-    from benchmark.benchmark_api import live_e2  # local import to keep module-load cheap
+    from benchmark_api import live_e2  # local import to keep module-load cheap
     block = setup.get("live_e2") or {}
     return live_e2.LiveE2Config(
         container_name=str(block.get("container_name", "flexric-ric")),
@@ -169,7 +169,7 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
         live_ocudu_ready = False
     elif runtime_adapter == LIVE_CORE_ADAPTER:
         # Lazy import — live_core does subprocess + (lazy) pymongo at module load
-        from benchmark.benchmark_api import live_core
+        from benchmark_api import live_core
         cfg = _live_core_config_from_setup(setup)
         readiness_result = live_core.readiness(cfg)
         ready = bool(readiness_result["ready"])
@@ -183,7 +183,7 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
             live_core_state = None
         live_ocudu_ready = False
     elif runtime_adapter == LIVE_OCUDU_ADAPTER:
-        from benchmark.benchmark_api import live_ocudu
+        from benchmark_api import live_ocudu
         cfg = _live_ocudu_config_from_setup(setup)
         readiness_result = live_ocudu.readiness(cfg)
         ready = bool(readiness_result["ready"])
@@ -194,7 +194,7 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
         live_core_state = None       # live_ocudu has no core_runtime contribution
         live_ocudu_ready = ready
     elif runtime_adapter == LIVE_E2_ADAPTER:
-        from benchmark.benchmark_api import live_e2
+        from benchmark_api import live_e2
         cfg = _live_e2_config_from_setup(setup)
         readiness_result = live_e2.readiness(cfg)
         ready = bool(readiness_result["ready"])

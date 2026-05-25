@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from benchmark.benchmark_api.episode import EpisodeConfig, run_episode
-from benchmark.benchmark_api.suite import aggregate_summaries
-from benchmark.benchmark_api.task_catalog import load_tasks_for_suite
+from benchmark_api.episode import EpisodeConfig, run_episode
+from benchmark_api.suite import aggregate_summaries
+from benchmark_api.task_catalog import load_tasks_for_suite
 
 
 NO_ACTION_TASKS = {

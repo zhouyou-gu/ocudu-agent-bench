@@ -11,9 +11,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from benchmark.benchmark_api.controller import BaselineController
-from benchmark.benchmark_api.task_definition import PrivateTask
-from benchmark.benchmark_api.types import RanActionType
+from benchmark_api.controller import BaselineController
+from benchmark_api.task_definition import PrivateTask
+from benchmark_api.types import RanActionType
 
 
 PROFILE_NAMES = (

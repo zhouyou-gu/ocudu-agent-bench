@@ -6,8 +6,8 @@ import sys
 import unittest
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-SEED_DIR = REPO_ROOT / "benchmark" / "provision" / "open5gs-core" / "compose" / "seed"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SEED_DIR = REPO_ROOT / "provision" / "open5gs-core" / "compose" / "seed"
 if str(SEED_DIR) not in sys.path:
     sys.path.insert(0, str(SEED_DIR))
 

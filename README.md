@@ -1,8 +1,7 @@
 # OCUDUAgentBench
 
-`benchmark/` is the executable harness for the design in
-`skillful-ran-research/benchmark_design/`. It is organized around the task
-contract:
+Executable benchmark harness for evaluating LLM agents on a 5G O-RAN OCUDU
+runtime. Organized around the task contract:
 
 ```text
 T = <G, E, U, I, J>
@@ -22,60 +21,130 @@ The benchmark controls runtime setup and stimulus. The agent sees only the
 redacted task view, selected RAN APIs, observations, accepted action schema, and
 redacted feedback.
 
-Benchmark-private stimulus drivers and task-selected runtime APIs are documented
-in `skillful-ran-research/benchmark_design/benchmark_stimulus_list.md` and
-`skillful-ran-research/benchmark_design/benchmark_runtime_api_list.md`.
+## Repository Layout
 
-## Documentation Boundary
+```
+.
+├── benchctl.py              # CLI entry point
+├── benchmark_api/           # core harness modules (runtime adapters, scoring, types)
+├── agents/                  # real-LLM agent harness + multi-model sweep tooling
+├── conformance/             # readiness checks + redacted-view validators
+├── task_sets/               # checked-in + generated task manifests
+├── provision/               # docker compose stacks (open5gs core, OCUDU gNB+UE, FlexRIC)
+├── schemas/                 # JSON schemas for task manifests + traces
+├── tests/                   # 342 unit tests
+└── docs/
+    ├── benchmark-doc.html   # operational reference
+    ├── design/              # authoritative design specs
+    │   ├── benchmark_design.md
+    │   ├── benchmark_task_list.md
+    │   ├── benchmark_stimulus_list.md
+    │   ├── benchmark_runtime_api_list.md
+    │   ├── benchmark_sum_type_list.md
+    │   └── benchmark_timeline.md
+    ├── plans/               # implementation plans
+    ├── specs/               # implementation specs
+    └── reference_index.md   # pointer to off-tree reference cache
+```
 
-This README is the short operational entry point for the executable harness:
-task-set layout, common commands, and remote sync basics. Detailed implementation
-mechanics live in `benchmark/docs/benchmark-doc.html`. The broader design
-authority remains under `skillful-ran-research/benchmark_design/`.
+The runtime workspace at `.benchmark-workspace/` (gitignored) holds external
+reference clones, build contexts, and per-run artifacts.
 
-Downloaded benchmark-design reference code, papers, and reports are kept out of
-git under `.benchmark-workspace/external/benchmark-references/`; the tracked
-index is `benchmark/docs/reference_index.md`.
+## Task Surface
 
-The current simulated task surface is organized under `benchmark/task_sets/`:
+`task_sets/` contains the simulated task surface:
 
-- `base`: 25 primary checked-in tasks under `benchmark/task_sets/base/<family>/`.
-- `regression`: 1 harness regression task under `benchmark/task_sets/regression/`.
+- `base`: 25 primary checked-in tasks under `task_sets/base/<family>/`.
+- `regression`: 1 harness regression task under `task_sets/regression/`.
 - `compound`: 8 checked-in latent-cause diagnosis tasks under
-  `benchmark/task_sets/compound/<family>/`.
+  `task_sets/compound/<family>/`.
 - `all_checked_in`: aggregate view over `base`, `regression`, and `compound`.
 - `generated` / `standard` / `diagnostic` / `stress`: deterministic in-memory
-  single-anchor variants from `benchmark/task_sets/generated/axis_registry.json`
-  and `suite_policies.json`.
+  single-anchor variants from `task_sets/generated/axis_registry.json` and
+  `suite_policies.json`.
 
 Generated task IDs are opaque (`generated_sNNNN_hash_v1`). Axis names, sampled
 values, and expected failure modes stay in private metadata and scored-summary
 provenance so they do not leak into agent observations or feedback.
 
-The current local task manifests declare `E.runtime_adapter =
-simulated_ocudu`. This is an explicit executable adapter for local harness tests,
-not a claim that a remote OCUDU/FlexRIC deployment is running. It applies
-deterministic simulated state transitions so accepted actions can be reflected in
-later redacted observations. A task that declares an unavailable live adapter
-fails conformance readiness before scored interaction.
+## Runtime Adapters
 
-## Entry Points
+Task manifests pick a `runtime_adapter`:
 
-- `benchmark/benchctl.py --json tasks list --suite all_checked_in`
-- `benchmark/benchctl.py --json tasks list --suite standard --seed 1 --count 200`
-- `benchmark/benchctl.py --json episode run --task base_prb_slice_congestion_rebalance_v1 --controller auto`
-- `benchmark/benchctl.py --json run --task base_prb_slice_congestion_rebalance_v1 --controller auto --runs 2`
-- `benchmark/benchctl.py --json run --suite compound --controller auto`
-- `benchmark/benchctl.py --json run --suite standard --controller auto --seed 1 --count 200`
-- `benchmark/benchctl.py --json remote check --config .config`
-- `benchmark/benchctl.py --json remote sync --config .config --dry-run`
+| Adapter | What it dispatches against |
+|---|---|
+| `simulated_ocudu` (default) | Closed-loop simulator in `benchmark_api/simulated_ocudu.py`. No containers required. |
+| `live_core` | Real open5gs split-NF stack (`provision/open5gs-core/`). `RESTART_CORE_NF` + `UPDATE_CORE_UE_REGISTRATION`. |
+| `live_ocudu` | Real OCUDU gNB (`provision/ocudu-gnb-ue/`). WS-backed PRB/SSB + stdin-CLI handover/CFO/TX-time. |
+| `live_e2` | FlexRIC stack (`provision/flexric/`). E2 KPM v05 observation + E2 control (RC-DU + CCC) via OCUDU-specific xApps. |
+
+A task that declares an unavailable live adapter fails conformance readiness
+before scored interaction.
+
+## Common Commands
+
+```bash
+# Tests
+python3 -m unittest discover tests                       # 342 tests
+python3 -m unittest discover tests/agents                # LLM-harness only
+python3 -m compileall -q .                               # quick syntax check
+
+# Simulated controller (no LLM, no containers)
+python3 benchctl.py --json tasks list --suite all_checked_in
+python3 benchctl.py --json run --suite all_checked_in --controller auto
+
+# Single real-LLM episode (assumes vLLM tunnel at 127.0.0.1:8000)
+python3 agents/runner.py --provider custom \
+    --base-url http://127.0.0.1:8000/v1 \
+    --model qwen2.5-1.5b \
+    --task base_prb_slice_congestion_rebalance_v1 \
+    --decision-deadline-s 30
+
+# Multi-model real-LLM sweep
+python3 agents/sweep.py \
+    --model tier:tiny --model tier:small \
+    --suite all_checked_in --suite standard \
+    --output-dir <output-dir> \
+    --decision-deadline-s 5 --ready-timeout-s 3600
+python3 agents/sweep_status.py --output-dir <output-dir>
+
+# Remote sync (for distributed validation)
+python3 benchctl.py --json remote check --config .config
+python3 benchctl.py --json remote sync --config .config --dry-run
+```
 
 `controller.py` owns repeated-run execution. `suite.py` aggregates completed
-scored summaries only.
+scored summaries only. When `--output-dir` is provided, each episode writes a
+private trace package and a scored-summary sidecar after trace finalization.
 
-When `--output-dir` is provided, each episode writes a private trace package
-and a scored-summary sidecar after trace finalization.
+`remote sync` copies the local repo into `<remote.workspace>/synced/benchmark/`
+with `rsync --delete`. Both section-style and `key=value` `.config` formats are
+supported.
 
-`remote sync` copies the local `benchmark/` tree to
-`<remote.workspace>/synced/benchmark/` with `rsync --delete`. It supports the
-existing section-style `.config` format and the newer `key=value` format.
+## Live Stack Bringup
+
+Each `provision/` subdirectory has its own README with bringup/teardown and
+sharp edges. Quick order for a full live stack (open5gs core → FlexRIC → OCUDU
+gNB + srsUE):
+
+```bash
+docker compose -f provision/open5gs-aio/compose/docker-compose.open5gs-aio.yml up -d
+bash provision/open5gs-aio/tests/check_aio_ready.sh
+
+docker compose -f provision/flexric/compose/docker-compose.flexric.yml up -d
+
+docker compose -f provision/ocudu-gnb-ue/compose/docker-compose.gnb-ue.yml up -d
+bash provision/ocudu-gnb-ue/tests/check_attach_ping.sh
+```
+
+See `provision/<stack>/README.md` for image dependencies and the corresponding
+adapter at `benchmark_api/live_{core,ocudu,e2}.py`.
+
+## Documentation
+
+- `docs/benchmark-doc.html` — operational reference for the executable harness.
+- `docs/design/` — authoritative design specs (task contract, stimulus drivers,
+  runtime API surface, closed sum-type catalog, timeline).
+- `docs/plans/` and `docs/specs/` — per-feature implementation records.
+- `docs/reference_index.md` — pointer to the off-tree reference cache under
+  `.benchmark-workspace/external/`.

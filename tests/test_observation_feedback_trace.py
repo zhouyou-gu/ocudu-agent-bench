@@ -2,12 +2,12 @@ import unittest
 import tempfile
 from pathlib import Path
 
-from benchmark.benchmark_api.action import handle_agent_decision
-from benchmark.benchmark_api.feedback import build_feedback
-from benchmark.benchmark_api.observation import build_observation
-from benchmark.benchmark_api.runtime_setup import instantiate_runtime
-from benchmark.tests.task_helpers import load_checked_in_task as load_task
-from benchmark.benchmark_api.trace import TraceRecorder
+from benchmark_api.action import handle_agent_decision
+from benchmark_api.feedback import build_feedback
+from benchmark_api.observation import build_observation
+from benchmark_api.runtime_setup import instantiate_runtime
+from tests.task_helpers import load_checked_in_task as load_task
+from benchmark_api.trace import TraceRecorder
 
 
 class ObservationFeedbackTraceTests(unittest.TestCase):

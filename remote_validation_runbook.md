@@ -15,7 +15,7 @@ This file owns:
 This file does not own:
 
 - Agent-facing API names, payload fields, and raw OCUDU/FlexRIC command inventory. Those belong in
-  `skillful-ran-research/benchmark_design/benchmark_runtime_api_list.md`.
+  `docs/design/benchmark_runtime_api_list.md`.
 - Task scoring, trace partitioning, or stimulus scheduling.
 
 ## Config Contract

@@ -7,8 +7,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from benchmark.benchmark_api.runtime_setup import RuntimeHandle, core_ue_registration_state
-from benchmark.benchmark_api.types import (
+from benchmark_api.runtime_setup import RuntimeHandle, core_ue_registration_state
+from benchmark_api.types import (
     ClockMode,
     IMPLEMENTED_STIMULUS_DRIVERS,
     StimulusDriverKind,

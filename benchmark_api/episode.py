@@ -8,17 +8,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from benchmark.benchmark_api.action import handle_agent_decision
-from benchmark.benchmark_api.agent_api_wrapper import AgentApiWrapper
-from benchmark.benchmark_api.conformance import run_readiness_checks
-from benchmark.benchmark_api.feedback import build_feedback
-from benchmark.benchmark_api.observation import build_observation
-from benchmark.benchmark_api.runtime_setup import cleanup_runtime, instantiate_runtime
-from benchmark.benchmark_api.scoring import score_episode
-from benchmark.benchmark_api.stimulus import apply_pre_observation, expand_stimulus_plan, finish_in_step, start_in_step
-from benchmark.benchmark_api.task_catalog import load_task_for_suite
-from benchmark.benchmark_api.task_definition import agent_visible_task, task_provenance
-from benchmark.benchmark_api.trace import TraceRecorder
+from benchmark_api.action import handle_agent_decision
+from benchmark_api.agent_api_wrapper import AgentApiWrapper
+from benchmark_api.conformance import run_readiness_checks
+from benchmark_api.feedback import build_feedback
+from benchmark_api.observation import build_observation
+from benchmark_api.runtime_setup import cleanup_runtime, instantiate_runtime
+from benchmark_api.scoring import score_episode
+from benchmark_api.stimulus import apply_pre_observation, expand_stimulus_plan, finish_in_step, start_in_step
+from benchmark_api.task_catalog import load_task_for_suite
+from benchmark_api.task_definition import agent_visible_task, task_provenance
+from benchmark_api.trace import TraceRecorder
 
 
 @dataclass(frozen=True)

@@ -6,10 +6,10 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from benchmark.benchmark_api.api_catalog import descriptor_for_action, validate_api_selection
-from benchmark.benchmark_api.runtime_setup import RuntimeHandle, LIVE_CORE_ADAPTER, LIVE_OCUDU_ADAPTER, LIVE_E2_ADAPTER
-from benchmark.benchmark_api.simulated_ocudu import apply_simulated_action
-from benchmark.benchmark_api.types import RanActionType, RanObservationSource, SafeErrorClass
+from benchmark_api.api_catalog import descriptor_for_action, validate_api_selection
+from benchmark_api.runtime_setup import RuntimeHandle, LIVE_CORE_ADAPTER, LIVE_OCUDU_ADAPTER, LIVE_E2_ADAPTER
+from benchmark_api.simulated_ocudu import apply_simulated_action
+from benchmark_api.types import RanActionType, RanObservationSource, SafeErrorClass
 
 
 @dataclass(frozen=True)
@@ -63,7 +63,7 @@ def read_evidence(
         e2_state = state.get("e2", {})
         if runtime.runtime_adapter == LIVE_E2_ADAPTER:
             try:
-                from benchmark.benchmark_api import live_e2
+                from benchmark_api import live_e2
                 cfg = _live_e2_cfg_from_runtime(runtime)
                 records = live_e2.read_kpm(cfg, count=5)
                 latest_meas: dict[str, Any] = {}
@@ -343,7 +343,7 @@ def _live_ocudu_cfg_from_runtime(runtime: RuntimeHandle) -> "live_ocudu.LiveOcud
     _live_core_cfg_from_runtime: reads runtime.state['live_ocudu_cfg'] if
     present, else defaults. (Non-default plumbing through RuntimeHandle is
     a follow-up.)"""
-    from benchmark.benchmark_api import live_ocudu
+    from benchmark_api import live_ocudu
     block = runtime.state.get("live_ocudu_cfg") or {}
     return live_ocudu.LiveOcuduConfig(
         ws_url=str(block.get("ws_url", "ws://127.0.0.1:8001/")),
@@ -360,7 +360,7 @@ def _live_e2_cfg_from_runtime(runtime: RuntimeHandle) -> "live_e2.LiveE2Config":
     """Build a LiveE2Config from a RuntimeHandle. Reads runtime.state['live_e2_cfg']
     if present, else uses defaults. Non-default plumbing through RuntimeHandle is
     the same follow-up flagged for live_core and live_ocudu."""
-    from benchmark.benchmark_api import live_e2
+    from benchmark_api import live_e2
     block = runtime.state.get("live_e2_cfg") or {}
     return live_e2.LiveE2Config(
         container_name=str(block.get("container_name", "flexric-ric")),
@@ -395,7 +395,7 @@ def _dispatch_live_ocudu_action(
 
     Catches live_ocudu.LiveOcuduError -> RUNTIME_UNAVAILABLE. Other unexpected
     exceptions propagate."""
-    from benchmark.benchmark_api import live_ocudu
+    from benchmark_api import live_ocudu
     cfg = _live_ocudu_cfg_from_runtime(runtime)
     request = build_request(action_type, action)
     try:
@@ -438,7 +438,7 @@ def _dispatch_live_ocudu_cli_action(
 
     LiveOcuduError -> RUNTIME_UNAVAILABLE. Other exceptions propagate.
     """
-    from benchmark.benchmark_api import live_ocudu
+    from benchmark_api import live_ocudu
     cfg = _live_ocudu_cfg_from_runtime(runtime)
     request = build_request(action_type, action)
     try:
@@ -473,7 +473,7 @@ def _live_core_cfg_from_runtime(runtime: RuntimeHandle) -> "live_core.LiveCoreCo
     Non-default cfg values (compose_project / compose_file / mongo_uri overrides
     from task setup) are not currently threaded through RuntimeHandle.setup_metadata
     — that plumbing is a follow-up task."""
-    from benchmark.benchmark_api import live_core
+    from benchmark_api import live_core
     block = runtime.state.get("live_core_cfg") or {}
     return live_core.LiveCoreConfig(
         compose_project=str(block.get("compose_project", "open5gs")),
@@ -486,7 +486,7 @@ def _live_core_cfg_from_runtime(runtime: RuntimeHandle) -> "live_core.LiveCoreCo
 
 def _refresh_live_core_runtime(runtime: RuntimeHandle) -> dict[str, Any]:
     """Re-read live core state. Raises any underlying exception to the caller."""
-    from benchmark.benchmark_api import live_core
+    from benchmark_api import live_core
     return live_core.read_runtime(_live_core_cfg_from_runtime(runtime))
 
 
@@ -504,7 +504,7 @@ def _dispatch_live_core_action(
     (restart_counts, last_restarted_nf, ue_registration). Catches
     live_core.LiveCoreError and returns a safe DispatchResult with
     RUNTIME_UNAVAILABLE. Other unexpected exceptions propagate."""
-    from benchmark.benchmark_api import live_core
+    from benchmark_api import live_core
     cfg = _live_core_cfg_from_runtime(runtime)
     completed_at_s_now = time.time
     request = build_request(action_type, action)
@@ -530,7 +530,7 @@ def _dispatch_live_core_action(
             }
             result = live_core.upsert_subscriber(cfg, registration)
             core_state = runtime.state.setdefault("core_runtime", {})
-            from benchmark.benchmark_api.runtime_setup import core_ue_registration_state
+            from benchmark_api.runtime_setup import core_ue_registration_state
             new_state = core_ue_registration_state(
                 desired=registration,
                 current=registration,  # write-through; we just upserted
@@ -579,7 +579,7 @@ def _dispatch_live_e2_rc_du_action(
       - accepted=false -> dispatched=True, accepted=False, RUNTIME_UNAVAILABLE
     LiveE2Error -> dispatched=True, accepted=False, RUNTIME_UNAVAILABLE.
     """
-    from benchmark.benchmark_api import live_e2
+    from benchmark_api import live_e2
     cfg = _live_e2_cfg_from_runtime(runtime)
     request = build_request(action_type, action)
     try:
@@ -647,7 +647,7 @@ def _dispatch_live_e2_ccc_action(
       - xApp accepted=false -> dispatched=True, accepted=False, RUNTIME_UNAVAILABLE
     LiveE2Error -> dispatched=True, accepted=False, RUNTIME_UNAVAILABLE.
     """
-    from benchmark.benchmark_api import live_e2
+    from benchmark_api import live_e2
     cfg = _live_e2_cfg_from_runtime(runtime)
     request = build_request(action_type, action)
     try:

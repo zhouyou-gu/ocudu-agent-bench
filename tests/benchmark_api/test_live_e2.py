@@ -1,4 +1,4 @@
-"""Unit tests for benchmark.benchmark_api.live_e2.
+"""Unit tests for benchmark_api.live_e2.
 
 All subprocess I/O is mocked — no docker or FlexRIC container required.
 """
@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch, call
 from typing import Any
 
-from benchmark.benchmark_api.live_e2 import (
+from benchmark_api.live_e2 import (
     LiveE2Config,
     LiveE2Error,
     _run_subprocess,
@@ -100,7 +100,7 @@ class RunSubprocessTests(unittest.TestCase):
 class ReadinessAllGreenTests(unittest.TestCase):
     """readiness returns ready=True when container is up and JSONL has records."""
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_ready_true_all_checks_pass(self, mock_run):
         """All checks pass → ready=True, failures empty."""
         def _side(argv, **kw):
@@ -116,7 +116,7 @@ class ReadinessAllGreenTests(unittest.TestCase):
         self.assertEqual(result["checks"]["record_count"], 5)
         self.assertTrue(result["checks"]["jsonl_has_records"])
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_record_count_populated(self, mock_run):
         """record_count is set from wc -l output."""
         def _side(argv, **kw):
@@ -133,7 +133,7 @@ class ReadinessAllGreenTests(unittest.TestCase):
 class ReadinessContainerNotRunningTests(unittest.TestCase):
     """readiness returns ready=False when docker inspect shows not running."""
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_container_not_running_ready_false(self, mock_run):
         """docker inspect returns 'false' → container_running=False, ready=False."""
         def _side(argv, **kw):
@@ -150,7 +150,7 @@ class ReadinessContainerNotRunningTests(unittest.TestCase):
         failure_str = " ".join(result["failures"])
         self.assertIn("container_running", failure_str)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_inspect_nonzero_exit_marks_container_not_running(self, mock_run):
         """docker inspect exits non-zero → container_running=False."""
         def _side(argv, **kw):
@@ -166,7 +166,7 @@ class ReadinessContainerNotRunningTests(unittest.TestCase):
 class ReadinessJsonlMissingTests(unittest.TestCase):
     """readiness returns ready=False when JSONL file doesn't exist."""
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_wc_nonzero_jsonl_missing(self, mock_run):
         """wc -l fails → jsonl_exists=False, ready=False."""
         def _side(argv, **kw):
@@ -186,7 +186,7 @@ class ReadinessJsonlMissingTests(unittest.TestCase):
 class ReadinessJsonlEmptyTests(unittest.TestCase):
     """readiness returns ready=False when JSONL has 0 records."""
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_zero_records_jsonl_has_records_false(self, mock_run):
         """wc -l returns 0 → jsonl_exists=True but jsonl_has_records=False."""
         def _side(argv, **kw):
@@ -206,7 +206,7 @@ class ReadinessJsonlEmptyTests(unittest.TestCase):
 class ReadinessDoesNotRaiseTests(unittest.TestCase):
     """readiness never raises, even on unexpected exceptions."""
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_readiness_does_not_raise_on_all_failures(self, mock_run):
         """Even if all subprocess calls fail, readiness returns a dict, not an exception."""
         mock_run.side_effect = LiveE2Error("docker not found")
@@ -225,7 +225,7 @@ class ReadinessDoesNotRaiseTests(unittest.TestCase):
 class ReadKpmHappyPathTests(unittest.TestCase):
     """read_kpm returns parsed KPM records."""
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_three_records_returned(self, mock_run):
         """3 valid JSONL lines → list of 3 dicts."""
         r1 = _make_kpm_record("RRU.PrbAvailDl", 106)
@@ -236,7 +236,7 @@ class ReadKpmHappyPathTests(unittest.TestCase):
         self.assertEqual(len(records), 3)
         self.assertEqual(records[0]["measurements"][0]["name"], "RRU.PrbAvailDl")
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_fewer_records_than_count_returns_all(self, mock_run):
         """count=10 requested but only 3 in file → 3 returned."""
         r1 = _make_kpm_record()
@@ -246,7 +246,7 @@ class ReadKpmHappyPathTests(unittest.TestCase):
         records = read_kpm(_DEFAULT_CFG, count=10)
         self.assertEqual(len(records), 3)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_malformed_line_is_skipped(self, mock_run):
         """One malformed JSON line is silently skipped; others are returned."""
         r1 = _make_kpm_record("RRU.PrbAvailDl", 106)
@@ -256,7 +256,7 @@ class ReadKpmHappyPathTests(unittest.TestCase):
         records = read_kpm(_DEFAULT_CFG, count=5)
         self.assertEqual(len(records), 2)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_empty_file_returns_empty_list(self, mock_run):
         """If tail returns empty output, read_kpm returns []."""
         mock_run.return_value = (0, "", "")
@@ -267,7 +267,7 @@ class ReadKpmHappyPathTests(unittest.TestCase):
 class ReadKpmDockerExecFailsTests(unittest.TestCase):
     """read_kpm raises LiveE2Error when docker exec fails."""
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_nonzero_exit_raises_live_e2_error(self, mock_run):
         """docker exec tail exits non-zero → LiveE2Error."""
         mock_run.return_value = (1, "", "Error: No such container: flexric-ric")
@@ -275,7 +275,7 @@ class ReadKpmDockerExecFailsTests(unittest.TestCase):
             read_kpm(_DEFAULT_CFG, count=5)
         self.assertIn("tail failed", ctx.exception.safe_message)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_subprocess_live_e2_error_propagates(self, mock_run):
         """LiveE2Error from _run_subprocess propagates out of read_kpm."""
         mock_run.side_effect = LiveE2Error("subprocess timed out")
@@ -290,7 +290,7 @@ class ReadKpmDockerExecFailsTests(unittest.TestCase):
 class LatestKpmMeasurementsTests(unittest.TestCase):
     """latest_kpm_measurements returns flattened {name: value} from last record."""
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_returns_flattened_measurements(self, mock_run):
         """3 records: last record's measurements are returned as flat dict."""
         r1 = {
@@ -311,14 +311,14 @@ class LatestKpmMeasurementsTests(unittest.TestCase):
         self.assertEqual(result["RRU.PrbUsedDl"], 10)
         self.assertEqual(result["RRU.PrbTotDl"], 5)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_empty_file_returns_none(self, mock_run):
         """If read_kpm returns [], latest_kpm_measurements returns None."""
         mock_run.return_value = (0, "", "")
         result = latest_kpm_measurements(_DEFAULT_CFG)
         self.assertIsNone(result)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_docker_exec_fails_raises_live_e2_error(self, mock_run):
         """LiveE2Error from read_kpm propagates out of latest_kpm_measurements."""
         mock_run.return_value = (1, "", "Error: No such container: flexric-ric")
@@ -333,7 +333,7 @@ class LatestKpmMeasurementsTests(unittest.TestCase):
 class CommandConstructionTests(unittest.TestCase):
     """readiness and read_kpm invoke the correct docker commands."""
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_readiness_invokes_docker_inspect_and_wc(self, mock_run):
         """readiness calls docker inspect ... and docker exec ... wc -l ..."""
         def _side(argv, **kw):
@@ -354,7 +354,7 @@ class CommandConstructionTests(unittest.TestCase):
         self.assertIn("-l", wc_call)
         self.assertIn("/var/log/flexric/kpm.jsonl", wc_call)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_read_kpm_invokes_docker_exec_tail(self, mock_run):
         """read_kpm calls docker exec <container> tail -n <count> <path>."""
         mock_run.return_value = (0, "", "")
@@ -399,7 +399,7 @@ _FAILURE_JSON = json.dumps({
 class LiveE2DispatchRcDuTests(unittest.TestCase):
     """dispatch_rc_du_prb_policy: happy path, failure path, error handling, argv."""
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_happy_path_returns_accepted_true(self, mock_run):
         """Success JSON → result["accepted"] is True."""
         mock_run.return_value = (0, _SUCCESS_JSON + "\n", "")
@@ -408,7 +408,7 @@ class LiveE2DispatchRcDuTests(unittest.TestCase):
         self.assertEqual(result["action_type"], "SET_PRB_POLICY_RATIO_RC_DU")
         self.assertEqual(result["outcome"]["evidence"], "OCUDU E2SM-RC control acknowledged")
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_failure_path_returns_accepted_false(self, mock_run):
         """Failure JSON → result["accepted"] is False, result["error"] present."""
         mock_run.return_value = (4, _FAILURE_JSON + "\n", "")
@@ -417,7 +417,7 @@ class LiveE2DispatchRcDuTests(unittest.TestCase):
         self.assertIn("error", result)
         self.assertIn("du_ue_id", result["error"])
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_subprocess_timeout_propagates(self, mock_run):
         """LiveE2Error from _run_subprocess (timeout) propagates out."""
         mock_run.side_effect = LiveE2Error("subprocess timed out: docker exec flexric-ric ...")
@@ -425,7 +425,7 @@ class LiveE2DispatchRcDuTests(unittest.TestCase):
             dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0)
         self.assertIn("timed out", ctx.exception.safe_message)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_no_json_line_in_output_raises(self, mock_run):
         """No line starting with '{' → LiveE2Error with 'no JSON line'."""
         mock_run.return_value = (1, "Error response from daemon: No such container", "")
@@ -433,7 +433,7 @@ class LiveE2DispatchRcDuTests(unittest.TestCase):
             dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0)
         self.assertIn("no JSON line", ctx.exception.safe_message)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_garbage_output_no_json_line(self, mock_run):
         """Purely non-JSON output → LiveE2Error('no JSON line')."""
         mock_run.return_value = (0, "garbage output\nmore garbage", "")
@@ -441,7 +441,7 @@ class LiveE2DispatchRcDuTests(unittest.TestCase):
             dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0)
         self.assertIn("no JSON line", ctx.exception.safe_message)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_malformed_json_line_raises(self, mock_run):
         """Line starts with '{' but is not valid JSON → LiveE2Error('unparseable JSON')."""
         mock_run.return_value = (0, "{not_valid_json\n", "")
@@ -449,7 +449,7 @@ class LiveE2DispatchRcDuTests(unittest.TestCase):
             dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0)
         self.assertIn("unparseable JSON", ctx.exception.safe_message)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_argv_construction_base(self, mock_run):
         """argv includes docker exec, container, xapp path, --json, --conf, --du-ue-id, --plmn, --sst."""
         mock_run.return_value = (0, _SUCCESS_JSON, "")
@@ -473,7 +473,7 @@ class LiveE2DispatchRcDuTests(unittest.TestCase):
         self.assertIn("--plmn", argv)
         self.assertIn("--sst", argv)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_optional_sd_included_when_provided(self, mock_run):
         """When sd is provided, argv contains --sd <value>."""
         mock_run.return_value = (0, _SUCCESS_JSON, "")
@@ -483,7 +483,7 @@ class LiveE2DispatchRcDuTests(unittest.TestCase):
         sd_idx = argv.index("--sd")
         self.assertEqual(argv[sd_idx + 1], "255")
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_optional_min_max_included_when_provided(self, mock_run):
         """When min/max provided, argv contains --min-prb-policy-ratio and --max-prb-policy-ratio."""
         mock_run.return_value = (0, _SUCCESS_JSON, "")
@@ -500,7 +500,7 @@ class LiveE2DispatchRcDuTests(unittest.TestCase):
         self.assertEqual(argv[min_idx + 1], "10")
         self.assertEqual(argv[max_idx + 1], "90")
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_optional_flags_excluded_when_none(self, mock_run):
         """When sd/min/max are None (defaults), those flags are absent from argv."""
         mock_run.return_value = (0, _SUCCESS_JSON, "")
@@ -510,7 +510,7 @@ class LiveE2DispatchRcDuTests(unittest.TestCase):
         self.assertNotIn("--min-prb-policy-ratio", argv)
         self.assertNotIn("--max-prb-policy-ratio", argv)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_leading_noise_json_at_end_parsed(self, mock_run):
         """Stdout with FlexRIC startup noise before JSON → last JSON line is parsed."""
         noise = (
@@ -553,7 +553,7 @@ _CCC_FAILURE_JSON = json.dumps({
 class LiveE2DispatchCccTests(unittest.TestCase):
     """dispatch_ccc_prb_policy: happy path, failure path, argv (no du_ue_id, has dedicated)."""
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_happy_path_returns_accepted_true(self, mock_run):
         mock_run.return_value = (0, _CCC_SUCCESS_JSON + "\n", "")
         result = dispatch_ccc_prb_policy(
@@ -564,14 +564,14 @@ class LiveE2DispatchCccTests(unittest.TestCase):
         self.assertEqual(result["ran_function_id"], 4)
         self.assertEqual(result["outcome"]["evidence"], "FlexRIC E2SM-CCC control acknowledged")
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_failure_path_returns_accepted_false(self, mock_run):
         mock_run.return_value = (3, _CCC_FAILURE_JSON + "\n", "")
         result = dispatch_ccc_prb_policy(_DEFAULT_CFG)
         self.assertFalse(result["accepted"])
         self.assertIn("missing", result["error"])
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_argv_construction_no_du_ue_id(self, mock_run):
         """CCC argv must NOT contain --du-ue-id (cell-level control)."""
         mock_run.return_value = (0, _CCC_SUCCESS_JSON, "")
@@ -592,7 +592,7 @@ class LiveE2DispatchCccTests(unittest.TestCase):
         ded_idx = argv.index("--dedicated-ratio")
         self.assertEqual(argv[ded_idx + 1], "50")
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_optional_flags_excluded_when_none(self, mock_run):
         """All optional flags absent if not provided."""
         mock_run.return_value = (0, _CCC_SUCCESS_JSON, "")
@@ -601,7 +601,7 @@ class LiveE2DispatchCccTests(unittest.TestCase):
         for flag in ("--sd", "--min-prb-policy-ratio", "--max-prb-policy-ratio", "--dedicated-ratio"):
             self.assertNotIn(flag, argv)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_no_json_line_raises_with_ccc_tool_name(self, mock_run):
         mock_run.return_value = (1, "Error response from daemon\n", "")
         with self.assertRaises(LiveE2Error) as ctx:
@@ -609,7 +609,7 @@ class LiveE2DispatchCccTests(unittest.TestCase):
         self.assertIn("no JSON line", ctx.exception.safe_message)
         self.assertIn("ocudu-ccc-prb-control", ctx.exception.safe_message)
 
-    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    @patch("benchmark_api.live_e2._run_subprocess")
     def test_malformed_json_raises(self, mock_run):
         mock_run.return_value = (0, "{garbage\n", "")
         with self.assertRaises(LiveE2Error) as ctx:

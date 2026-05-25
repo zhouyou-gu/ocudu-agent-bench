@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from benchmark import benchctl
+import benchctl
 
 
 class BenchctlTests(unittest.TestCase):

@@ -5,8 +5,8 @@ from __future__ import annotations
 import statistics
 from typing import Any
 
-from benchmark.benchmark_api.task_definition import PrivateTask
-from benchmark.benchmark_api.types import ComponentScore, FailureCategory, RanActionType, RawScoreMetric, ScoreOutcome
+from benchmark_api.task_definition import PrivateTask
+from benchmark_api.types import ComponentScore, FailureCategory, RanActionType, RawScoreMetric, ScoreOutcome
 
 
 def score_episode(task: PrivateTask, trace_package: dict[str, Any]) -> dict[str, Any]:

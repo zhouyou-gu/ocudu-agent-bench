@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from benchmark.benchmark_api.api_catalog import validate_api_selection
-from benchmark.benchmark_api.runtime_setup import RuntimeHandle
-from benchmark.benchmark_api.stimulus import StimulusPlan
-from benchmark.benchmark_api.task_definition import PrivateTask
-from benchmark.benchmark_api.types import RanActionType
+from benchmark_api.api_catalog import validate_api_selection
+from benchmark_api.runtime_setup import RuntimeHandle
+from benchmark_api.stimulus import StimulusPlan
+from benchmark_api.task_definition import PrivateTask
+from benchmark_api.types import RanActionType
 
 
 _POST_ACTION_EVIDENCE_SOURCE = {

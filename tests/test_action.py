@@ -1,10 +1,10 @@
 import unittest
 from pathlib import Path
 
-from benchmark.benchmark_api.action import handle_agent_decision, validate_action
-from benchmark.benchmark_api.runtime_setup import instantiate_runtime
-from benchmark.benchmark_api.task_definition import PrivateTask
-from benchmark.tests.task_helpers import load_checked_in_task as load_task
+from benchmark_api.action import handle_agent_decision, validate_action
+from benchmark_api.runtime_setup import instantiate_runtime
+from benchmark_api.task_definition import PrivateTask
+from tests.task_helpers import load_checked_in_task as load_task
 
 
 class ActionTests(unittest.TestCase):

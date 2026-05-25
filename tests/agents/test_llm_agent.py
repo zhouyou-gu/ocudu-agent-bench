@@ -15,11 +15,11 @@ from __future__ import annotations
 import json
 import unittest
 
-from benchmark.agents.backends import EchoBackend
-from benchmark.agents.llm_agent import LLMAgent
-from benchmark.agents.prompt import build_messages, parse_decision
-from benchmark.agents.runner import RealAgentConfig, relax_task_clock, run_agent_episode
-from benchmark.benchmark_api.task_catalog import load_task_for_suite
+from agents.backends import EchoBackend
+from agents.llm_agent import LLMAgent
+from agents.prompt import build_messages, parse_decision
+from agents.runner import RealAgentConfig, relax_task_clock, run_agent_episode
+from benchmark_api.task_catalog import load_task_for_suite
 
 
 SAMPLE_PAYLOAD = {

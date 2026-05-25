@@ -1,10 +1,10 @@
 import unittest
 
-from benchmark.benchmark_api.ran_api import read_evidence
-from benchmark.benchmark_api.stimulus import apply_in_step, apply_pre_observation, expand_stimulus_plan
-from benchmark.benchmark_api.runtime_setup import instantiate_runtime
-from benchmark.tests.task_helpers import load_checked_in_task as load_task
-from benchmark.benchmark_api.types import IMPLEMENTED_STIMULUS_DRIVERS, StimulusDriverKind, StimulusPhase
+from benchmark_api.ran_api import read_evidence
+from benchmark_api.stimulus import apply_in_step, apply_pre_observation, expand_stimulus_plan
+from benchmark_api.runtime_setup import instantiate_runtime
+from tests.task_helpers import load_checked_in_task as load_task
+from benchmark_api.types import IMPLEMENTED_STIMULUS_DRIVERS, StimulusDriverKind, StimulusPhase
 
 
 class StimulusTests(unittest.TestCase):

@@ -2,8 +2,8 @@ import ast
 import inspect
 import unittest
 
-from benchmark.benchmark_api import suite
-from benchmark.benchmark_api.controller import ControllerConfig, run_repeated
+from benchmark_api import suite
+from benchmark_api.controller import ControllerConfig, run_repeated
 
 
 class SuiteTests(unittest.TestCase):

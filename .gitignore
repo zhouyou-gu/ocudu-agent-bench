@@ -1,0 +1,32 @@
+# Runtime workspace (external clones, build contexts, per-run artifacts)
+.benchmark-workspace/
+
+# Per-machine remote sync config
+.config
+
+# Per-machine docs
+*.local.md
+
+# Sweep outputs (if pointed at repo root)
+sweep_results/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Per-episode trace output (when --output-dir not given)
+artifacts/runs/

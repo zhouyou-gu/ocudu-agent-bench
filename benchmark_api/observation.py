@@ -5,9 +5,9 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from benchmark.benchmark_api.ran_api import read_evidence
-from benchmark.benchmark_api.runtime_setup import RuntimeHandle
-from benchmark.benchmark_api.task_definition import PrivateTask
+from benchmark_api.ran_api import read_evidence
+from benchmark_api.runtime_setup import RuntimeHandle
+from benchmark_api.task_definition import PrivateTask
 
 
 PRIVATE_FIELD_NAMES = {

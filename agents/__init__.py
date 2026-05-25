@@ -9,15 +9,15 @@ selected task with a relaxed `U.timing_policy` so LLM-scale decision latency
 fits inside the per-step budget.
 """
 
-from benchmark.agents.backends import (
+from agents.backends import (
     AnthropicBackend,
     EchoBackend,
     LLMBackend,
     LLMResponse,
     OpenAICompatibleBackend,
 )
-from benchmark.agents.llm_agent import LLMAgent
-from benchmark.agents.runner import RealAgentConfig, run_agent_episode
+from agents.llm_agent import LLMAgent
+from agents.runner import RealAgentConfig, run_agent_episode
 
 __all__ = [
     "AnthropicBackend",

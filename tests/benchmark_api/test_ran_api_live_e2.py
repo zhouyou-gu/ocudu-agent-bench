@@ -16,10 +16,10 @@ import unittest
 from unittest.mock import patch, MagicMock
 from typing import Any
 
-from benchmark.benchmark_api.ran_api import read_evidence, dispatch_runtime_action
-from benchmark.benchmark_api.runtime_setup import RuntimeHandle, LIVE_E2_ADAPTER, SIMULATED_ADAPTER
-from benchmark.benchmark_api.live_e2 import LiveE2Error
-from benchmark.benchmark_api.types import SafeErrorClass
+from benchmark_api.ran_api import read_evidence, dispatch_runtime_action
+from benchmark_api.runtime_setup import RuntimeHandle, LIVE_E2_ADAPTER, SIMULATED_ADAPTER
+from benchmark_api.live_e2 import LiveE2Error
+from benchmark_api.types import SafeErrorClass
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +113,7 @@ def _make_kpm_records(n: int = 3) -> list[dict[str, Any]]:
 
 class LiveE2KpmEvidenceRefreshTests(unittest.TestCase):
 
-    @patch("benchmark.benchmark_api.live_e2.read_kpm")
+    @patch("benchmark_api.live_e2.read_kpm")
     def test_e2_kpm_v05_evidence_uses_live_records(self, mock_read_kpm):
         """With adapter=live_e2, e2_kpm_v05 evidence is built from live_e2.read_kpm."""
         records = _make_kpm_records(3)
@@ -123,7 +123,7 @@ class LiveE2KpmEvidenceRefreshTests(unittest.TestCase):
         self.assertIn("e2_kpm_v05", evidence)
         mock_read_kpm.assert_called_once()
 
-    @patch("benchmark.benchmark_api.live_e2.read_kpm")
+    @patch("benchmark_api.live_e2.read_kpm")
     def test_e2_kpm_v05_kpm_indications_count(self, mock_read_kpm):
         """kpm_indications = number of records returned by read_kpm."""
         records = _make_kpm_records(3)
@@ -132,7 +132,7 @@ class LiveE2KpmEvidenceRefreshTests(unittest.TestCase):
         evidence = read_evidence(handle, ("e2_kpm_v05",))
         self.assertEqual(evidence["e2_kpm_v05"]["kpm_indications"], 3)
 
-    @patch("benchmark.benchmark_api.live_e2.read_kpm")
+    @patch("benchmark_api.live_e2.read_kpm")
     def test_e2_kpm_v05_has_prb_measurement_true(self, mock_read_kpm):
         """has_prb_measurement=True when last record contains RRU.Prb* keys."""
         records = _make_kpm_records(2)
@@ -141,7 +141,7 @@ class LiveE2KpmEvidenceRefreshTests(unittest.TestCase):
         evidence = read_evidence(handle, ("e2_kpm_v05",))
         self.assertTrue(evidence["e2_kpm_v05"]["has_prb_measurement"])
 
-    @patch("benchmark.benchmark_api.live_e2.read_kpm")
+    @patch("benchmark_api.live_e2.read_kpm")
     def test_e2_kpm_v05_measurements_flattened(self, mock_read_kpm):
         """measurements dict contains {name: value} from the last record."""
         records = _make_kpm_records(3)
@@ -154,7 +154,7 @@ class LiveE2KpmEvidenceRefreshTests(unittest.TestCase):
         # Last record (index 2): PrbAvailDl=108, PrbUsedDl=2
         self.assertEqual(meas["RRU.PrbAvailDl"], 108)
 
-    @patch("benchmark.benchmark_api.live_e2.read_kpm")
+    @patch("benchmark_api.live_e2.read_kpm")
     def test_e2_kpm_v05_kpm_version_present(self, mock_read_kpm):
         """kpm_version is taken from the last record."""
         records = _make_kpm_records(1)
@@ -170,7 +170,7 @@ class LiveE2KpmEvidenceRefreshTests(unittest.TestCase):
 
 class LiveE2KpmFallbackTests(unittest.TestCase):
 
-    @patch("benchmark.benchmark_api.live_e2.read_kpm")
+    @patch("benchmark_api.live_e2.read_kpm")
     def test_read_kpm_raises_falls_back_to_state(self, mock_read_kpm):
         """LiveE2Error from read_kpm → falls back to state-based e2_kpm_v05, no exception."""
         mock_read_kpm.side_effect = LiveE2Error("docker exec failed")
@@ -195,7 +195,7 @@ class LiveE2KpmFallbackTests(unittest.TestCase):
 
 class SimulatedAdapterNotCallingLiveE2ReadKpm(unittest.TestCase):
 
-    @patch("benchmark.benchmark_api.live_e2.read_kpm")
+    @patch("benchmark_api.live_e2.read_kpm")
     def test_simulated_adapter_does_not_call_read_kpm(self, mock_read_kpm):
         """With adapter=simulated_ocudu, live_e2.read_kpm must NOT be called."""
         handle = _make_simulated_handle()
@@ -212,7 +212,7 @@ class SimulatedAdapterNotCallingLiveE2ReadKpm(unittest.TestCase):
 
 class EmptyRecordsTests(unittest.TestCase):
 
-    @patch("benchmark.benchmark_api.live_e2.read_kpm")
+    @patch("benchmark_api.live_e2.read_kpm")
     def test_empty_records_kpm_indications_zero(self, mock_read_kpm):
         """If read_kpm returns [], kpm_indications=0 and has_prb_measurement=False."""
         mock_read_kpm.return_value = []
@@ -222,7 +222,7 @@ class EmptyRecordsTests(unittest.TestCase):
         self.assertFalse(evidence["e2_kpm_v05"]["has_prb_measurement"])
         self.assertIsNone(evidence["e2_kpm_v05"]["kpm_version"])
 
-    @patch("benchmark.benchmark_api.live_e2.read_kpm")
+    @patch("benchmark_api.live_e2.read_kpm")
     def test_empty_records_measurements_empty(self, mock_read_kpm):
         """Empty records → measurements dict is empty."""
         mock_read_kpm.return_value = []
@@ -365,7 +365,7 @@ _RC_DU_ACTION = {
 
 class LiveE2RcDuDispatchHappyPathTests(unittest.TestCase):
 
-    @patch("benchmark.benchmark_api.live_e2.dispatch_rc_du_prb_policy")
+    @patch("benchmark_api.live_e2.dispatch_rc_du_prb_policy")
     def test_happy_path_dispatched_accepted(self, mock_dispatch):
         """SET_PRB_POLICY_RATIO_RC_DU + live_e2 + accepted=True → dispatched=True, accepted=True."""
         mock_dispatch.return_value = _SUCCESS_XAPP_RESULT
@@ -376,7 +376,7 @@ class LiveE2RcDuDispatchHappyPathTests(unittest.TestCase):
         self.assertIn("acknowledged", result.safe_message)
         mock_dispatch.assert_called_once()
 
-    @patch("benchmark.benchmark_api.live_e2.dispatch_rc_du_prb_policy")
+    @patch("benchmark_api.live_e2.dispatch_rc_du_prb_policy")
     def test_xapp_accepted_false_runtime_unavailable(self, mock_dispatch):
         """accepted=False from xApp → dispatched=True, accepted=False, RUNTIME_UNAVAILABLE."""
         mock_dispatch.return_value = _FAILURE_XAPP_RESULT
@@ -388,7 +388,7 @@ class LiveE2RcDuDispatchHappyPathTests(unittest.TestCase):
         self.assertIn("rejected", result.safe_message)
         self.assertIn("du_ue_id", result.safe_message)
 
-    @patch("benchmark.benchmark_api.live_e2.dispatch_rc_du_prb_policy")
+    @patch("benchmark_api.live_e2.dispatch_rc_du_prb_policy")
     def test_live_e2_error_runtime_unavailable(self, mock_dispatch):
         """LiveE2Error from dispatch → dispatched=True, accepted=False, RUNTIME_UNAVAILABLE."""
         mock_dispatch.side_effect = LiveE2Error("docker exec: container not running")
@@ -399,7 +399,7 @@ class LiveE2RcDuDispatchHappyPathTests(unittest.TestCase):
         self.assertEqual(result.safe_error_class, SafeErrorClass.RUNTIME_UNAVAILABLE)
         self.assertEqual(result.safe_message, "docker exec: container not running")
 
-    @patch("benchmark.benchmark_api.live_e2.dispatch_rc_du_prb_policy")
+    @patch("benchmark_api.live_e2.dispatch_rc_du_prb_policy")
     def test_non_rc_action_on_live_e2_not_dispatched_via_rc_du(self, mock_dispatch):
         """A non-RC action on live_e2 falls through to simulated path; dispatch_rc_du_prb_policy NOT called."""
         # RESTART_CORE_NF is a core_control action — backend not ready for live_e2
@@ -412,7 +412,7 @@ class LiveE2RcDuDispatchHappyPathTests(unittest.TestCase):
         self.assertFalse(result.dispatched)
         self.assertFalse(result.accepted)
 
-    @patch("benchmark.benchmark_api.live_e2.dispatch_rc_du_prb_policy")
+    @patch("benchmark_api.live_e2.dispatch_rc_du_prb_policy")
     def test_simulated_adapter_does_not_call_dispatch_rc_du(self, mock_dispatch):
         """SET_PRB_POLICY_RATIO_RC_DU on simulated adapter → simulated path; dispatch_rc_du_prb_policy NOT called."""
         handle = _make_simulated_handle_with_e2_control()
@@ -431,7 +431,7 @@ class LiveE2RcDuDispatchHappyPathTests(unittest.TestCase):
             "max_prb_policy_ratio": 90,
             # du_ue_id intentionally absent
         }
-        with patch("benchmark.benchmark_api.live_e2.dispatch_rc_du_prb_policy"):
+        with patch("benchmark_api.live_e2.dispatch_rc_du_prb_policy"):
             handle = _make_rc_du_live_e2_handle()
             with self.assertRaises(KeyError):
                 dispatch_runtime_action(handle, "act-006", action_no_id)
@@ -475,7 +475,7 @@ _CCC_ACTION = {
 class LiveE2CccDispatchTests(unittest.TestCase):
     """SET_PRB_POLICY_RATIO_CCC + live_e2 routing tests."""
 
-    @patch("benchmark.benchmark_api.live_e2.dispatch_ccc_prb_policy")
+    @patch("benchmark_api.live_e2.dispatch_ccc_prb_policy")
     def test_happy_path_dispatched_accepted(self, mock_dispatch):
         mock_dispatch.return_value = _CCC_SUCCESS_XAPP_RESULT
         handle = _make_rc_du_live_e2_handle()
@@ -489,7 +489,7 @@ class LiveE2CccDispatchTests(unittest.TestCase):
         self.assertNotIn("du_ue_id", kwargs)
         self.assertEqual(kwargs.get("dedicated_ratio"), 50)
 
-    @patch("benchmark.benchmark_api.live_e2.dispatch_ccc_prb_policy")
+    @patch("benchmark_api.live_e2.dispatch_ccc_prb_policy")
     def test_xapp_accepted_false_runtime_unavailable(self, mock_dispatch):
         mock_dispatch.return_value = _CCC_FAILURE_XAPP_RESULT
         handle = _make_rc_du_live_e2_handle()
@@ -499,7 +499,7 @@ class LiveE2CccDispatchTests(unittest.TestCase):
         self.assertEqual(result.safe_error_class, SafeErrorClass.RUNTIME_UNAVAILABLE)
         self.assertIn("rejected", result.safe_message)
 
-    @patch("benchmark.benchmark_api.live_e2.dispatch_ccc_prb_policy")
+    @patch("benchmark_api.live_e2.dispatch_ccc_prb_policy")
     def test_live_e2_error_runtime_unavailable(self, mock_dispatch):
         mock_dispatch.side_effect = LiveE2Error("docker exec: container not running")
         handle = _make_rc_du_live_e2_handle()
@@ -509,7 +509,7 @@ class LiveE2CccDispatchTests(unittest.TestCase):
         self.assertEqual(result.safe_error_class, SafeErrorClass.RUNTIME_UNAVAILABLE)
         self.assertEqual(result.safe_message, "docker exec: container not running")
 
-    @patch("benchmark.benchmark_api.live_e2.dispatch_ccc_prb_policy")
+    @patch("benchmark_api.live_e2.dispatch_ccc_prb_policy")
     def test_simulated_adapter_does_not_call_dispatch_ccc(self, mock_dispatch):
         handle = _make_simulated_handle_with_e2_control()
         result = dispatch_runtime_action(handle, "ccc-004", _CCC_ACTION)

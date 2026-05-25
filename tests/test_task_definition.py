@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from benchmark.benchmark_api.task_catalog import load_tasks_for_suite
-from benchmark.benchmark_api.task_definition import agent_visible_task, clone_task_with_overrides, load_task
+from benchmark_api.task_catalog import load_tasks_for_suite
+from benchmark_api.task_definition import agent_visible_task, clone_task_with_overrides, load_task
 
 
 class TaskDefinitionTests(unittest.TestCase):
@@ -94,7 +94,7 @@ class TaskDefinitionTests(unittest.TestCase):
                 self.assertNotIn("root_cause", goal)
 
     def test_old_checked_in_variant_semantics_are_registry_axes(self) -> None:
-        registry = json.loads(Path("benchmark/task_sets/generated/axis_registry.json").read_text(encoding="utf-8"))
+        registry = json.loads(Path("task_sets/generated/axis_registry.json").read_text(encoding="utf-8"))
         legacy_levels = [
             level
             for axis in registry["axes"]

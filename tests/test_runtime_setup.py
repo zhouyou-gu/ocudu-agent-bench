@@ -1,9 +1,9 @@
 import unittest
 
-from benchmark.benchmark_api.conformance import run_readiness_checks
-from benchmark.benchmark_api.runtime_setup import instantiate_runtime
-from benchmark.benchmark_api.stimulus import expand_stimulus_plan
-from benchmark.tests.task_helpers import load_checked_in_task as load_task
+from benchmark_api.conformance import run_readiness_checks
+from benchmark_api.runtime_setup import instantiate_runtime
+from benchmark_api.stimulus import expand_stimulus_plan
+from tests.task_helpers import load_checked_in_task as load_task
 
 
 class RuntimeSetupTests(unittest.TestCase):

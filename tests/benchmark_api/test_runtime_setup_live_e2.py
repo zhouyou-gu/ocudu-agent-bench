@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 from typing import Any
 
-from benchmark.benchmark_api.runtime_setup import (
+from benchmark_api.runtime_setup import (
     instantiate_runtime,
     RuntimeHandle,
     SIMULATED_ADAPTER,
@@ -64,35 +64,35 @@ class LiveE2ReadyTrueTests(unittest.TestCase):
 
     def test_handle_ready_true(self):
         """setup with runtime_adapter='live_e2' + readiness=True → handle.ready==True."""
-        with patch("benchmark.benchmark_api.live_e2.readiness",
+        with patch("benchmark_api.live_e2.readiness",
                    return_value=_make_readiness(True)):
             handle = instantiate_runtime(_LIVE_E2_SETUP, "r-e2-ok")
         self.assertTrue(handle.ready)
 
     def test_blocking_reason_is_none(self):
         """blocking_reason is None when readiness=True."""
-        with patch("benchmark.benchmark_api.live_e2.readiness",
+        with patch("benchmark_api.live_e2.readiness",
                    return_value=_make_readiness(True)):
             handle = instantiate_runtime(_LIVE_E2_SETUP, "r-e2-ok")
         self.assertIsNone(handle.setup_metadata.get("blocking_reason"))
 
     def test_setup_metadata_live_e2_true(self):
         """setup_metadata['live_e2'] is True when adapter=live_e2 and ready=True."""
-        with patch("benchmark.benchmark_api.live_e2.readiness",
+        with patch("benchmark_api.live_e2.readiness",
                    return_value=_make_readiness(True)):
             handle = instantiate_runtime(_LIVE_E2_SETUP, "r-e2-ok")
         self.assertTrue(handle.setup_metadata.get("live_e2"))
 
     def test_setup_metadata_live_core_false(self):
         """setup_metadata['live_core'] is False when adapter=live_e2."""
-        with patch("benchmark.benchmark_api.live_e2.readiness",
+        with patch("benchmark_api.live_e2.readiness",
                    return_value=_make_readiness(True)):
             handle = instantiate_runtime(_LIVE_E2_SETUP, "r-e2-ok")
         self.assertFalse(handle.setup_metadata.get("live_core"))
 
     def test_setup_metadata_live_ocudu_false(self):
         """setup_metadata['live_ocudu'] is False when adapter=live_e2."""
-        with patch("benchmark.benchmark_api.live_e2.readiness",
+        with patch("benchmark_api.live_e2.readiness",
                    return_value=_make_readiness(True)):
             handle = instantiate_runtime(_LIVE_E2_SETUP, "r-e2-ok")
         self.assertFalse(handle.setup_metadata.get("live_ocudu"))
@@ -108,7 +108,7 @@ class LiveE2ReadyFalseTests(unittest.TestCase):
     def test_handle_ready_false(self):
         """readiness=False → handle.ready==False."""
         failures = ["container_running: flexric-ric not running", "jsonl_exists: wc -l exited 1"]
-        with patch("benchmark.benchmark_api.live_e2.readiness",
+        with patch("benchmark_api.live_e2.readiness",
                    return_value=_make_readiness(False, failures=failures)):
             handle = instantiate_runtime(_LIVE_E2_SETUP, "r-e2-fail")
         self.assertFalse(handle.ready)
@@ -116,7 +116,7 @@ class LiveE2ReadyFalseTests(unittest.TestCase):
     def test_blocking_reason_contains_failures(self):
         """blocking_reason lists failure messages when readiness=False."""
         failures = ["container_running: flexric-ric not running"]
-        with patch("benchmark.benchmark_api.live_e2.readiness",
+        with patch("benchmark_api.live_e2.readiness",
                    return_value=_make_readiness(False, failures=failures)):
             handle = instantiate_runtime(_LIVE_E2_SETUP, "r-e2-fail")
         reason = handle.setup_metadata.get("blocking_reason") or ""
@@ -125,7 +125,7 @@ class LiveE2ReadyFalseTests(unittest.TestCase):
     def test_setup_metadata_live_e2_false_when_not_ready(self):
         """setup_metadata['live_e2'] is False when readiness=False."""
         failures = ["container_running: not running"]
-        with patch("benchmark.benchmark_api.live_e2.readiness",
+        with patch("benchmark_api.live_e2.readiness",
                    return_value=_make_readiness(False, failures=failures)):
             handle = instantiate_runtime(_LIVE_E2_SETUP, "r-e2-fail")
         self.assertFalse(handle.setup_metadata.get("live_e2"))
@@ -139,7 +139,7 @@ class LiveE2BackendBlockTests(unittest.TestCase):
     """When live_e2 adapter is ready, e2_kpm=True; all other backends False."""
 
     def test_backend_flags_when_live_e2_ready(self):
-        with patch("benchmark.benchmark_api.live_e2.readiness",
+        with patch("benchmark_api.live_e2.readiness",
                    return_value=_make_readiness(True)):
             handle = instantiate_runtime(_LIVE_E2_SETUP, "r-e2-backend")
 
@@ -153,7 +153,7 @@ class LiveE2BackendBlockTests(unittest.TestCase):
 
     def test_backend_flags_all_false_when_not_ready(self):
         failures = ["container_running: not running"]
-        with patch("benchmark.benchmark_api.live_e2.readiness",
+        with patch("benchmark_api.live_e2.readiness",
                    return_value=_make_readiness(False, failures=failures)):
             handle = instantiate_runtime(_LIVE_E2_SETUP, "r-e2-backend-fail")
 
@@ -174,7 +174,7 @@ class LiveE2ConfigDefaultsTests(unittest.TestCase):
     """_live_e2_config_from_setup returns defaults when no 'live_e2' block."""
 
     def test_default_setup_yields_default_config(self):
-        from benchmark.benchmark_api.live_e2 import LiveE2Config
+        from benchmark_api.live_e2 import LiveE2Config
         cfg = _live_e2_config_from_setup({})
         self.assertEqual(cfg.container_name, "flexric-ric")
         self.assertEqual(cfg.jsonl_path, "/var/log/flexric/kpm.jsonl")
@@ -213,7 +213,7 @@ class SimulatedAdapterNotCallingLiveE2(unittest.TestCase):
     """simulated_ocudu adapter never calls live_e2.readiness."""
 
     def test_simulated_adapter_does_not_call_live_e2_readiness(self):
-        with patch("benchmark.benchmark_api.live_e2.readiness") as mock_readiness:
+        with patch("benchmark_api.live_e2.readiness") as mock_readiness:
             handle = instantiate_runtime(_SIM_SETUP, "r-sim")
         mock_readiness.assert_not_called()
         self.assertTrue(handle.ready)
@@ -227,13 +227,13 @@ class LiveCoreAdapterNotCallingLiveE2(unittest.TestCase):
     """live_core adapter never calls live_e2.readiness."""
 
     def test_live_core_adapter_does_not_call_live_e2_readiness(self):
-        with patch("benchmark.benchmark_api.live_core.readiness",
+        with patch("benchmark_api.live_core.readiness",
                    return_value={"ready": True, "checks": {}, "failures": []}), \
-             patch("benchmark.benchmark_api.live_core.read_runtime",
+             patch("benchmark_api.live_core.read_runtime",
                    return_value={"running": True, "available_nfs": [], "nf_status": {},
                                  "restart_counts": {}, "last_restarted_nf": None,
                                  "ue_registration": {}}), \
-             patch("benchmark.benchmark_api.live_e2.readiness") as mock_e2_readiness:
+             patch("benchmark_api.live_e2.readiness") as mock_e2_readiness:
             handle = instantiate_runtime(_LIVE_CORE_SETUP, "r-lc")
         mock_e2_readiness.assert_not_called()
 

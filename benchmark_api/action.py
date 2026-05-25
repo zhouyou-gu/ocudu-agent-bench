@@ -6,11 +6,11 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from benchmark.benchmark_api.api_catalog import validate_api_selection
-from benchmark.benchmark_api.ran_api import DispatchResult, dispatch_runtime_action
-from benchmark.benchmark_api.runtime_setup import RuntimeHandle
-from benchmark.benchmark_api.task_definition import PrivateTask
-from benchmark.benchmark_api.types import RanActionType, SafeErrorClass
+from benchmark_api.api_catalog import validate_api_selection
+from benchmark_api.ran_api import DispatchResult, dispatch_runtime_action
+from benchmark_api.runtime_setup import RuntimeHandle
+from benchmark_api.task_definition import PrivateTask
+from benchmark_api.types import RanActionType, SafeErrorClass
 
 
 @dataclass(frozen=True)

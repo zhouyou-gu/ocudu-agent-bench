@@ -146,7 +146,7 @@
   implementation reference — it assumes you have already read the
   <a href="../README.md"><code>README</code></a> for positioning and quick-start, and
   the design records under
-  <a href="../../skillful-ran-research/benchmark_design/"><code>skillful-ran-research/benchmark_design/</code></a>
+  <a href="design/"><code>docs/design/</code></a>
   for the <em>why</em>.</p>
   <p>Reading order is top-down: terminology → system layers → task contract → agent
   surface → benchmark surface → simulated runtime → episode lifecycle and the per-step
@@ -674,8 +674,7 @@ python3 benchmark/benchctl.py --json run --suite all_checked_in --controller aut
 
   <h2 id="invariants">12. Invariants to preserve</h2>
   <p>Six properties hold across the harness. Changes that break any of them must update
-  the relevant design record under
-  <code>skillful-ran-research/benchmark_design/</code> before the code merges.</p>
+  the relevant design record under <code>docs/design/</code> before the code merges.</p>
   <ol class="tight">
     <li><b>Redaction is positive, not negative.</b> Observations and feedback are built from explicit allow-lists; a leak guard rejects any frame containing private field names. <code>M.variant</code> never enters the agent view.</li>
     <li><b>Allowed actions are anchored to selected APIs.</b> <code>I.allowed_actions</code> ⊆ action types projected from <code>I.api_kinds</code>; manifest validation rejects violators.</li>
@@ -703,12 +702,12 @@ python3 benchmark/benchctl.py --json run --suite all_checked_in --controller aut
 
   <p class="key" style="margin-top:30px;">
     <b>Design references</b> ·
-    <a href="../../skillful-ran-research/benchmark_design/benchmark_design.md"><code>benchmark_design.md</code></a> ·
-    <a href="../../skillful-ran-research/benchmark_design/benchmark_task_list.md"><code>benchmark_task_list.md</code></a> ·
-    <a href="../../skillful-ran-research/benchmark_design/benchmark_stimulus_list.md"><code>benchmark_stimulus_list.md</code></a> ·
-    <a href="../../skillful-ran-research/benchmark_design/benchmark_runtime_api_list.md"><code>benchmark_runtime_api_list.md</code></a> ·
-    <a href="../../skillful-ran-research/benchmark_design/benchmark_sum_type_list.md"><code>benchmark_sum_type_list.md</code></a> ·
-    <a href="../../skillful-ran-research/benchmark_design/benchmark_timeline.md"><code>benchmark_timeline.md</code></a> ·
+    <a href="design/benchmark_design.md"><code>benchmark_design.md</code></a> ·
+    <a href="design/benchmark_task_list.md"><code>benchmark_task_list.md</code></a> ·
+    <a href="design/benchmark_stimulus_list.md"><code>benchmark_stimulus_list.md</code></a> ·
+    <a href="design/benchmark_runtime_api_list.md"><code>benchmark_runtime_api_list.md</code></a> ·
+    <a href="design/benchmark_sum_type_list.md"><code>benchmark_sum_type_list.md</code></a> ·
+    <a href="design/benchmark_timeline.md"><code>benchmark_timeline.md</code></a> ·
     <a href="reference_index.md"><code>reference_index.md</code></a>
   </p>
 

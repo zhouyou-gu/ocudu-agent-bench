@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from benchmark.benchmark_api.config import parse_config
+from benchmark_api.config import parse_config
 
 
 class ConfigTests(unittest.TestCase):

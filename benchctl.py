@@ -13,13 +13,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from benchmark.benchmark_api.controller import ControllerConfig, run_repeated
-from benchmark.benchmark_api.episode import EpisodeConfig, run_episode
-from benchmark.benchmark_api.controller import BaselineController
-from benchmark.benchmark_api.config import parse_config
-from benchmark.benchmark_api.remote import RemoteManager
-from benchmark.benchmark_api.task_catalog import load_tasks_for_suite
-from benchmark.benchmark_api.task_definition import task_summary
+from benchmark_api.controller import ControllerConfig, run_repeated
+from benchmark_api.episode import EpisodeConfig, run_episode
+from benchmark_api.controller import BaselineController
+from benchmark_api.config import parse_config
+from benchmark_api.remote import RemoteManager
+from benchmark_api.task_catalog import load_tasks_for_suite
+from benchmark_api.task_definition import task_summary
 
 
 def emit(data: dict[str, Any], as_json: bool) -> None:

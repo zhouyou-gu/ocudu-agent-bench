@@ -20,10 +20,10 @@ import unittest
 from unittest.mock import MagicMock, patch
 from typing import Any
 
-from benchmark.benchmark_api.live_core import LiveCoreConfig, LiveCoreError
-from benchmark.benchmark_api.ran_api import dispatch_runtime_action, read_evidence
-from benchmark.benchmark_api.runtime_setup import RuntimeHandle, LIVE_CORE_ADAPTER, SIMULATED_ADAPTER
-from benchmark.benchmark_api.types import RanActionType, SafeErrorClass
+from benchmark_api.live_core import LiveCoreConfig, LiveCoreError
+from benchmark_api.ran_api import dispatch_runtime_action, read_evidence
+from benchmark_api.runtime_setup import RuntimeHandle, LIVE_CORE_ADAPTER, SIMULATED_ADAPTER
+from benchmark_api.types import RanActionType, SafeErrorClass
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ class RestartNFHappyPath(unittest.TestCase):
     def test_dispatch_returns_dispatched_accepted(self):
         """dispatch returns dispatched=True, accepted=True, safe_message mentions nf and count."""
         handle = _make_live_core_handle()
-        with patch("benchmark.benchmark_api.live_core.restart_nf", return_value=self._ok_restart()) as mock_rn:
+        with patch("benchmark_api.live_core.restart_nf", return_value=self._ok_restart()) as mock_rn:
             result = dispatch_runtime_action(handle, "act-1", _RESTART_ACTION)
         mock_rn.assert_called_once()
         self.assertTrue(result.dispatched)
@@ -153,7 +153,7 @@ class RestartNFHappyPath(unittest.TestCase):
     def test_restart_counts_increments_on_second_dispatch(self):
         """Calling dispatch twice increments restart_counts[nf] to 2."""
         handle = _make_live_core_handle()
-        with patch("benchmark.benchmark_api.live_core.restart_nf", return_value=self._ok_restart()):
+        with patch("benchmark_api.live_core.restart_nf", return_value=self._ok_restart()):
             dispatch_runtime_action(handle, "act-1", _RESTART_ACTION)
             result2 = dispatch_runtime_action(handle, "act-2", _RESTART_ACTION)
         self.assertIn("count=2", result2.safe_message)
@@ -171,7 +171,7 @@ class RestartNFFailurePath(unittest.TestCase):
         """LiveCoreError from restart_nf → accepted=False, RUNTIME_UNAVAILABLE."""
         handle = _make_live_core_handle()
         exc = LiveCoreError("nf not found")
-        with patch("benchmark.benchmark_api.live_core.restart_nf", side_effect=exc):
+        with patch("benchmark_api.live_core.restart_nf", side_effect=exc):
             result = dispatch_runtime_action(handle, "act-1", _RESTART_ACTION)
         self.assertTrue(result.dispatched)
         self.assertFalse(result.accepted)
@@ -182,7 +182,7 @@ class RestartNFFailurePath(unittest.TestCase):
         """restart_counts is not modified when restart_nf raises LiveCoreError."""
         handle = _make_live_core_handle()
         exc = LiveCoreError("nf not found")
-        with patch("benchmark.benchmark_api.live_core.restart_nf", side_effect=exc):
+        with patch("benchmark_api.live_core.restart_nf", side_effect=exc):
             dispatch_runtime_action(handle, "act-1", _RESTART_ACTION)
         counts = handle.state["core_runtime"].get("restart_counts", {})
         self.assertEqual(counts.get("upf", 0), 0)
@@ -200,7 +200,7 @@ class UeRegistrationHappyPath(unittest.TestCase):
     def test_dispatch_accepted_and_state_updated(self):
         """dispatch passes action to upsert_subscriber; state ue_registration.status == registered."""
         handle = _make_live_core_handle()
-        with patch("benchmark.benchmark_api.live_core.upsert_subscriber", return_value=self._ok_upsert()) as mock_ups:
+        with patch("benchmark_api.live_core.upsert_subscriber", return_value=self._ok_upsert()) as mock_ups:
             result = dispatch_runtime_action(handle, "act-1", _UE_REG_ACTION)
         mock_ups.assert_called_once()
         self.assertTrue(result.dispatched)
@@ -213,7 +213,7 @@ class UeRegistrationHappyPath(unittest.TestCase):
     def test_dispatch_safe_message_contains_imsi(self):
         """safe_message mentions imsi from upsert_subscriber return value."""
         handle = _make_live_core_handle()
-        with patch("benchmark.benchmark_api.live_core.upsert_subscriber", return_value=self._ok_upsert()):
+        with patch("benchmark_api.live_core.upsert_subscriber", return_value=self._ok_upsert()):
             result = dispatch_runtime_action(handle, "act-1", _UE_REG_ACTION)
         self.assertIn("001010000000001", result.safe_message)
 
@@ -228,7 +228,7 @@ class UeRegistrationFailurePath(unittest.TestCase):
         """LiveCoreError from upsert_subscriber → accepted=False, RUNTIME_UNAVAILABLE."""
         handle = _make_live_core_handle()
         exc = LiveCoreError("mongo connection refused")
-        with patch("benchmark.benchmark_api.live_core.upsert_subscriber", side_effect=exc):
+        with patch("benchmark_api.live_core.upsert_subscriber", side_effect=exc):
             result = dispatch_runtime_action(handle, "act-1", _UE_REG_ACTION)
         self.assertTrue(result.dispatched)
         self.assertFalse(result.accepted)
@@ -276,7 +276,7 @@ class SimulatedAdapterCoreActions(unittest.TestCase):
     def test_restart_nf_on_simulated_adapter_does_not_call_live_core(self):
         """RESTART_CORE_NF on simulated_ocudu → apply_simulated_action path, live_core not called."""
         handle = _make_simulated_handle()
-        with patch("benchmark.benchmark_api.live_core.restart_nf") as mock_rn:
+        with patch("benchmark_api.live_core.restart_nf") as mock_rn:
             result = dispatch_runtime_action(handle, "act-1", _RESTART_ACTION)
         mock_rn.assert_not_called()
         # Simulated path dispatches successfully
@@ -309,7 +309,7 @@ class ReadEvidenceLiveCoreRefresh(unittest.TestCase):
         handle = _make_live_core_handle()
         sentinel = dict(_SENTINEL_FRESH)
         sentinel["nf_status"] = {"amf": "sentinel_running"}
-        with patch("benchmark.benchmark_api.live_core.read_runtime", return_value=sentinel):
+        with patch("benchmark_api.live_core.read_runtime", return_value=sentinel):
             evidence = read_evidence(handle, self._sources())
         # The sentinel nf_status should show up in the evidence
         self.assertEqual(
@@ -335,7 +335,7 @@ class ReadEvidenceLiveCoreRefresh(unittest.TestCase):
         # read_runtime always returns empty restart_counts
         fresh["restart_counts"] = {}
         fresh["last_restarted_nf"] = None
-        with patch("benchmark.benchmark_api.live_core.read_runtime", return_value=fresh):
+        with patch("benchmark_api.live_core.read_runtime", return_value=fresh):
             evidence = read_evidence(handle, self._sources())
         self.assertEqual(evidence["core_runtime"]["restart_counts"], {"upf": 3})
         self.assertEqual(evidence["core_runtime"]["last_restarted_nf"], "upf")
@@ -344,7 +344,7 @@ class ReadEvidenceLiveCoreRefresh(unittest.TestCase):
         """When read_runtime raises, evidence falls back to existing state without exception."""
         handle = _make_live_core_handle()
         with patch(
-            "benchmark.benchmark_api.live_core.read_runtime",
+            "benchmark_api.live_core.read_runtime",
             side_effect=RuntimeError("docker not responding"),
         ):
             try:
@@ -364,7 +364,7 @@ class ReadEvidenceSimulatedAdapter(unittest.TestCase):
     def test_simulated_adapter_does_not_call_read_runtime(self):
         """read_evidence for simulated_ocudu adapter never calls live_core.read_runtime."""
         handle = _make_simulated_handle()
-        with patch("benchmark.benchmark_api.live_core.read_runtime") as mock_rr:
+        with patch("benchmark_api.live_core.read_runtime") as mock_rr:
             evidence = read_evidence(handle, ("core_runtime",))
         mock_rr.assert_not_called()
         self.assertIn("core_runtime", evidence)

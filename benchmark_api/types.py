@@ -1,7 +1,7 @@
 """Closed benchmark sum types.
 
 These enums are the executable counterpart of
-``skillful-ran-research/benchmark_design/benchmark_sum_type_list.md``.
+``docs/design/benchmark_sum_type_list.md``.
 """
 
 from __future__ import annotations
