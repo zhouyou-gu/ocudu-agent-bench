@@ -266,13 +266,16 @@ def dispatch_runtime_action(runtime: RuntimeHandle, action_id: str, action: dict
     )
 
 
+# Only the OCUDU WebSocket remote_server (apps/services/remote_control/remote_server.cpp)
+# registers these two cmd handlers. The other gnb commands (`ho`, `cho`, `cfo`,
+# `tx_time_offset`) are stdin-only `cmdline_command` subclasses — the WS dispatcher
+# returns "Unknown command type" if asked. Live smoke 2026-05-25 confirmed this on
+# 5090pc against ocudu/gnb:latest (commit 2563975). Wiring CLI-only actions through
+# the live transport would need a stdin/docker-attach mechanism (follow-up slice).
+# Until then they fall through to apply_simulated_action when adapter=live_ocudu.
 _WS_BACKED_ACTIONS: frozenset[RanActionType] = frozenset({
     RanActionType.SET_PRB_POLICY_RATIO_WS,
     RanActionType.SET_SSB_BLOCK_POWER_WS,
-    RanActionType.TRIGGER_HANDOVER_CLI,
-    RanActionType.TRIGGER_CONDITIONAL_HANDOVER_CLI,
-    RanActionType.SET_CFO_CLI,
-    RanActionType.SET_TX_TIME_OFFSET_CLI,
 })
 
 

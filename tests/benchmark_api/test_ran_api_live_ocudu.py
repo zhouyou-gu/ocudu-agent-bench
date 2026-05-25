@@ -2,14 +2,15 @@
 
 All live_ocudu I/O is mocked — no WebSocket or real gNB required.
 Covers:
-  - SET_PRB_POLICY_RATIO_WS happy path
-  - SET_SSB_BLOCK_POWER_WS happy path
-  - TRIGGER_HANDOVER_CLI happy path (cmd and argv verified)
-  - TRIGGER_CONDITIONAL_HANDOVER_CLI happy path
-  - SET_CFO_CLI happy path
-  - SET_TX_TIME_OFFSET_CLI happy path
+  - SET_PRB_POLICY_RATIO_WS happy path (WS-backed)
+  - SET_SSB_BLOCK_POWER_WS happy path (WS-backed)
+  - TRIGGER_HANDOVER_CLI / TRIGGER_CONDITIONAL_HANDOVER_CLI / SET_CFO_CLI /
+    SET_TX_TIME_OFFSET_CLI: OCUDU exposes these only on stdin, NOT on the
+    remote_control WebSocket (live smoke 2026-05-25 returned "Unknown
+    command type"). They fall through to apply_simulated_action when
+    adapter=live_ocudu — send_command must NOT be called for them.
   - LiveOcuduError → RUNTIME_UNAVAILABLE, accepted=False
-  - Non-WS action (RESTART_CORE_NF) on live_ocudu → simulated path, send_command not called
+  - Non-WS action (RESTART_CORE_NF) on live_ocudu → backend gate blocks
   - WS action on simulated adapter → simulated path, send_command not called
   - NO_ACTION → dispatched=False, accepted=True
 """
@@ -225,90 +226,47 @@ class SetSsbBlockPowerWsHappyPath(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 3. TRIGGER_HANDOVER_CLI happy path (verify build_request payload)
+# 3. CLI-style actions fall through to simulated on live_ocudu adapter
 # ---------------------------------------------------------------------------
+# Per the 2026-05-25 live smoke, OCUDU's remote_control WebSocket dispatcher
+# (apps/services/remote_control/remote_server.cpp) only registers handlers
+# for `rrm_policy_ratio_set`, `ssb_set`, `metrics_subscribe`,
+# `metrics_unsubscribe`, and `quit`. The `ho`, `cho`, `cfo`, and
+# `tx_time_offset` commands live in *_cmdline_commands.h and are stdin-only.
+# When the live_ocudu adapter is active, those actions must fall through to
+# apply_simulated_action — live_ocudu.send_command must NOT be called.
 
-class TriggerHandoverCliHappyPath(unittest.TestCase):
+class CliActionsFallThroughToSimulated(unittest.TestCase):
 
-    def test_dispatched_accepted_with_ho_cmd(self):
+    def _assert_fallthrough(self, action):
         handle = _make_live_ocudu_handle()
-        ack = _ok_ack("ho")
-        with patch("benchmark.benchmark_api.live_ocudu.send_command", return_value=ack) as mock_sc:
-            result = dispatch_runtime_action(handle, "act-1", _HO_ACTION)
-        mock_sc.assert_called_once()
-        sent_request = mock_sc.call_args[0][1]
-        self.assertEqual(sent_request["cmd"], "ho")
-        self.assertEqual(sent_request["argv"], [1, "0x4601", 2])
+        with patch("benchmark.benchmark_api.live_ocudu.send_command") as mock_sc:
+            result = dispatch_runtime_action(handle, "act-1", action)
+        mock_sc.assert_not_called()
+        # The simulated path returns dispatched=True for actions whose backend
+        # gate is satisfied by the live_ocudu backend block (websocket=True,
+        # ocudu_cli=True). Just confirm we didn't crash and didn't hit live WS.
         self.assertTrue(result.dispatched)
-        self.assertTrue(result.accepted)
-        self.assertEqual(result.backend, "ocudu_cli")
 
-    def test_build_request_produces_ho_payload(self):
-        """Standalone check that build_request produces the expected ho payload."""
+    def test_ho_falls_through(self):
+        self._assert_fallthrough(_HO_ACTION)
+
+    def test_cho_falls_through(self):
+        self._assert_fallthrough(_CHO_ACTION)
+
+    def test_cfo_falls_through(self):
+        self._assert_fallthrough(_CFO_ACTION)
+
+    def test_tx_time_offset_falls_through(self):
+        self._assert_fallthrough(_TX_TIME_ACTION)
+
+    def test_build_request_still_produces_ho_payload(self):
+        """build_request itself is unchanged — it produces the expected ho payload
+        regardless of dispatch routing. Useful when a future stdin-based CLI
+        transport is added."""
         request = build_request(RanActionType.TRIGGER_HANDOVER_CLI, _HO_ACTION)
         self.assertEqual(request["cmd"], "ho")
         self.assertEqual(request["argv"], [1, "0x4601", 2])
-
-
-# ---------------------------------------------------------------------------
-# 4. TRIGGER_CONDITIONAL_HANDOVER_CLI happy path
-# ---------------------------------------------------------------------------
-
-class TriggerConditionalHandoverCliHappyPath(unittest.TestCase):
-
-    def test_dispatched_accepted_with_cho_cmd(self):
-        handle = _make_live_ocudu_handle()
-        ack = _ok_ack("cho")
-        with patch("benchmark.benchmark_api.live_ocudu.send_command", return_value=ack) as mock_sc:
-            result = dispatch_runtime_action(handle, "act-1", _CHO_ACTION)
-        mock_sc.assert_called_once()
-        sent_request = mock_sc.call_args[0][1]
-        self.assertEqual(sent_request["cmd"], "cho")
-        self.assertIn(1, sent_request["argv"])       # serving_pci
-        self.assertIn("0x4601", sent_request["argv"])  # rnti
-        self.assertTrue(result.dispatched)
-        self.assertTrue(result.accepted)
-        self.assertEqual(result.backend, "ocudu_cli")
-
-
-# ---------------------------------------------------------------------------
-# 5. SET_CFO_CLI happy path
-# ---------------------------------------------------------------------------
-
-class SetCfoCliHappyPath(unittest.TestCase):
-
-    def test_dispatched_accepted_with_cfo_cmd(self):
-        handle = _make_live_ocudu_handle()
-        ack = _ok_ack("cfo")
-        with patch("benchmark.benchmark_api.live_ocudu.send_command", return_value=ack) as mock_sc:
-            result = dispatch_runtime_action(handle, "act-1", _CFO_ACTION)
-        mock_sc.assert_called_once()
-        sent_request = mock_sc.call_args[0][1]
-        self.assertEqual(sent_request["cmd"], "cfo")
-        self.assertEqual(sent_request["argv"], [0, -1250.0])
-        self.assertTrue(result.dispatched)
-        self.assertTrue(result.accepted)
-        self.assertEqual(result.backend, "ocudu_cli")
-
-
-# ---------------------------------------------------------------------------
-# 6. SET_TX_TIME_OFFSET_CLI happy path
-# ---------------------------------------------------------------------------
-
-class SetTxTimeOffsetCliHappyPath(unittest.TestCase):
-
-    def test_dispatched_accepted_with_tx_time_offset_cmd(self):
-        handle = _make_live_ocudu_handle()
-        ack = _ok_ack("tx_time_offset")
-        with patch("benchmark.benchmark_api.live_ocudu.send_command", return_value=ack) as mock_sc:
-            result = dispatch_runtime_action(handle, "act-1", _TX_TIME_ACTION)
-        mock_sc.assert_called_once()
-        sent_request = mock_sc.call_args[0][1]
-        self.assertEqual(sent_request["cmd"], "tx_time_offset")
-        self.assertEqual(sent_request["argv"], [0, 7.5])
-        self.assertTrue(result.dispatched)
-        self.assertTrue(result.accepted)
-        self.assertEqual(result.backend, "ocudu_cli")
 
 
 # ---------------------------------------------------------------------------
@@ -328,12 +286,12 @@ class LiveOcuduErrorHandling(unittest.TestCase):
         self.assertEqual(result.safe_error_class, SafeErrorClass.RUNTIME_UNAVAILABLE)
         self.assertEqual(result.safe_message, "ws closed unexpectedly")
 
-    def test_live_ocudu_error_on_cli_action(self):
-        """LiveOcuduError on a CLI action (TRIGGER_HANDOVER_CLI) also surfaces as RUNTIME_UNAVAILABLE."""
+    def test_live_ocudu_error_on_ssb_action(self):
+        """LiveOcuduError on another WS-backed action (SSB) also surfaces as RUNTIME_UNAVAILABLE."""
         handle = _make_live_ocudu_handle()
         exc = LiveOcuduError("connection timeout")
         with patch("benchmark.benchmark_api.live_ocudu.send_command", side_effect=exc):
-            result = dispatch_runtime_action(handle, "act-1", _HO_ACTION)
+            result = dispatch_runtime_action(handle, "act-1", _SSB_ACTION)
         self.assertTrue(result.dispatched)
         self.assertFalse(result.accepted)
         self.assertEqual(result.safe_error_class, SafeErrorClass.RUNTIME_UNAVAILABLE)
