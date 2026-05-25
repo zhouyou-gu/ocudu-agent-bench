@@ -12,6 +12,8 @@
 
 **Execution environment:** All file edits happen on the Mac (canonical clone at `/Users/charles_gu/Documents/GitHub/skillful-ran-workspace/`). End-to-end validation (Task 11) happens on 5090pc (Ubuntu 24.04, docker + nvidia-container-toolkit installed; clone at `~/skillful-ran-workspace/`) via git push/pull, then SSH-driven `docker compose up`.
 
+**Placeholders used in Task 11 commands:** `$REMOTE_5090` (the 5090pc SSH target, `user@host`) and `$REMOTE_5090_KEY` (path to the local SSH key for that host). Real values live in the gitignored `hosts.local.md`; export them in your shell before running Task 11, e.g. `export REMOTE_5090=... REMOTE_5090_KEY=~/.ssh/...`. The plan deliberately does not commit the real values (privacy guard in `benchmark/tests/test_repo_generic.py`).
+
 ---
 
 ### Task 1: Scaffolding — create dirs, delete stubs, baseline commit
@@ -1152,7 +1154,7 @@ Run:
 ```bash
 docker compose -f benchmark/provision/open5gs-core/compose/docker-compose.open5gs.yml config --quiet
 ```
-Expected: exits 0 with no output. (If `docker` isn't on the Mac PATH, run on 5090pc via `ssh zhouyou@10.34.23.184 'cd ~/skillful-ran-workspace && docker compose -f benchmark/provision/open5gs-core/compose/docker-compose.open5gs.yml config --quiet'`.)
+Expected: exits 0 with no output. (If `docker` isn't on the Mac PATH, run on 5090pc via `ssh "$REMOTE_5090" 'cd ~/skillful-ran-workspace && docker compose -f benchmark/provision/open5gs-core/compose/docker-compose.open5gs.yml config --quiet'`.)
 
 - [ ] **Step 3: Commit**
 
@@ -1394,7 +1396,7 @@ Expected: push succeeds, all 10 commits land on `origin/main`.
 
 Run:
 ```bash
-ssh -n -o BatchMode=yes -i ~/.ssh/zhouyou5090pc zhouyou@10.34.23.184 \
+ssh -n -o BatchMode=yes -i "$REMOTE_5090_KEY" "$REMOTE_5090" \
     'cd ~/skillful-ran-workspace && git fetch origin && git reset --hard origin/main && git log --oneline -3'
 ```
 Expected: HEAD now matches local; last 3 commits visible.
@@ -1403,7 +1405,7 @@ Expected: HEAD now matches local; last 3 commits visible.
 
 Run:
 ```bash
-ssh -n -o BatchMode=yes -i ~/.ssh/zhouyou5090pc zhouyou@10.34.23.184 '
+ssh -n -o BatchMode=yes -i "$REMOTE_5090_KEY" "$REMOTE_5090" '
 cd ~/skillful-ran-workspace
 docker compose -f benchmark/provision/open5gs-core/compose/docker-compose.open5gs.yml up -d --build
 echo "--- compose ps ---"
@@ -1416,7 +1418,7 @@ Expected: 12 services listed; mongo+NFs `running`+`healthy`; subscriber-seeder `
 
 Run:
 ```bash
-ssh -n -o BatchMode=yes -i ~/.ssh/zhouyou5090pc zhouyou@10.34.23.184 '
+ssh -n -o BatchMode=yes -i "$REMOTE_5090_KEY" "$REMOTE_5090" '
 cd ~/skillful-ran-workspace
 DEADLINE=$(( $(date +%s) + 120 ))
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
@@ -1432,7 +1434,7 @@ Expected: prints `READY` within 2 min.
 
 Run:
 ```bash
-ssh -n -o BatchMode=yes -i ~/.ssh/zhouyou5090pc zhouyou@10.34.23.184 '
+ssh -n -o BatchMode=yes -i "$REMOTE_5090_KEY" "$REMOTE_5090" '
 cd ~/skillful-ran-workspace
 bash benchmark/provision/open5gs-core/tests/check_core_ready.sh
 '
@@ -1444,7 +1446,7 @@ Expected: `open5gs core ready` printed, exit 0. If any check fails, the script p
 Run the live spot-checks of each future-API enabling primitive (per spec §9.1's "Verified by" column):
 
 ```bash
-ssh -n -o BatchMode=yes -i ~/.ssh/zhouyou5090pc zhouyou@10.34.23.184 '
+ssh -n -o BatchMode=yes -i "$REMOTE_5090_KEY" "$REMOTE_5090" '
 cd ~/skillful-ran-workspace
 echo "--- compose project name discoverable as open5gs ---"
 docker compose -p open5gs ps --services | sort
@@ -1462,7 +1464,7 @@ Expected: 11 service names listed; `ok` for mongo; `qdisc noqueue 0: root refcnt
 
 Run:
 ```bash
-ssh -n -o BatchMode=yes -i ~/.ssh/zhouyou5090pc zhouyou@10.34.23.184 '
+ssh -n -o BatchMode=yes -i "$REMOTE_5090_KEY" "$REMOTE_5090" '
 cd ~/skillful-ran-workspace
 docker compose -f benchmark/provision/open5gs-core/compose/docker-compose.open5gs.yml down -v
 docker volume ls | grep open5gs && echo WARN: leftover volume || echo "clean teardown"
