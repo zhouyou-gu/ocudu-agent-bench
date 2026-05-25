@@ -104,7 +104,8 @@ it crashes the RIC.
 | Image | Size | Source |
 |---|---|---|
 | `skillful-ran/flexric-bench:br-flexric-1a3903a7-kpm-v5-ocudu-26_04` | 1.37 GB | Original locally-built image (Phase 2a baseline). Built on 5090pc from the FlexRIC fork at [github.com/zhouyou-gu/flexric-ocudu-kpm-v05](https://github.com/zhouyou-gu/flexric-ocudu-kpm-v05) (pinned in `.config` under `sources.flexric-ocudu-repo`). Carries OCUDU KPM v05 + custom OCUDU-specific control xApps (`examples/xApp/c/control/ocudu_ccc_prb_control.c` + `ocudu_rc_du_prb_control.cpp`) and patches FlexRIC core (`src/xApp/{e42_xapp.c, msg_handler_xapp.c, sync_ui.c}`) to return structured E2 control failures instead of crashing. |
-| **`skillful-ran/flexric-bench:patch-control-failure`** | 1.37 GB | **Used by current compose (Phase 2b).** Same image + two more patches on a local branch `patch-control-failure-decoder`: removes the `"Untested code"` assert in `e2ap_msg_dec_asn.c:1284` so RIC Control Failures decode, and implements `e2ap_handle_control_failure_ric` at `msg_handler_ric.c:370`. Branch not yet pushed to the GitHub fork. |
+| `skillful-ran/flexric-bench:patch-control-failure` | 1.37 GB | Same image + two control-failure patches (decoder + RIC handler). Merged to fork main as `f357ac8`. Superseded by `patch-iapp-control-failure`. |
+| **`skillful-ran/flexric-bench:patch-iapp-control-failure`** | 1.37 GB | **Used by current compose.** Adds the third FlexRIC patch on top: `e2ap_handle_e42_ric_control_failure_iapp` (mirror of the ACK handler) registered in `init_handle_msg_iapp`, with the `notify_msg_iapp` assertion expanded to allow `RIC_CONTROL_FAILURE`. The full failure path is now non-crashing: gNB rejection → decoded → forwarded to iApp → forwarded back to the originating xApp. Merged to fork main as `5364526`. |
 
 ## Phase 2b — E2 control (both live)
 
@@ -128,11 +129,12 @@ result = live_e2.dispatch_rc_du_prb_policy(
 
 `du_ue_id` **must be the gNB-assigned DU UE ID** (typically `0` for
 the first attached UE), NOT the RNTI (`0x4601`). Wrong `du_ue_id`
-triggers the gNB''s `RICcontrolFailure` path which, even with the two
-FlexRIC patches in the rebuilt image, still asserts in a deeper layer
-(the iApp→xApp forwarding code). The happy path is fully robust; the
-failure path crashes the RIC and needs another patch. For benchmark
-dispatch with well-formed actions this is a non-issue.
+triggers the gNB's `RICcontrolFailure` path; with the
+`patch-iapp-control-failure` image the RIC stays alive, decodes the
+failure, forwards it to the iApp, and forwards it back to the
+originating xApp. The xApp sees `accepted=false` and the benchmark
+dispatch maps that to `RUNTIME_UNAVAILABLE`. Well-formed actions hit
+the happy path.
 
 ### SET_PRB_POLICY_RATIO_CCC ✅ live
 

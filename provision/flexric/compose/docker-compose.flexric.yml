@@ -28,12 +28,23 @@ networks:
 
 services:
   flexric:
-    # Uses the locally-rebuilt image with src/lib/e2ap/v3_01/dec/e2ap_msg_dec_asn.c
-    # line 1284's unconditional "Untested code" assert removed so RIC Control
-    # Failure responses from the gNB decode + propagate instead of crashing
-    # the RIC with SIGABRT. Built from FlexRIC fork branch
-    # patch-control-failure-decoder (commit d415e0c on top of dc668ed).
-    image: skillful-ran/flexric-bench:patch-control-failure
+    # Uses the locally-rebuilt image with three FlexRIC patches on top of
+    # the OCUDU KPM v05 baseline (dc668ed):
+    #   1. src/lib/e2ap/v3_01/dec/e2ap_msg_dec_asn.c:1284 — removed the
+    #      unconditional "Untested code" assert in e2ap_dec_control_failure
+    #      so RIC Control Failure responses from the gNB decode cleanly.
+    #   2. src/ric/msg_handler_ric.c:370 — implemented
+    #      e2ap_handle_control_failure_ric (mirror of the ACK handler) so
+    #      the RIC stops the pending event and forwards the failure to iApp.
+    #   3. src/ric/iApp/{e42_iapp.c, msg_handler_iapp.{c,h}} — implemented
+    #      e2ap_handle_e42_ric_control_failure_iapp (mirror of the ACK
+    #      handler), registered it in the iApp dispatch table, and expanded
+    #      the notify_msg_iapp assertion to allow RIC_CONTROL_FAILURE. This
+    #      closes the third unimplemented layer; the RIC now stays alive
+    #      when the gNB rejects a control (e.g. RC-DU with no UE attached
+    #      or CCC with invalid fields), and the failure is forwarded back
+    #      to the originating xApp instead of SIGABRTing the daemon.
+    image: skillful-ran/flexric-bench:patch-iapp-control-failure
     container_name: flexric-ric
     pull_policy: missing
     restart: "no"
