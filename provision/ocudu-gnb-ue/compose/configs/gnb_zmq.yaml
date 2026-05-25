@@ -92,4 +92,10 @@ e2:
   bind_addrs: 10.53.1.20
   e2sm_kpm_enabled: true
   e2sm_rc_enabled: true
-  e2sm_ccc_enabled: true
+  # e2sm_ccc_enabled would segfault this OCUDU build at startup
+  # (gnb exit 139 immediately, "Segmentation fault (core dumped)").
+  # The CCC service-model implementation isn't safely available in
+  # ocudu/gnb:latest (commit 2563975). SET_PRB_POLICY_RATIO_CCC stays
+  # unsupported on this stack -- only SET_PRB_POLICY_RATIO_RC_DU
+  # (via RAN function ID 3 = ORAN-E2SM-RC) is live via live_e2.
+  e2sm_ccc_enabled: false
