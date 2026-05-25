@@ -24,9 +24,10 @@ docker compose -f "$GNB_UE_COMPOSE" ps gnb --format json \
   | python3 -c 'import sys,json; d=json.loads(sys.stdin.read() or "{}"); sys.exit(0 if d.get("State")=="running" else 1)' \
   || { echo "check 1 FAIL: gnb container not running"; exit 1; }
 
-# 2. gnb log shows AMF connection (NGAP setup successful)
-docker compose -f "$GNB_UE_COMPOSE" logs --no-color gnb 2>/dev/null \
-  | grep -qiE 'NGAP setup procedure completed|NG setup procedure successful|AMF connection established|connection to AMF established' \
+# 2. gnb has established AMF connection.
+# OCUDU writes logs to /tmp/gnb.log inside the container (per gnb_zmq.yaml
+# log.filename), not stdout, so `docker compose logs` returns empty.
+docker compose -f "$GNB_UE_COMPOSE" exec -T gnb sh -c 'grep -qE "Connected to AMF\." /tmp/gnb.log' \
   || { echo "check 2 FAIL: gnb has not established AMF connection"; exit 1; }
 
 # 3. ue container running
