@@ -7,6 +7,13 @@
 # design rationale (split-NF, upstream gradiant images, static IPs, mongo
 # loopback, NET_ADMIN caps, etc.).
 
+# Image choice: gradiant publishes the upstream Open5GS 2.7.x release as a
+# single monolithic image (gradiant/open5gs:2.7.7) containing every NF binary
+# at /opt/open5gs/bin/open5gs-<nf>d. We reuse the same image across all 10 NF
+# services and override `entrypoint:` per service so each container still runs
+# exactly one NF — preserving the split-NF integration contract (spec §9)
+# without depending on the per-NF gradiant images, which stopped at 2.2.5.
+
 name: open5gs
 
 networks:
@@ -60,8 +67,9 @@ services:
 
   nrf:
     <<: *nf-defaults
-    image: gradiant/open5gs-nrf:2.7.0
+    image: gradiant/open5gs:2.7.7
     container_name: open5gs-nrf
+    entrypoint: ["/opt/open5gs/bin/open5gs-nrfd"]
     command: ["-c", "/opt/open5gs/etc/open5gs/nrf.yaml"]
     networks:
       ran:
@@ -78,8 +86,9 @@ services:
 
   scp:
     <<: *nf-defaults
-    image: gradiant/open5gs-scp:2.7.0
+    image: gradiant/open5gs:2.7.7
     container_name: open5gs-scp
+    entrypoint: ["/opt/open5gs/bin/open5gs-scpd"]
     command: ["-c", "/opt/open5gs/etc/open5gs/scp.yaml"]
     networks:
       ran:
@@ -96,8 +105,9 @@ services:
 
   ausf:
     <<: *nf-defaults
-    image: gradiant/open5gs-ausf:2.7.0
+    image: gradiant/open5gs:2.7.7
     container_name: open5gs-ausf
+    entrypoint: ["/opt/open5gs/bin/open5gs-ausfd"]
     command: ["-c", "/opt/open5gs/etc/open5gs/ausf.yaml"]
     networks:
       ran:
@@ -114,8 +124,9 @@ services:
 
   udm:
     <<: *nf-defaults
-    image: gradiant/open5gs-udm:2.7.0
+    image: gradiant/open5gs:2.7.7
     container_name: open5gs-udm
+    entrypoint: ["/opt/open5gs/bin/open5gs-udmd"]
     command: ["-c", "/opt/open5gs/etc/open5gs/udm.yaml"]
     networks:
       ran:
@@ -132,8 +143,9 @@ services:
 
   udr:
     <<: *nf-defaults
-    image: gradiant/open5gs-udr:2.7.0
+    image: gradiant/open5gs:2.7.7
     container_name: open5gs-udr
+    entrypoint: ["/opt/open5gs/bin/open5gs-udrd"]
     command: ["-c", "/opt/open5gs/etc/open5gs/udr.yaml"]
     networks:
       ran:
@@ -150,8 +162,9 @@ services:
 
   pcf:
     <<: *nf-defaults
-    image: gradiant/open5gs-pcf:2.7.0
+    image: gradiant/open5gs:2.7.7
     container_name: open5gs-pcf
+    entrypoint: ["/opt/open5gs/bin/open5gs-pcfd"]
     command: ["-c", "/opt/open5gs/etc/open5gs/pcf.yaml"]
     networks:
       ran:
@@ -168,8 +181,9 @@ services:
 
   bsf:
     <<: *nf-defaults
-    image: gradiant/open5gs-bsf:2.7.0
+    image: gradiant/open5gs:2.7.7
     container_name: open5gs-bsf
+    entrypoint: ["/opt/open5gs/bin/open5gs-bsfd"]
     command: ["-c", "/opt/open5gs/etc/open5gs/bsf.yaml"]
     networks:
       ran:
@@ -186,8 +200,9 @@ services:
 
   upf:
     <<: *nf-defaults
-    image: gradiant/open5gs-upf:2.7.0
+    image: gradiant/open5gs:2.7.7
     container_name: open5gs-upf
+    entrypoint: ["/opt/open5gs/bin/open5gs-upfd"]
     command: ["-c", "/opt/open5gs/etc/open5gs/upf.yaml"]
     cap_add: [NET_ADMIN]
     networks:
@@ -205,8 +220,9 @@ services:
 
   smf:
     <<: *nf-defaults
-    image: gradiant/open5gs-smf:2.7.0
+    image: gradiant/open5gs:2.7.7
     container_name: open5gs-smf
+    entrypoint: ["/opt/open5gs/bin/open5gs-smfd"]
     command: ["-c", "/opt/open5gs/etc/open5gs/smf.yaml"]
     cap_add: [NET_ADMIN]
     networks:
@@ -225,8 +241,9 @@ services:
 
   amf:
     <<: *nf-defaults
-    image: gradiant/open5gs-amf:2.7.0
+    image: gradiant/open5gs:2.7.7
     container_name: open5gs-amf
+    entrypoint: ["/opt/open5gs/bin/open5gs-amfd"]
     command: ["-c", "/opt/open5gs/etc/open5gs/amf.yaml"]
     cap_add: [NET_ADMIN]
     networks:
