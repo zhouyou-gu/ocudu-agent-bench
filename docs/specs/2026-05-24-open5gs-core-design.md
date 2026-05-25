@@ -99,6 +99,14 @@ NF containers that may be targeted by the `core_latency_profile` stimulus
 `docker compose exec <nf> tc qdisc add dev eth0 root netem delay <ms> loss <%>`.
 Other NFs do not get the capability; principle-of-least-privilege.
 
+**Implementation note (UPF):** in practice UPF needs `privileged: true` rather
+than `cap_add: [NET_ADMIN]` alone. The `gradiant/open5gs:2.7.x` image's
+`/entrypoint.sh` calls `sysctl -w net.ipv6.conf.all.disable_ipv6=0` under
+`set -eo pipefail`, and Docker namespace-scoped sysctl writes for `net.ipv6.*`
+require `SYS_ADMIN` on this kernel. AMF and SMF stay on `cap_add: [NET_ADMIN]`
++ `user: root` (sufficient for `tc netem`). The privileged scope is bounded
+to one NF on a testbed-only deployment.
+
 ## 4. Components in detail
 
 ### 4.1 Per-NF config files

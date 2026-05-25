@@ -1,12 +1,14 @@
 # Open5GS 5G core (split-NF)
 
 Real, deployable Open5GS 5G core for the OCUDUAgentBench live-runtime path.
-Brings up 11 containers (`mongo` + 10 Open5GS NFs from
-`gradiant/open5gs-*:2.7.0`) + a one-shot subscriber seeder.
+Brings up 11 containers (`mongo` + 10 Open5GS NF instances of the upstream
+monolithic `gradiant/open5gs:2.7.7` image, each invoked with its own NF
+binary via `command:`) + a one-shot subscriber seeder.
 
-For the why behind the choices (split-NF vs all-in-one, upstream images vs
-build-from-source, mongo on loopback, NET_ADMIN cap on AMF/SMF/UPF, etc.),
-see [`benchmark/docs/specs/2026-05-24-open5gs-core-design.md`](../../docs/specs/2026-05-24-open5gs-core-design.md).
+For the why behind the choices (split-NF via per-service `command:`, mongo
+on loopback, NET_ADMIN cap on AMF/SMF, `privileged: true` on UPF for the
+upstream entrypoint's sysctl call, etc.), see
+[`benchmark/docs/specs/2026-05-24-open5gs-core-design.md`](../../docs/specs/2026-05-24-open5gs-core-design.md).
 
 ## Bring up
 
