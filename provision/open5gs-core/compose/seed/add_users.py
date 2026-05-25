@@ -19,11 +19,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-_IMSI_RE = re.compile(r"^[0-9]{5,16}$")
+_IMSI_RE = re.compile(r"^[0-9]{5,15}$")
 _HEX32_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 _PLMN_RE = re.compile(r"^[0-9]{5,6}$")
 _HEX_AMF_RE = re.compile(r"^[0-9a-fA-F]{4}$")
 _HEX_SQN_RE = re.compile(r"^[0-9a-fA-F]{12}$")
+_HEX6_RE = re.compile(r"^[0-9a-fA-F]{6}$")
 
 
 def subscriber_document(row: dict[str, str]) -> dict[str, Any]:
@@ -33,6 +34,14 @@ def subscriber_document(row: dict[str, str]) -> dict[str, Any]:
     auth_profile_id, ue_id. `sd` may be empty to indicate "no slice
     differentiator."
     """
+
+    _REQUIRED = (
+        "imsi", "k", "opc", "amf", "sqn", "plmn",
+        "dnn", "sst", "sd", "auth_profile_id", "ue_id",
+    )
+    missing = [c for c in _REQUIRED if c not in row]
+    if missing:
+        raise ValueError(f"missing required CSV column(s): {missing!r}")
 
     imsi = row["imsi"].strip()
     k = row["k"].strip()
@@ -90,6 +99,8 @@ def subscriber_document(row: dict[str, str]) -> dict[str, Any]:
         ],
     }
     if sd:
+        if not _HEX6_RE.match(sd):
+            raise ValueError(f"invalid sd (need 6 hex chars when present): {sd!r}")
         slice0["sd"] = sd
 
     return {

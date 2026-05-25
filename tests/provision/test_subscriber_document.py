@@ -88,6 +88,20 @@ class SubscriberDocumentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             subscriber_document(self._row(plmn="123"))  # not 5 or 6 digits
 
+    def test_imsi_16_digits_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            subscriber_document(self._row(imsi="0010100000000016"))  # 16 digits
+
+    def test_sd_non_hex_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            subscriber_document(self._row(sd="zzzzzz"))  # 6 chars but non-hex
+
+    def test_missing_required_column_rejected(self) -> None:
+        row = self._row()
+        del row["dnn"]
+        with self.assertRaises(ValueError):
+            subscriber_document(row)
+
 
 if __name__ == "__main__":
     unittest.main()
