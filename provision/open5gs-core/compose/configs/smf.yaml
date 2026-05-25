@@ -1,0 +1,38 @@
+logger:
+  level: info
+
+smf:
+  info:
+    - s_nssai:
+        - sst: 1
+          dnn:
+            - internet
+  sbi:
+    server:
+      - address: 0.0.0.0
+        port: 7777
+    client:
+      nrf:
+        - uri: http://10.53.1.4:7777
+      scp:
+        - uri: http://10.53.1.5:7777
+  pfcp:
+    server:
+      - address: 0.0.0.0
+    client:
+      upf:
+        - address: 10.53.1.12
+  gtpc:
+    server:
+      - address: 0.0.0.0
+  gtpu:
+    server:
+      - address: 0.0.0.0
+  session:
+    - subnet: 10.45.0.0/16
+      gateway: 10.45.0.1
+      dnn: internet
+  dns:
+    - 8.8.8.8
+    - 1.1.1.1
+  mtu: 1400
