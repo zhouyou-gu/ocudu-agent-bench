@@ -91,6 +91,9 @@ def _live_e2_config_from_setup(setup: dict[str, Any]) -> "live_e2.LiveE2Config":
       rc_du_xapp_path (default "/opt/flexric/build/examples/xApp/c/control/ocudu-rc-du-prb-control")
       rc_du_xapp_conf (default "/etc/xapp/xapp_oran_sm.conf")
       rc_du_xapp_timeout_s (default 30.0)
+      ccc_xapp_path (default "/opt/flexric/build/examples/xApp/c/control/ocudu-ccc-prb-control")
+      ccc_xapp_conf (default "/etc/xapp/xapp_oran_sm.conf")
+      ccc_xapp_timeout_s (default 30.0)
     """
     from benchmark.benchmark_api import live_e2  # local import to keep module-load cheap
     block = setup.get("live_e2") or {}
@@ -105,6 +108,12 @@ def _live_e2_config_from_setup(setup: dict[str, Any]) -> "live_e2.LiveE2Config":
         )),
         rc_du_xapp_conf=str(block.get("rc_du_xapp_conf", "/etc/xapp/xapp_oran_sm.conf")),
         rc_du_xapp_timeout_s=float(block.get("rc_du_xapp_timeout_s", 30.0)),
+        ccc_xapp_path=str(block.get(
+            "ccc_xapp_path",
+            "/opt/flexric/build/examples/xApp/c/control/ocudu-ccc-prb-control",
+        )),
+        ccc_xapp_conf=str(block.get("ccc_xapp_conf", "/etc/xapp/xapp_oran_sm.conf")),
+        ccc_xapp_timeout_s=float(block.get("ccc_xapp_timeout_s", 30.0)),
     )
 
 
@@ -227,10 +236,10 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
             "core_control": False,
             "json_metrics": False,
             "e2_kpm": ready,
-            "e2_control": ready,   # SET_PRB_POLICY_RATIO_RC_DU via the OCUDU RC-DU
-                                   # control xApp inside FlexRIC. CCC (RIC style 2
-                                   # action 6 via CCC SM) remains blocked because
-                                   # OCUDU gnb segfaults on e2sm_ccc_enabled.
+            "e2_control": ready,   # SET_PRB_POLICY_RATIO_RC_DU + SET_PRB_POLICY_RATIO_CCC
+                                   # both dispatch via FlexRIC xApps: ocudu-rc-du-prb-control
+                                   # (RAN func 3, RIC style 2 action 6) and
+                                   # ocudu-ccc-prb-control (RAN func 4, CCC style 2 action 6).
         }
     else:
         backend_block = {

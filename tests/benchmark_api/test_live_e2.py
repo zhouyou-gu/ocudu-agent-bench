@@ -18,6 +18,7 @@ from benchmark.benchmark_api.live_e2 import (
     read_kpm,
     latest_kpm_measurements,
     dispatch_rc_du_prb_policy,
+    dispatch_ccc_prb_policy,
 )
 
 _DEFAULT_CFG = LiveE2Config()
@@ -521,6 +522,99 @@ class LiveE2DispatchRcDuTests(unittest.TestCase):
         result = dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0)
         self.assertTrue(result["accepted"])
         self.assertEqual(result["action_type"], "SET_PRB_POLICY_RATIO_RC_DU")
+
+
+# ---------------------------------------------------------------------------
+# 7. LiveE2DispatchCccTests
+# ---------------------------------------------------------------------------
+
+_CCC_SUCCESS_JSON = json.dumps({
+    "accepted": True,
+    "action_type": "SET_PRB_POLICY_RATIO_CCC",
+    "ran_function_id": 4,
+    "control_name": "O-RRMPolicyRatio",
+    "control_style": 2,
+    "control_action": 6,
+    "request": {"plmn": "00101", "sst": 1, "sd": "FFFFFF", "min_prb_policy_ratio": 30,
+                "max_prb_policy_ratio": 70, "dedicated_ratio": 50},
+    "outcome": {
+        "acknowledged": True,
+        "evidence": "FlexRIC E2SM-CCC control acknowledged",
+    },
+})
+
+_CCC_FAILURE_JSON = json.dumps({
+    "action_type": "SET_PRB_POLICY_RATIO_CCC",
+    "accepted": False,
+    "error": "missing required PRB min/max policy ratio",
+})
+
+
+class LiveE2DispatchCccTests(unittest.TestCase):
+    """dispatch_ccc_prb_policy: happy path, failure path, argv (no du_ue_id, has dedicated)."""
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_happy_path_returns_accepted_true(self, mock_run):
+        mock_run.return_value = (0, _CCC_SUCCESS_JSON + "\n", "")
+        result = dispatch_ccc_prb_policy(
+            _DEFAULT_CFG, min_prb_policy_ratio=30, max_prb_policy_ratio=70, dedicated_ratio=50,
+        )
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["action_type"], "SET_PRB_POLICY_RATIO_CCC")
+        self.assertEqual(result["ran_function_id"], 4)
+        self.assertEqual(result["outcome"]["evidence"], "FlexRIC E2SM-CCC control acknowledged")
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_failure_path_returns_accepted_false(self, mock_run):
+        mock_run.return_value = (3, _CCC_FAILURE_JSON + "\n", "")
+        result = dispatch_ccc_prb_policy(_DEFAULT_CFG)
+        self.assertFalse(result["accepted"])
+        self.assertIn("missing", result["error"])
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_argv_construction_no_du_ue_id(self, mock_run):
+        """CCC argv must NOT contain --du-ue-id (cell-level control)."""
+        mock_run.return_value = (0, _CCC_SUCCESS_JSON, "")
+        dispatch_ccc_prb_policy(
+            _DEFAULT_CFG, plmn="00101", sst=1, sd=0xFFFFFF,
+            min_prb_policy_ratio=30, max_prb_policy_ratio=70, dedicated_ratio=50,
+        )
+        argv = mock_run.call_args[0][0]
+        self.assertEqual(argv[0], "docker")
+        self.assertEqual(argv[1], "exec")
+        self.assertIn("flexric-ric", argv)
+        self.assertIn("/opt/flexric/build/examples/xApp/c/control/ocudu-ccc-prb-control", argv)
+        self.assertIn("--json", argv)
+        self.assertNotIn("--du-ue-id", argv)
+        for flag in ("--plmn", "--sst", "--sd",
+                     "--min-prb-policy-ratio", "--max-prb-policy-ratio", "--dedicated-ratio"):
+            self.assertIn(flag, argv)
+        ded_idx = argv.index("--dedicated-ratio")
+        self.assertEqual(argv[ded_idx + 1], "50")
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_optional_flags_excluded_when_none(self, mock_run):
+        """All optional flags absent if not provided."""
+        mock_run.return_value = (0, _CCC_SUCCESS_JSON, "")
+        dispatch_ccc_prb_policy(_DEFAULT_CFG)
+        argv = mock_run.call_args[0][0]
+        for flag in ("--sd", "--min-prb-policy-ratio", "--max-prb-policy-ratio", "--dedicated-ratio"):
+            self.assertNotIn(flag, argv)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_no_json_line_raises_with_ccc_tool_name(self, mock_run):
+        mock_run.return_value = (1, "Error response from daemon\n", "")
+        with self.assertRaises(LiveE2Error) as ctx:
+            dispatch_ccc_prb_policy(_DEFAULT_CFG)
+        self.assertIn("no JSON line", ctx.exception.safe_message)
+        self.assertIn("ocudu-ccc-prb-control", ctx.exception.safe_message)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_malformed_json_raises(self, mock_run):
+        mock_run.return_value = (0, "{garbage\n", "")
+        with self.assertRaises(LiveE2Error) as ctx:
+            dispatch_ccc_prb_policy(_DEFAULT_CFG)
+        self.assertIn("unparseable JSON", ctx.exception.safe_message)
 
 
 if __name__ == "__main__":

@@ -92,10 +92,11 @@ e2:
   bind_addrs: 10.53.1.20
   e2sm_kpm_enabled: true
   e2sm_rc_enabled: true
-  # e2sm_ccc_enabled would segfault this OCUDU build at startup
-  # (gnb exit 139 immediately, "Segmentation fault (core dumped)").
-  # The CCC service-model implementation isn't safely available in
-  # ocudu/gnb:latest (commit 2563975). SET_PRB_POLICY_RATIO_CCC stays
-  # unsupported on this stack -- only SET_PRB_POLICY_RATIO_RC_DU
-  # (via RAN function ID 3 = ORAN-E2SM-RC) is live via live_e2.
-  e2sm_ccc_enabled: false
+  # CCC is enabled: ocudu/gnb:latest (commit 2563975) carries a working
+  # E2SM-CCC DU implementation (e2sm_ccc_impl + e2sm_ccc_control_service_style_2
+  # + e2sm_ccc_control_o_rrm_policy_ratio_executor wired in
+  # lib/e2/common/e2_du_factory.cpp). The earlier "SIGSEGV on enable" claim
+  # turned out to be wrong -- enabling CCC keeps the gnb stable and FlexRIC
+  # accepts RAN function ID 4 (ORAN-E2SM-CCC) at E2 SETUP. Verified end-to-end
+  # via live_e2.dispatch_ccc_prb_policy + ocudu-ccc-prb-control xApp.
+  e2sm_ccc_enabled: true

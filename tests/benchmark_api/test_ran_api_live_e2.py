@@ -437,5 +437,85 @@ class LiveE2RcDuDispatchHappyPathTests(unittest.TestCase):
                 dispatch_runtime_action(handle, "act-006", action_no_id)
 
 
+# ---------------------------------------------------------------------------
+# 7. SET_PRB_POLICY_RATIO_CCC dispatch tests (live_e2 adapter)
+# ---------------------------------------------------------------------------
+
+_CCC_SUCCESS_XAPP_RESULT = {
+    "accepted": True,
+    "action_type": "SET_PRB_POLICY_RATIO_CCC",
+    "ran_function_id": 4,
+    "control_name": "O-RRMPolicyRatio",
+    "control_style": 2,
+    "control_action": 6,
+    "request": {},
+    "outcome": {
+        "acknowledged": True,
+        "evidence": "FlexRIC E2SM-CCC control acknowledged",
+    },
+}
+
+_CCC_FAILURE_XAPP_RESULT = {
+    "accepted": False,
+    "action_type": "SET_PRB_POLICY_RATIO_CCC",
+    "error": "missing required PRB min/max policy ratio",
+}
+
+_CCC_ACTION = {
+    "type": "SET_PRB_POLICY_RATIO_CCC",
+    "plmn": "00101",
+    "sst": 1,
+    "sd": 0xFFFFFF,
+    "min_prb_policy_ratio": 30,
+    "max_prb_policy_ratio": 70,
+    "dedicated_ratio": 50,
+}
+
+
+class LiveE2CccDispatchTests(unittest.TestCase):
+    """SET_PRB_POLICY_RATIO_CCC + live_e2 routing tests."""
+
+    @patch("benchmark.benchmark_api.live_e2.dispatch_ccc_prb_policy")
+    def test_happy_path_dispatched_accepted(self, mock_dispatch):
+        mock_dispatch.return_value = _CCC_SUCCESS_XAPP_RESULT
+        handle = _make_rc_du_live_e2_handle()
+        result = dispatch_runtime_action(handle, "ccc-001", _CCC_ACTION)
+        self.assertTrue(result.dispatched)
+        self.assertTrue(result.accepted)
+        self.assertIn("acknowledged", result.safe_message)
+        mock_dispatch.assert_called_once()
+        # CCC is cell-level: dispatch must NOT receive du_ue_id.
+        kwargs = mock_dispatch.call_args.kwargs
+        self.assertNotIn("du_ue_id", kwargs)
+        self.assertEqual(kwargs.get("dedicated_ratio"), 50)
+
+    @patch("benchmark.benchmark_api.live_e2.dispatch_ccc_prb_policy")
+    def test_xapp_accepted_false_runtime_unavailable(self, mock_dispatch):
+        mock_dispatch.return_value = _CCC_FAILURE_XAPP_RESULT
+        handle = _make_rc_du_live_e2_handle()
+        result = dispatch_runtime_action(handle, "ccc-002", _CCC_ACTION)
+        self.assertTrue(result.dispatched)
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.safe_error_class, SafeErrorClass.RUNTIME_UNAVAILABLE)
+        self.assertIn("rejected", result.safe_message)
+
+    @patch("benchmark.benchmark_api.live_e2.dispatch_ccc_prb_policy")
+    def test_live_e2_error_runtime_unavailable(self, mock_dispatch):
+        mock_dispatch.side_effect = LiveE2Error("docker exec: container not running")
+        handle = _make_rc_du_live_e2_handle()
+        result = dispatch_runtime_action(handle, "ccc-003", _CCC_ACTION)
+        self.assertTrue(result.dispatched)
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.safe_error_class, SafeErrorClass.RUNTIME_UNAVAILABLE)
+        self.assertEqual(result.safe_message, "docker exec: container not running")
+
+    @patch("benchmark.benchmark_api.live_e2.dispatch_ccc_prb_policy")
+    def test_simulated_adapter_does_not_call_dispatch_ccc(self, mock_dispatch):
+        handle = _make_simulated_handle_with_e2_control()
+        result = dispatch_runtime_action(handle, "ccc-004", _CCC_ACTION)
+        mock_dispatch.assert_not_called()
+        self.assertTrue(result.dispatched)
+
+
 if __name__ == "__main__":
     unittest.main()

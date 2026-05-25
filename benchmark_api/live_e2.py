@@ -1,8 +1,8 @@
-"""Live-E2 adapter: KPM v05 evidence via FlexRIC JSONL (Phase 2a, observation-only).
+"""Live-E2 adapter: KPM v05 evidence via FlexRIC JSONL + E2 control xApp dispatch.
 
-This module is the single seam between the benchmark harness and the live
-FlexRIC deployment that decodes OCUDU E2SM-KPM v05 indications and writes
-them to a JSONL file inside the ``flexric-ric`` container.
+Single seam between the benchmark harness and the live FlexRIC deployment.
+FlexRIC decodes OCUDU E2SM-KPM v05 indications into JSONL and hosts two
+OCUDU-specific one-shot control xApps for slice PRB quota actions.
 
 Public API
 ----------
@@ -10,10 +10,12 @@ readiness               -- check container running + JSONL exists + has records
 read_kpm                -- return last N parsed KPM indication records
 latest_kpm_measurements -- convenience: flatten the most-recent record's
                            measurements to {name: value}
+dispatch_rc_du_prb_policy -- run ocudu-rc-du-prb-control (RAN func 3, RIC style 2
+                             action 6) for per-UE slice PRB quota
+dispatch_ccc_prb_policy   -- run ocudu-ccc-prb-control (RAN func 4, CCC style 2
+                             action 6) for cell-level slice PRB quota
 
 All subprocess I/O flows through _run_subprocess; tests patch that one symbol.
-No control actions in this slice (Phase 2a). E2 control (CCC, RC DU PRB) is
-Phase 2b and will be a separate module.
 
 JSONL format (one record per line, written by the FlexRIC xApp subscriber)::
 
@@ -50,10 +52,14 @@ class LiveE2Config:
     # readiness considers the stack healthy if the JSONL has at least
     # this many records — guards against "container up but no indications yet"
     min_records_for_ready: int = 1
-    # NEW: RC-DU control xApp dispatch (Phase 2b)
+    # RC-DU control xApp dispatch (Phase 2b)
     rc_du_xapp_path: str = "/opt/flexric/build/examples/xApp/c/control/ocudu-rc-du-prb-control"
     rc_du_xapp_conf: str = "/etc/xapp/xapp_oran_sm.conf"
     rc_du_xapp_timeout_s: float = 30.0  # xApp takes ~1-3s to init RIC + send + cleanup
+    # CCC control xApp dispatch (Phase 2b)
+    ccc_xapp_path: str = "/opt/flexric/build/examples/xApp/c/control/ocudu-ccc-prb-control"
+    ccc_xapp_conf: str = "/etc/xapp/xapp_oran_sm.conf"
+    ccc_xapp_timeout_s: float = 30.0
 
 
 class LiveE2Error(RuntimeError):
@@ -290,20 +296,72 @@ def dispatch_rc_du_prb_policy(
         argv.extend(["--max-prb-policy-ratio", str(max_prb_policy_ratio)])
 
     code, out, err = _run_subprocess(argv, timeout=cfg.rc_du_xapp_timeout_s)
-    # The xApp's structured JSON is the LAST line starting with `{`.
-    # Earlier lines are FlexRIC stdout noise from the xApp's startup.
-    combined = (out or "") + (err or "")
+    return _parse_xapp_json(out, err, code, tool_name="ocudu-rc-du-prb-control")
+
+
+def dispatch_ccc_prb_policy(
+    cfg: LiveE2Config,
+    *,
+    plmn: str = "00101",
+    sst: int = 1,
+    sd: int | None = None,
+    min_prb_policy_ratio: int | None = None,
+    max_prb_policy_ratio: int | None = None,
+    dedicated_ratio: int | None = None,
+) -> dict[str, Any]:
+    """Dispatch SET_PRB_POLICY_RATIO_CCC via the ocudu-ccc-prb-control xApp
+    inside the FlexRIC container.
+
+    CCC is cell-level (no du_ue_id). Optional: dedicated_ratio (CCC-only;
+    the RC-DU SM does not carry it). plmn/sst/sd default to the OCUDU+srsUE
+    ZMQ test triplet; min/max/ded ratio fall back to the xApp's built-in
+    defaults if omitted.
+
+    Returns the parsed JSON dict from the xApp (same contract as
+    dispatch_rc_du_prb_policy: always has "accepted" + "action_type"; on
+    success also has "outcome", "ran_function_id", "control_name",
+    "control_style", "control_action", "request" subfields).
+    """
+    argv = [
+        "docker", "exec", cfg.container_name,
+        cfg.ccc_xapp_path,
+        "--json",
+        "--conf", cfg.ccc_xapp_conf,
+        "--plmn", str(plmn),
+        "--sst", str(sst),
+    ]
+    if sd is not None:
+        argv.extend(["--sd", str(sd)])
+    if min_prb_policy_ratio is not None:
+        argv.extend(["--min-prb-policy-ratio", str(min_prb_policy_ratio)])
+    if max_prb_policy_ratio is not None:
+        argv.extend(["--max-prb-policy-ratio", str(max_prb_policy_ratio)])
+    if dedicated_ratio is not None:
+        argv.extend(["--dedicated-ratio", str(dedicated_ratio)])
+
+    code, out, err = _run_subprocess(argv, timeout=cfg.ccc_xapp_timeout_s)
+    return _parse_xapp_json(out, err, code, tool_name="ocudu-ccc-prb-control")
+
+
+def _parse_xapp_json(stdout: str, stderr: str, code: int, *, tool_name: str) -> dict[str, Any]:
+    """Extract the last `{...}` line from the xApp's combined output.
+
+    Earlier lines are FlexRIC stdout noise from the xApp's startup; the
+    structured JSON ack/error is always the final `{`-prefixed line under
+    --json.
+    """
+    combined = (stdout or "") + (stderr or "")
     json_lines = [line for line in combined.splitlines() if line.startswith("{")]
     if not json_lines:
         raise LiveE2Error(
-            f"ocudu-rc-du-prb-control produced no JSON line "
-            f"(code={code}, stderr_tail={(err or '').splitlines()[-3:]})"
+            f"{tool_name} produced no JSON line "
+            f"(code={code}, stderr_tail={(stderr or '').splitlines()[-3:]})"
         )
     last_json = json_lines[-1]
     try:
         return json.loads(last_json)
     except json.JSONDecodeError as exc:
         raise LiveE2Error(
-            f"ocudu-rc-du-prb-control returned unparseable JSON: {last_json!r}",
+            f"{tool_name} returned unparseable JSON: {last_json!r}",
             cause=exc,
         ) from exc

@@ -15,7 +15,7 @@ to refresh `E2_KPM_V05` evidence on every observation when a task sets
 |---|---|---|
 | open5gs-core (split-NF) | `live_core` | `RESTART_CORE_NF`, `UPDATE_CORE_UE_REGISTRATION`, `core_runtime` evidence |
 | ocudu-gnb-ue + open5gs-aio | `live_ocudu` | `SET_PRB_POLICY_RATIO_WS`, `SET_SSB_BLOCK_POWER_WS` (WS), `TRIGGER_HANDOVER_CLI`, `TRIGGER_CONDITIONAL_HANDOVER_CLI`, `SET_CFO_CLI`, `SET_TX_TIME_OFFSET_CLI` (stdin) |
-| flexric + ocudu-gnb-ue + open5gs-aio | `live_e2` | `E2_KPM_V05` evidence (`RRU.PrbAvail/Used/TotDl`). E2 control (CCC/RC) deferred to Phase 2b. |
+| flexric + ocudu-gnb-ue + open5gs-aio | `live_e2` | `E2_KPM_V05` evidence (`RRU.PrbAvail/Used/TotDl`) + `SET_PRB_POLICY_RATIO_RC_DU` (RAN func 3) + `SET_PRB_POLICY_RATIO_CCC` (RAN func 4). |
 
 The three adapters are mutually exclusive at a task level — `runtime_adapter`
 is single-valued. Choose based on which actions/observations the task needs.
@@ -106,12 +106,12 @@ it crashes the RIC.
 | `skillful-ran/flexric-bench:br-flexric-1a3903a7-kpm-v5-ocudu-26_04` | 1.37 GB | Original locally-built image (Phase 2a baseline). Built on 5090pc from the FlexRIC fork at [github.com/zhouyou-gu/flexric-ocudu-kpm-v05](https://github.com/zhouyou-gu/flexric-ocudu-kpm-v05) (pinned in `.config` under `sources.flexric-ocudu-repo`). Carries OCUDU KPM v05 + custom OCUDU-specific control xApps (`examples/xApp/c/control/ocudu_ccc_prb_control.c` + `ocudu_rc_du_prb_control.cpp`) and patches FlexRIC core (`src/xApp/{e42_xapp.c, msg_handler_xapp.c, sync_ui.c}`) to return structured E2 control failures instead of crashing. |
 | **`skillful-ran/flexric-bench:patch-control-failure`** | 1.37 GB | **Used by current compose (Phase 2b).** Same image + two more patches on a local branch `patch-control-failure-decoder`: removes the `"Untested code"` assert in `e2ap_msg_dec_asn.c:1284` so RIC Control Failures decode, and implements `e2ap_handle_control_failure_ric` at `msg_handler_ric.c:370`. Branch not yet pushed to the GitHub fork. |
 
-## Phase 2b — E2 control (RC live, CCC blocked)
+## Phase 2b — E2 control (both live)
 
 ### SET_PRB_POLICY_RATIO_RC_DU ✅ live
 
 Dispatched via `live_e2.dispatch_rc_du_prb_policy`, which runs the
-fork''s `ocudu_rc_du_prb_control` xApp inside this container:
+fork's `ocudu_rc_du_prb_control` xApp inside this container:
 
 ```python
 from benchmark.benchmark_api import live_e2
@@ -134,16 +134,35 @@ FlexRIC patches in the rebuilt image, still asserts in a deeper layer
 failure path crashes the RIC and needs another patch. For benchmark
 dispatch with well-formed actions this is a non-issue.
 
-### SET_PRB_POLICY_RATIO_CCC ❌ blocked at OCUDU
+### SET_PRB_POLICY_RATIO_CCC ✅ live
 
-Setting `e2sm_ccc_enabled: true` in `gnb_zmq.yaml` causes the OCUDU
-gNB to SIGSEGV immediately at startup (`Segmentation fault (core
-dumped)`, exit 139). The CCC service-model source exists in OCUDU at
-`lib/e2/e2sm/e2sm_ccc/` but is not safely available in
-`ocudu/gnb:latest` (commit `2563975`). The `ocudu_ccc_prb_control`
-xApp is already built and ready in
-`/opt/flexric/build/examples/xApp/c/control/`; re-enable when a newer
-OCUDU build fixes the segfault.
+Dispatched via `live_e2.dispatch_ccc_prb_policy`, which runs the
+fork's `ocudu_ccc_prb_control` xApp inside this container. CCC is
+cell-level (no `du_ue_id`); it carries an optional `dedicated_ratio`
+that RC-DU does not:
+
+```python
+from benchmark.benchmark_api import live_e2
+cfg = live_e2.LiveE2Config()
+result = live_e2.dispatch_ccc_prb_policy(
+    cfg, plmn="00101", sst=1, sd=0xFFFFFF,
+    min_prb_policy_ratio=30, max_prb_policy_ratio=70,
+    dedicated_ratio=50,
+)
+# {"accepted": true, "action_type": "SET_PRB_POLICY_RATIO_CCC",
+#  "ran_function_id": 4, "control_name": "O-RRMPolicyRatio",
+#  "control_style": 2, "control_action": 6,
+#  "outcome": {"acknowledged": true,
+#              "evidence": "FlexRIC E2SM-CCC control acknowledged"}}
+```
+
+The earlier "OCUDU gNB SIGSEGV on `e2sm_ccc_enabled: true`" claim was
+wrong. `ocudu/gnb:latest` (commit `2563975`) carries a working CCC DU
+implementation (`e2sm_ccc_impl` + `e2sm_ccc_control_service_style_2` +
+`e2sm_ccc_control_o_rrm_policy_ratio_executor`, wired in
+`lib/e2/common/e2_du_factory.cpp`); the gnb stays stable, E2 SETUP
+accepts RAN function ID 4 (`ORAN-E2SM-CCC`), and the gnb logs
+`E2SM-CCC: O-RRMPolicyRatio Control Request` when the xApp dispatches.
 
 ## Rebuilding the patched FlexRIC image
 
