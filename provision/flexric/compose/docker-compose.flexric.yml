@@ -63,20 +63,20 @@ services:
     #      the subscription is re-established and JSONL keeps flowing.
     #   3. wait only on the RIC PID -- the container stays alive as long
     #      as the RIC is alive; xApp churn doesn't shut it down.
+    # All output goes to the container's stdout (visible via `docker logs
+    # flexric-ric`) -- if anything crashes we keep the diagnostic. The xApp
+    # waits 30s for the gNB to connect and establish E2 SETUP before
+    # subscribing, and is restarted in a loop if it exits.
     command:
       - /bin/sh
       - -c
       - |
-        stdbuf -oL -eL flexric-ric -c /usr/local/etc/flexric/flexric.conf > /tmp/ric.log 2>&1 &
+        stdbuf -oL -eL flexric-ric -c /usr/local/etc/flexric/flexric.conf 2>&1 &
         RIC_PID=$$!
         (
-          DEADLINE=$$(( $$(date +%s) + 120 ))
-          while [ "$$(date +%s)" -lt "$$DEADLINE" ]; do
-            grep -q "SETUP-REQUEST from" /tmp/ric.log && break
-            sleep 2
-          done
+          sleep 30
           while kill -0 $$RIC_PID 2>/dev/null; do
-            stdbuf -oL -eL /usr/local/bin/flexric/xApp/c/xapp_oran_moni -c /etc/xapp/xapp_oran_sm.conf >> /tmp/xapp.log 2>&1
+            stdbuf -oL -eL /usr/local/bin/flexric/xApp/c/xapp_oran_moni -c /etc/xapp/xapp_oran_sm.conf 2>&1
             sleep 5
           done
         ) &
