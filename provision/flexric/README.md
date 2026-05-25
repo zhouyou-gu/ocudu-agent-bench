@@ -103,7 +103,7 @@ it crashes the RIC.
 
 | Image | Size | Source |
 |---|---|---|
-| `skillful-ran/flexric-bench:br-flexric-1a3903a7-kpm-v5-ocudu-26_04` | 1.37 GB | Locally built on 5090pc from FlexRIC commit `1a3903a7` patched for OCUDU KPM v05; portable rebuild is a follow-up. |
+| `skillful-ran/flexric-bench:br-flexric-1a3903a7-kpm-v5-ocudu-26_04` | 1.37 GB | Locally built on 5090pc from the **FlexRIC fork at [github.com/zhouyou-gu/flexric-ocudu-kpm-v05](https://github.com/zhouyou-gu/flexric-ocudu-kpm-v05)** (also pinned in `.config` under `sources.flexric-ocudu-repo`). The fork carries OCUDU KPM v05 + custom OCUDU-specific control xApps (`examples/xApp/c/control/ocudu_ccc_prb_control.c` + `ocudu_rc_du_prb_control.cpp`) and patches FlexRIC core (`src/xApp/{e42_xapp.c, msg_handler_xapp.c, sync_ui.c}`) to return structured E2 control failures instead of crashing. Portable Docker Hub rebuild is a follow-up. |
 
 ## Phase 2b — E2 control (not in this slice)
 
