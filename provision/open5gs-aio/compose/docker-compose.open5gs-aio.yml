@@ -1,0 +1,86 @@
+# Monolithic Open5GS 5G core (one `5gc` process running every NF in-process).
+# This is an ALTERNATIVE to the split-NF stack under benchmark/provision/open5gs-core/
+# — pick ONE per session; both bind AMF NGAP on host SCTP 38412 and would collide.
+#
+# Use this stack when running the OCUDU gNB + srsUE attach smoke
+# (benchmark/provision/ocudu-gnb-ue/) — the all-in-one 5gc binary's
+# in-process SCP routing is the validated path for end-to-end NAS auth
+# with srsUE 23.11. The split-NF stack (gradiant/open5gs:2.7.7 per-NF)
+# is the live_core adapter target (per-NF restart granularity).
+#
+# Bring up:  docker compose -f docker-compose.open5gs-aio.yml up -d
+# Verify:    bash ../tests/check_aio_ready.sh
+# Tear down: docker compose -f docker-compose.open5gs-aio.yml down -v
+#
+# Image dependency: skillful-ran/open5gs:v2.7.0 is a LOCALLY BUILT image
+# on 5090pc (~3.25 GB) that includes the `5gc` test binary. Rebuilding it
+# elsewhere from upstream Open5GS sources is a follow-up; for now the
+# compose only works on hosts that have this image cached.
+
+name: open5gs
+
+networks:
+  ran:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.53.1.0/24
+
+volumes:
+  mongo-data: {}
+
+services:
+
+  mongo:
+    image: mongo:7
+    container_name: open5gs-mongo
+    restart: unless-stopped
+    pull_policy: missing
+    networks:
+      ran:
+        ipv4_address: 10.53.1.10
+    ports:
+      - "127.0.0.1:27017:27017/tcp"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok' | grep -q 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+
+  subscriber-seeder:
+    build: ../../open5gs-core/compose/seed
+    container_name: open5gs-subscriber-seeder
+    pull_policy: missing
+    restart: "no"
+    networks: [ran]
+    depends_on:
+      mongo: { condition: service_healthy }
+    environment:
+      MONGO_URI: mongodb://10.53.1.10:27017/
+      MONGO_DB: open5gs
+      SUBSCRIBER_CSV: /app/subscriber_db.csv
+
+  5gc:
+    image: skillful-ran/open5gs:v2.7.0
+    container_name: open5gs-5gc
+    restart: unless-stopped
+    pull_policy: missing
+    privileged: true
+    networks:
+      ran:
+        ipv4_address: 10.53.1.2
+    ports:
+      - "38412:38412/sctp"
+    volumes:
+      - ./configs/open5gs-5gc.yml:/opt/open5gs/etc/open5gs/open5gs-5gc.yml:ro
+    depends_on:
+      mongo: { condition: service_healthy }
+    command: ["5gc", "-c", "/opt/open5gs/etc/open5gs/open5gs-5gc.yml"]
+    healthcheck:
+      test: ["CMD-SHELL", "ss -ln | grep -q :38412 && ss -tnl4 | grep -q '127.0.0.10:7777'"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
