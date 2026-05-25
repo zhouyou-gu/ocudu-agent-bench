@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from benchmark.benchmark_api.api_catalog import descriptor_for_action, validate_api_selection
-from benchmark.benchmark_api.runtime_setup import RuntimeHandle
+from benchmark.benchmark_api.runtime_setup import RuntimeHandle, LIVE_CORE_ADAPTER
 from benchmark.benchmark_api.simulated_ocudu import apply_simulated_action
 from benchmark.benchmark_api.types import RanActionType, RanObservationSource, SafeErrorClass
 
@@ -77,7 +77,23 @@ def read_evidence(
     if RanObservationSource.UE_RUNTIME in selected:
         evidence["ue_runtime"] = dict(state.get("ue_runtime", {}))
     if RanObservationSource.CORE_RUNTIME in selected:
-        evidence["core_runtime"] = _agent_core_runtime(state.get("core_runtime", {}))
+        core_runtime = state.get("core_runtime", {})
+        if runtime.runtime_adapter == LIVE_CORE_ADAPTER:
+            try:
+                fresh = _refresh_live_core_runtime(runtime)
+                # Preserve restart_counts / last_restarted_nf (live module returns
+                # empty {} / None for those; the dispatcher tracks them in state).
+                fresh["restart_counts"] = core_runtime.get("restart_counts", {})
+                fresh["last_restarted_nf"] = core_runtime.get("last_restarted_nf")
+                # Same for ue_registration if local has a more recent write
+                if core_runtime.get("ue_registration"):
+                    fresh["ue_registration"] = core_runtime["ue_registration"]
+                state["core_runtime"] = fresh
+                core_runtime = fresh
+            except Exception:
+                # Don't fail observation on a transient read; fall back to state.
+                pass
+        evidence["core_runtime"] = _agent_core_runtime(core_runtime)
     if RanObservationSource.RADIO_RUNTIME in selected:
         evidence["radio_runtime"] = _agent_radio_runtime(state.get("radio_runtime", {}), observation_detail)
     if RanObservationSource.SLICE_RUNTIME in selected:
@@ -210,6 +226,17 @@ def dispatch_runtime_action(runtime: RuntimeHandle, action_id: str, action: dict
             private_request=None,
             completed_at_s=time.time(),
         )
+    if runtime.runtime_adapter == LIVE_CORE_ADAPTER and action_type in {
+        RanActionType.RESTART_CORE_NF,
+        RanActionType.UPDATE_CORE_UE_REGISTRATION,
+    }:
+        return _dispatch_live_core_action(
+            runtime=runtime,
+            action_id=action_id,
+            action_type=action_type,
+            action=action,
+            descriptor=descriptor,
+        )
     request = build_request(action_type, action)
     simulated = apply_simulated_action(
         runtime,
@@ -228,6 +255,104 @@ def dispatch_runtime_action(runtime: RuntimeHandle, action_id: str, action: dict
         private_request=request,
         completed_at_s=time.time(),
     )
+
+
+def _live_core_cfg_from_runtime(runtime: RuntimeHandle) -> "live_core.LiveCoreConfig":
+    """Build a LiveCoreConfig from a RuntimeHandle's setup_metadata.
+
+    Reads state['live_core_cfg'] if present; otherwise constructs defaults.
+    Non-default cfg values (compose_project / compose_file / mongo_uri overrides
+    from task setup) are not currently threaded through RuntimeHandle.setup_metadata
+    — that plumbing is a follow-up task."""
+    from benchmark.benchmark_api import live_core
+    block = runtime.state.get("live_core_cfg") or {}
+    return live_core.LiveCoreConfig(
+        compose_project=str(block.get("compose_project", "open5gs")),
+        compose_file=block.get("compose_file"),
+        mongo_uri=str(block.get("mongo_uri", "mongodb://127.0.0.1:27017/")),
+        mongo_db=str(block.get("mongo_db", "open5gs")),
+        timeout_s=float(block.get("timeout_s", 10.0)),
+    )
+
+
+def _refresh_live_core_runtime(runtime: RuntimeHandle) -> dict[str, Any]:
+    """Re-read live core state. Raises any underlying exception to the caller."""
+    from benchmark.benchmark_api import live_core
+    return live_core.read_runtime(_live_core_cfg_from_runtime(runtime))
+
+
+def _dispatch_live_core_action(
+    runtime: RuntimeHandle,
+    *,
+    action_id: str,
+    action_type: RanActionType,
+    action: dict[str, Any],
+    descriptor: Any,
+) -> DispatchResult:
+    """Execute a core action against the live stack via live_core module.
+
+    Updates runtime.state["core_runtime"] in-place to reflect the change
+    (restart_counts, last_restarted_nf, ue_registration). Catches
+    live_core.LiveCoreError and returns a safe DispatchResult with
+    RUNTIME_UNAVAILABLE. Other unexpected exceptions propagate."""
+    from benchmark.benchmark_api import live_core
+    cfg = _live_core_cfg_from_runtime(runtime)
+    completed_at_s_now = time.time
+    request = build_request(action_type, action)
+    try:
+        if action_type == RanActionType.RESTART_CORE_NF:
+            nf = str(action["nf"])
+            live_core.restart_nf(cfg, nf)
+            core_state = runtime.state.setdefault("core_runtime", {})
+            counts = dict(core_state.get("restart_counts", {}))
+            counts[nf] = int(counts.get(nf, 0)) + 1
+            core_state["restart_counts"] = counts
+            core_state["last_restarted_nf"] = nf
+            safe_message = f"restarted nf={nf} (count={counts[nf]})"
+        elif action_type == RanActionType.UPDATE_CORE_UE_REGISTRATION:
+            registration = {
+                "ue_id": action["ue_id"],
+                "supi": action["supi"],
+                "plmn": action["plmn"],
+                "dnn": action["dnn"],
+                "sst": action["sst"],
+                "sd": action.get("sd"),
+                "auth_profile_id": action["auth_profile_id"],
+            }
+            result = live_core.upsert_subscriber(cfg, registration)
+            core_state = runtime.state.setdefault("core_runtime", {})
+            from benchmark.benchmark_api.runtime_setup import core_ue_registration_state
+            new_state = core_ue_registration_state(
+                desired=registration,
+                current=registration,  # write-through; we just upserted
+                last_updated_by="live_core",
+            )
+            core_state["ue_registration"] = new_state
+            safe_message = f"upserted subscriber imsi={result.get('imsi')}"
+        else:
+            # Unreachable — caller already filtered
+            raise AssertionError(f"unsupported live_core action: {action_type}")
+        return DispatchResult(
+            action_id=action_id,
+            dispatched=True,
+            accepted=True,
+            backend=descriptor.backend.value,
+            safe_error_class=None,
+            safe_message=safe_message,
+            private_request=request,
+            completed_at_s=completed_at_s_now(),
+        )
+    except live_core.LiveCoreError as exc:
+        return DispatchResult(
+            action_id=action_id,
+            dispatched=True,
+            accepted=False,
+            backend=descriptor.backend.value,
+            safe_error_class=SafeErrorClass.RUNTIME_UNAVAILABLE,
+            safe_message=exc.safe_message,
+            private_request=request,
+            completed_at_s=completed_at_s_now(),
+        )
 
 
 def build_request(action_type: RanActionType, action: dict[str, Any]) -> dict[str, Any]:
