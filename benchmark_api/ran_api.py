@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from benchmark.benchmark_api.api_catalog import descriptor_for_action, validate_api_selection
-from benchmark.benchmark_api.runtime_setup import RuntimeHandle, LIVE_CORE_ADAPTER, LIVE_OCUDU_ADAPTER
+from benchmark.benchmark_api.runtime_setup import RuntimeHandle, LIVE_CORE_ADAPTER, LIVE_OCUDU_ADAPTER, LIVE_E2_ADAPTER
 from benchmark.benchmark_api.simulated_ocudu import apply_simulated_action
 from benchmark.benchmark_api.types import RanActionType, RanObservationSource, SafeErrorClass
 
@@ -60,11 +60,37 @@ def read_evidence(
     if RanObservationSource.CELL_IDENTITY in selected:
         evidence["cell_identity"] = dict(state.get("cell_identity", {}))
     if RanObservationSource.E2_KPM_V05 in selected:
-        evidence["e2_kpm_v05"] = {
-            "enabled": bool(state.get("e2", {}).get("enabled")),
-            "kpm_indications": int(state.get("e2", {}).get("kpm_indications", 0) or 0),
-            "has_prb_measurement": bool(state.get("e2", {}).get("has_prb_measurement")),
-        }
+        e2_state = state.get("e2", {})
+        if runtime.runtime_adapter == LIVE_E2_ADAPTER:
+            try:
+                from benchmark.benchmark_api import live_e2
+                cfg = _live_e2_cfg_from_runtime(runtime)
+                records = live_e2.read_kpm(cfg, count=5)
+                latest_meas: dict[str, Any] = {}
+                if records:
+                    for m in records[-1].get("measurements", []) or []:
+                        if isinstance(m, dict) and "name" in m and "value" in m:
+                            latest_meas[m["name"]] = m["value"]
+                evidence["e2_kpm_v05"] = {
+                    "enabled": True,
+                    "kpm_indications": len(records),
+                    "has_prb_measurement": any(k.startswith("RRU.Prb") for k in latest_meas),
+                    "kpm_version": records[-1].get("kpm_version") if records else None,
+                    "measurements": latest_meas,
+                }
+            except Exception:  # noqa: BLE001
+                # Fall back to the simulated path on transient read failure.
+                evidence["e2_kpm_v05"] = {
+                    "enabled": bool(e2_state.get("enabled")),
+                    "kpm_indications": int(e2_state.get("kpm_indications", 0) or 0),
+                    "has_prb_measurement": bool(e2_state.get("has_prb_measurement")),
+                }
+        else:
+            evidence["e2_kpm_v05"] = {
+                "enabled": bool(e2_state.get("enabled")),
+                "kpm_indications": int(e2_state.get("kpm_indications", 0) or 0),
+                "has_prb_measurement": bool(e2_state.get("has_prb_measurement")),
+            }
     if RanObservationSource.E2_CONTROL_OUTCOME in selected:
         evidence["e2_control_outcome"] = {
             "accepted_records": [
@@ -311,6 +337,20 @@ def _live_ocudu_cfg_from_runtime(runtime: RuntimeHandle) -> "live_ocudu.LiveOcud
         stdin_file_path=str(block.get("stdin_file_path", "/tmp/gnb_stdin")),
         cli_response_wait_s=float(block.get("cli_response_wait_s", 1.5)),
         cli_subprocess_timeout_s=float(block.get("cli_subprocess_timeout_s", 10.0)),
+    )
+
+
+def _live_e2_cfg_from_runtime(runtime: RuntimeHandle) -> "live_e2.LiveE2Config":
+    """Build a LiveE2Config from a RuntimeHandle. Reads runtime.state['live_e2_cfg']
+    if present, else uses defaults. Non-default plumbing through RuntimeHandle is
+    the same follow-up flagged for live_core and live_ocudu."""
+    from benchmark.benchmark_api import live_e2
+    block = runtime.state.get("live_e2_cfg") or {}
+    return live_e2.LiveE2Config(
+        container_name=str(block.get("container_name", "flexric-ric")),
+        jsonl_path=str(block.get("jsonl_path", "/var/log/flexric/kpm.jsonl")),
+        subprocess_timeout_s=float(block.get("subprocess_timeout_s", 10.0)),
+        min_records_for_ready=int(block.get("min_records_for_ready", 1)),
     )
 
 

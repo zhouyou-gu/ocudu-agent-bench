@@ -1,0 +1,373 @@
+"""Unit tests for benchmark.benchmark_api.live_e2.
+
+All subprocess I/O is mocked — no docker or FlexRIC container required.
+"""
+
+from __future__ import annotations
+
+import json
+import unittest
+from unittest.mock import patch, call
+from typing import Any
+
+from benchmark.benchmark_api.live_e2 import (
+    LiveE2Config,
+    LiveE2Error,
+    _run_subprocess,
+    readiness,
+    read_kpm,
+    latest_kpm_measurements,
+)
+
+_DEFAULT_CFG = LiveE2Config()
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _ok_proc(stdout: str = "", stderr: str = "", rc: int = 0) -> tuple[int, str, str]:
+    return (rc, stdout, stderr)
+
+
+def _fail_proc(stdout: str = "", stderr: str = "error detail", rc: int = 1) -> tuple[int, str, str]:
+    return (rc, stdout, stderr)
+
+
+def _make_kpm_record(
+    name: str = "RRU.PrbAvailDl",
+    value: int = 106,
+    kpm_version: str = "E2SM-KPM-R003-v05.00",
+) -> dict[str, Any]:
+    return {
+        "decoded_by": "ocudu-generated-asn1-cpp",
+        "kpm_version": kpm_version,
+        "format": "ind_msg_format1",
+        "measurements": [
+            {"name": name, "type": "integer", "value": value},
+        ],
+    }
+
+
+def _jsonl_lines(*records: dict[str, Any]) -> str:
+    return "\n".join(json.dumps(r) for r in records) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# 1. _run_subprocess tests
+# ---------------------------------------------------------------------------
+
+class RunSubprocessTests(unittest.TestCase):
+    """_run_subprocess wraps subprocess.run and maps errors to LiveE2Error."""
+
+    @patch("subprocess.run")
+    def test_happy_path_returns_triple(self, mock_run):
+        """Success: returns (returncode, stdout, stderr) tuple."""
+        import subprocess
+        mock_proc = unittest.mock.MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "hello\n"
+        mock_proc.stderr = ""
+        mock_run.return_value = mock_proc
+        rc, out, err = _run_subprocess(["echo", "hello"], timeout=5.0)
+        self.assertEqual(rc, 0)
+        self.assertEqual(out, "hello\n")
+        self.assertEqual(err, "")
+
+    @patch("subprocess.run")
+    def test_timeout_raises_live_e2_error(self, mock_run):
+        """TimeoutExpired → LiveE2Error with 'timed out' in message."""
+        import subprocess
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["docker"], timeout=5.0)
+        with self.assertRaises(LiveE2Error) as ctx:
+            _run_subprocess(["docker", "exec", "flexric-ric", "tail", "-n", "10"], timeout=5.0)
+        self.assertIn("timed out", ctx.exception.safe_message)
+
+    @patch("subprocess.run")
+    def test_oserror_raises_live_e2_error(self, mock_run):
+        """OSError (e.g. docker not found) → LiveE2Error."""
+        mock_run.side_effect = OSError("No such file or directory: 'docker'")
+        with self.assertRaises(LiveE2Error) as ctx:
+            _run_subprocess(["docker", "version"], timeout=5.0)
+        self.assertIn("subprocess failed", ctx.exception.safe_message)
+
+
+# ---------------------------------------------------------------------------
+# 2. readiness tests
+# ---------------------------------------------------------------------------
+
+class ReadinessAllGreenTests(unittest.TestCase):
+    """readiness returns ready=True when container is up and JSONL has records."""
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_ready_true_all_checks_pass(self, mock_run):
+        """All checks pass → ready=True, failures empty."""
+        def _side(argv, **kw):
+            if "inspect" in argv:
+                return (0, "true\n", "")
+            if "wc" in argv:
+                return (0, "5 /var/log/flexric/kpm.jsonl\n", "")
+            return (0, "", "")
+        mock_run.side_effect = _side
+        result = readiness(_DEFAULT_CFG)
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["failures"], [])
+        self.assertEqual(result["checks"]["record_count"], 5)
+        self.assertTrue(result["checks"]["jsonl_has_records"])
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_record_count_populated(self, mock_run):
+        """record_count is set from wc -l output."""
+        def _side(argv, **kw):
+            if "inspect" in argv:
+                return (0, "true\n", "")
+            if "wc" in argv:
+                return (0, "42 /var/log/flexric/kpm.jsonl\n", "")
+            return (0, "", "")
+        mock_run.side_effect = _side
+        result = readiness(_DEFAULT_CFG)
+        self.assertEqual(result["checks"]["record_count"], 42)
+
+
+class ReadinessContainerNotRunningTests(unittest.TestCase):
+    """readiness returns ready=False when docker inspect shows not running."""
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_container_not_running_ready_false(self, mock_run):
+        """docker inspect returns 'false' → container_running=False, ready=False."""
+        def _side(argv, **kw):
+            if "inspect" in argv:
+                return (0, "false\n", "")
+            if "wc" in argv:
+                return (1, "", "Error: No such container")
+            return (0, "", "")
+        mock_run.side_effect = _side
+        result = readiness(_DEFAULT_CFG)
+        self.assertFalse(result["ready"])
+        self.assertFalse(result["checks"]["container_running"])
+        self.assertTrue(len(result["failures"]) > 0)
+        failure_str = " ".join(result["failures"])
+        self.assertIn("container_running", failure_str)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_inspect_nonzero_exit_marks_container_not_running(self, mock_run):
+        """docker inspect exits non-zero → container_running=False."""
+        def _side(argv, **kw):
+            if "inspect" in argv:
+                return (1, "", "Error: No such object: flexric-ric")
+            return (0, "", "")
+        mock_run.side_effect = _side
+        result = readiness(_DEFAULT_CFG)
+        self.assertFalse(result["checks"]["container_running"])
+        self.assertFalse(result["ready"])
+
+
+class ReadinessJsonlMissingTests(unittest.TestCase):
+    """readiness returns ready=False when JSONL file doesn't exist."""
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_wc_nonzero_jsonl_missing(self, mock_run):
+        """wc -l fails → jsonl_exists=False, ready=False."""
+        def _side(argv, **kw):
+            if "inspect" in argv:
+                return (0, "true\n", "")
+            if "wc" in argv:
+                return (1, "", "No such file or directory")
+            return (0, "", "")
+        mock_run.side_effect = _side
+        result = readiness(_DEFAULT_CFG)
+        self.assertFalse(result["ready"])
+        self.assertFalse(result["checks"]["jsonl_exists"])
+        failure_str = " ".join(result["failures"])
+        self.assertIn("jsonl_exists", failure_str)
+
+
+class ReadinessJsonlEmptyTests(unittest.TestCase):
+    """readiness returns ready=False when JSONL has 0 records."""
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_zero_records_jsonl_has_records_false(self, mock_run):
+        """wc -l returns 0 → jsonl_exists=True but jsonl_has_records=False."""
+        def _side(argv, **kw):
+            if "inspect" in argv:
+                return (0, "true\n", "")
+            if "wc" in argv:
+                return (0, "0 /var/log/flexric/kpm.jsonl\n", "")
+            return (0, "", "")
+        mock_run.side_effect = _side
+        result = readiness(_DEFAULT_CFG)
+        self.assertFalse(result["ready"])
+        self.assertTrue(result["checks"]["jsonl_exists"])
+        self.assertFalse(result["checks"]["jsonl_has_records"])
+        self.assertEqual(result["checks"]["record_count"], 0)
+
+
+class ReadinessDoesNotRaiseTests(unittest.TestCase):
+    """readiness never raises, even on unexpected exceptions."""
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_readiness_does_not_raise_on_all_failures(self, mock_run):
+        """Even if all subprocess calls fail, readiness returns a dict, not an exception."""
+        mock_run.side_effect = LiveE2Error("docker not found")
+        result = readiness(_DEFAULT_CFG)
+        self.assertIsInstance(result, dict)
+        self.assertIn("ready", result)
+        self.assertFalse(result["ready"])
+        self.assertIn("checks", result)
+        self.assertIn("failures", result)
+
+
+# ---------------------------------------------------------------------------
+# 3. read_kpm tests
+# ---------------------------------------------------------------------------
+
+class ReadKpmHappyPathTests(unittest.TestCase):
+    """read_kpm returns parsed KPM records."""
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_three_records_returned(self, mock_run):
+        """3 valid JSONL lines → list of 3 dicts."""
+        r1 = _make_kpm_record("RRU.PrbAvailDl", 106)
+        r2 = _make_kpm_record("RRU.PrbUsedDl", 12)
+        r3 = _make_kpm_record("RRU.PrbTotDl", 0)
+        mock_run.return_value = (0, _jsonl_lines(r1, r2, r3), "")
+        records = read_kpm(_DEFAULT_CFG, count=5)
+        self.assertEqual(len(records), 3)
+        self.assertEqual(records[0]["measurements"][0]["name"], "RRU.PrbAvailDl")
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_fewer_records_than_count_returns_all(self, mock_run):
+        """count=10 requested but only 3 in file → 3 returned."""
+        r1 = _make_kpm_record()
+        r2 = _make_kpm_record()
+        r3 = _make_kpm_record()
+        mock_run.return_value = (0, _jsonl_lines(r1, r2, r3), "")
+        records = read_kpm(_DEFAULT_CFG, count=10)
+        self.assertEqual(len(records), 3)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_malformed_line_is_skipped(self, mock_run):
+        """One malformed JSON line is silently skipped; others are returned."""
+        r1 = _make_kpm_record("RRU.PrbAvailDl", 106)
+        r2 = _make_kpm_record("RRU.PrbUsedDl", 12)
+        stdout = json.dumps(r1) + "\n" + "NOT VALID JSON\n" + json.dumps(r2) + "\n"
+        mock_run.return_value = (0, stdout, "")
+        records = read_kpm(_DEFAULT_CFG, count=5)
+        self.assertEqual(len(records), 2)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_empty_file_returns_empty_list(self, mock_run):
+        """If tail returns empty output, read_kpm returns []."""
+        mock_run.return_value = (0, "", "")
+        records = read_kpm(_DEFAULT_CFG, count=10)
+        self.assertEqual(records, [])
+
+
+class ReadKpmDockerExecFailsTests(unittest.TestCase):
+    """read_kpm raises LiveE2Error when docker exec fails."""
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_nonzero_exit_raises_live_e2_error(self, mock_run):
+        """docker exec tail exits non-zero → LiveE2Error."""
+        mock_run.return_value = (1, "", "Error: No such container: flexric-ric")
+        with self.assertRaises(LiveE2Error) as ctx:
+            read_kpm(_DEFAULT_CFG, count=5)
+        self.assertIn("tail failed", ctx.exception.safe_message)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_subprocess_live_e2_error_propagates(self, mock_run):
+        """LiveE2Error from _run_subprocess propagates out of read_kpm."""
+        mock_run.side_effect = LiveE2Error("subprocess timed out")
+        with self.assertRaises(LiveE2Error):
+            read_kpm(_DEFAULT_CFG, count=5)
+
+
+# ---------------------------------------------------------------------------
+# 4. latest_kpm_measurements tests
+# ---------------------------------------------------------------------------
+
+class LatestKpmMeasurementsTests(unittest.TestCase):
+    """latest_kpm_measurements returns flattened {name: value} from last record."""
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_returns_flattened_measurements(self, mock_run):
+        """3 records: last record's measurements are returned as flat dict."""
+        r1 = {
+            "decoded_by": "ocudu-generated-asn1-cpp",
+            "kpm_version": "E2SM-KPM-R003-v05.00",
+            "format": "ind_msg_format1",
+            "measurements": [
+                {"name": "RRU.PrbAvailDl", "type": "integer", "value": 100},
+                {"name": "RRU.PrbUsedDl", "type": "integer", "value": 10},
+                {"name": "RRU.PrbTotDl", "type": "integer", "value": 5},
+            ],
+        }
+        # read_kpm(count=1) tails 1 line — we simulate that directly
+        mock_run.return_value = (0, json.dumps(r1) + "\n", "")
+        result = latest_kpm_measurements(_DEFAULT_CFG)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["RRU.PrbAvailDl"], 100)
+        self.assertEqual(result["RRU.PrbUsedDl"], 10)
+        self.assertEqual(result["RRU.PrbTotDl"], 5)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_empty_file_returns_none(self, mock_run):
+        """If read_kpm returns [], latest_kpm_measurements returns None."""
+        mock_run.return_value = (0, "", "")
+        result = latest_kpm_measurements(_DEFAULT_CFG)
+        self.assertIsNone(result)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_docker_exec_fails_raises_live_e2_error(self, mock_run):
+        """LiveE2Error from read_kpm propagates out of latest_kpm_measurements."""
+        mock_run.return_value = (1, "", "Error: No such container: flexric-ric")
+        with self.assertRaises(LiveE2Error):
+            latest_kpm_measurements(_DEFAULT_CFG)
+
+
+# ---------------------------------------------------------------------------
+# 5. Command construction tests
+# ---------------------------------------------------------------------------
+
+class CommandConstructionTests(unittest.TestCase):
+    """readiness and read_kpm invoke the correct docker commands."""
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_readiness_invokes_docker_inspect_and_wc(self, mock_run):
+        """readiness calls docker inspect ... and docker exec ... wc -l ..."""
+        def _side(argv, **kw):
+            if "inspect" in argv:
+                return (0, "true\n", "")
+            if "wc" in argv:
+                return (0, "3 /var/log/flexric/kpm.jsonl\n", "")
+            return (0, "", "")
+        mock_run.side_effect = _side
+        readiness(LiveE2Config(container_name="flexric-ric", jsonl_path="/var/log/flexric/kpm.jsonl"))
+        calls = [c[0][0] for c in mock_run.call_args_list]
+        # First call: docker inspect
+        self.assertIn("inspect", calls[0])
+        self.assertIn("flexric-ric", calls[0])
+        # Second call: docker exec ... wc -l
+        wc_call = calls[1]
+        self.assertIn("wc", wc_call)
+        self.assertIn("-l", wc_call)
+        self.assertIn("/var/log/flexric/kpm.jsonl", wc_call)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_read_kpm_invokes_docker_exec_tail(self, mock_run):
+        """read_kpm calls docker exec <container> tail -n <count> <path>."""
+        mock_run.return_value = (0, "", "")
+        read_kpm(LiveE2Config(container_name="flexric-ric",
+                              jsonl_path="/var/log/flexric/kpm.jsonl"), count=7)
+        argv = mock_run.call_args[0][0]
+        self.assertEqual(argv[0], "docker")
+        self.assertEqual(argv[1], "exec")
+        self.assertIn("flexric-ric", argv)
+        self.assertIn("tail", argv)
+        self.assertIn("-n", argv)
+        tail_n_idx = argv.index("-n")
+        self.assertEqual(argv[tail_n_idx + 1], "7")
+        self.assertIn("/var/log/flexric/kpm.jsonl", argv)
+
+
+if __name__ == "__main__":
+    unittest.main()

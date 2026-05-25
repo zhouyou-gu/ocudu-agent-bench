@@ -241,10 +241,12 @@ class KnownAdaptersTests(unittest.TestCase):
         self.assertIn(LIVE_OCUDU_ADAPTER, KNOWN_ADAPTERS)
 
     def test_known_adapters_contains_all_three(self):
+        # KNOWN_ADAPTERS now has 4 entries (simulated + live_core + live_ocudu + live_e2).
+        # This test only verifies the three that matter for live_ocudu wiring.
         self.assertIn(SIMULATED_ADAPTER, KNOWN_ADAPTERS)
         self.assertIn(LIVE_CORE_ADAPTER, KNOWN_ADAPTERS)
         self.assertIn(LIVE_OCUDU_ADAPTER, KNOWN_ADAPTERS)
-        self.assertEqual(len(KNOWN_ADAPTERS), 3)
+        self.assertGreaterEqual(len(KNOWN_ADAPTERS), 3)
 
 
 if __name__ == "__main__":

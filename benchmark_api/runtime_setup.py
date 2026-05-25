@@ -26,7 +26,8 @@ class RuntimeHandle:
 SIMULATED_ADAPTER = "simulated_ocudu"
 LIVE_CORE_ADAPTER = "live_core"
 LIVE_OCUDU_ADAPTER = "live_ocudu"
-KNOWN_ADAPTERS = (SIMULATED_ADAPTER, LIVE_CORE_ADAPTER, LIVE_OCUDU_ADAPTER)
+LIVE_E2_ADAPTER = "live_e2"
+KNOWN_ADAPTERS = (SIMULATED_ADAPTER, LIVE_CORE_ADAPTER, LIVE_OCUDU_ADAPTER, LIVE_E2_ADAPTER)
 
 
 def default_core_ue_registration() -> dict[str, Any]:
@@ -76,6 +77,25 @@ def _live_core_config_from_setup(setup: dict[str, Any]) -> "live_core.LiveCoreCo
         mongo_uri=str(block.get("mongo_uri", "mongodb://127.0.0.1:27017/")),
         mongo_db=str(block.get("mongo_db", "open5gs")),
         timeout_s=float(block.get("timeout_s", 30.0)),
+    )
+
+
+def _live_e2_config_from_setup(setup: dict[str, Any]) -> "live_e2.LiveE2Config":
+    """Build a LiveE2Config from a task `setup` dict's optional `live_e2` block.
+
+    Recognized keys under setup["live_e2"]:
+      container_name (default "flexric-ric")
+      jsonl_path (default "/var/log/flexric/kpm.jsonl")
+      subprocess_timeout_s (default 10.0)
+      min_records_for_ready (default 1)
+    """
+    from benchmark.benchmark_api import live_e2  # local import to keep module-load cheap
+    block = setup.get("live_e2") or {}
+    return live_e2.LiveE2Config(
+        container_name=str(block.get("container_name", "flexric-ric")),
+        jsonl_path=str(block.get("jsonl_path", "/var/log/flexric/kpm.jsonl")),
+        subprocess_timeout_s=float(block.get("subprocess_timeout_s", 10.0)),
+        min_records_for_ready=int(block.get("min_records_for_ready", 1)),
     )
 
 
@@ -155,6 +175,17 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
         )
         live_core_state = None       # live_ocudu has no core_runtime contribution
         live_ocudu_ready = ready
+    elif runtime_adapter == LIVE_E2_ADAPTER:
+        from benchmark.benchmark_api import live_e2
+        cfg = _live_e2_config_from_setup(setup)
+        readiness_result = live_e2.readiness(cfg)
+        ready = bool(readiness_result["ready"])
+        blocking_reason = (
+            None if ready
+            else "live_e2 readiness failed: " + ", ".join(readiness_result.get("failures", []))
+        )
+        live_core_state = None       # live_e2 has no core_runtime contribution
+        live_ocudu_ready = False
     else:
         ready = False
         blocking_reason = f"runtime adapter is not available: {runtime_adapter}"
@@ -179,6 +210,15 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
             "json_metrics": ready,
             "e2_kpm": False,
             "e2_control": False,
+        }
+    elif runtime_adapter == LIVE_E2_ADAPTER:
+        backend_block = {
+            "websocket": False,
+            "ocudu_cli": False,
+            "core_control": False,
+            "json_metrics": False,
+            "e2_kpm": ready,
+            "e2_control": False,   # CCC + RC come in a later slice (Phase 2b)
         }
     else:
         backend_block = {
@@ -275,6 +315,7 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
             "runtime_adapter": runtime_adapter,
             "live_ocudu": runtime_adapter == LIVE_OCUDU_ADAPTER and ready,
             "live_core": runtime_adapter == LIVE_CORE_ADAPTER and ready,
+            "live_e2": runtime_adapter == LIVE_E2_ADAPTER and ready,
             "components": list(components),
             "created_at": now,
             "site_config": setup.get("site_config", "local"),
