@@ -42,18 +42,18 @@ services:
       - "127.0.0.1:8001:8001/tcp"
     volumes:
       - ./configs/gnb_zmq.yaml:/etc/ocudu/gnb_zmq.yaml:ro
-    # Run gnb with stdin attached to a FIFO at /tmp/gnb_stdin so the
+    # Run gnb with stdin piped from a `tail -f` of a regular file so the
     # live_ocudu adapter can send the four OCUDU cmdline_command actions
     # (ho / cho / cfo / tx_time_offset) -- those are stdin-only, not WS.
-    # exec 3> keeps a persistent writer side so the FIFO doesn't EOF when
-    # no docker exec is currently writing.
+    # Adapter writes via `docker exec ocudu-gnb sh -c "echo CMD >> /tmp/gnb_stdin"`.
+    # The `tail -f` keeps the pipe alive across writes (no FIFO EOF /
+    # deadlock issues), and the regular file is observable for debugging.
     command:
       - /bin/sh
       - -c
       - |
-        mkfifo /tmp/gnb_stdin
-        exec 3> /tmp/gnb_stdin
-        exec gnb -c /etc/ocudu/gnb_zmq.yaml < /tmp/gnb_stdin
+        touch /tmp/gnb_stdin
+        exec tail -F /tmp/gnb_stdin 2>/dev/null | gnb -c /etc/ocudu/gnb_zmq.yaml
 
   ue:
     image: gnb-srsue-direct/srsue:release_23_11
