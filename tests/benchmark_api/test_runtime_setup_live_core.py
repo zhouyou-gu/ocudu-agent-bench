@@ -195,7 +195,7 @@ class LiveCoreConfigPlumbingTests(unittest.TestCase):
         self.assertIsNone(cfg.compose_file)
         self.assertEqual(cfg.mongo_uri, "mongodb://127.0.0.1:27017/")
         self.assertEqual(cfg.mongo_db, "open5gs")
-        self.assertAlmostEqual(cfg.timeout_s, 10.0)
+        self.assertAlmostEqual(cfg.timeout_s, 30.0)
 
     def test_live_core_block_overrides_fields(self):
         """setup['live_core'] overrides reflect in LiveCoreConfig fields."""

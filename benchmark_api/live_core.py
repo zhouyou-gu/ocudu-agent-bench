@@ -54,7 +54,7 @@ class LiveCoreConfig:
     compose_file: str | None = None   # if None, use -p <project> only
     mongo_uri: str = "mongodb://127.0.0.1:27017/"
     mongo_db: str = "open5gs"
-    timeout_s: float = 10.0           # default timeout for docker exec / mongo
+    timeout_s: float = 30.0           # default timeout for docker exec / mongo / compose restart
 
 
 class LiveCoreError(RuntimeError):

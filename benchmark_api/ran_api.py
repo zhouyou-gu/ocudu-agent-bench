@@ -271,7 +271,7 @@ def _live_core_cfg_from_runtime(runtime: RuntimeHandle) -> "live_core.LiveCoreCo
         compose_file=block.get("compose_file"),
         mongo_uri=str(block.get("mongo_uri", "mongodb://127.0.0.1:27017/")),
         mongo_db=str(block.get("mongo_db", "open5gs")),
-        timeout_s=float(block.get("timeout_s", 10.0)),
+        timeout_s=float(block.get("timeout_s", 30.0)),
     )
 
 

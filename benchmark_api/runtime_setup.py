@@ -48,7 +48,7 @@ def _live_core_config_from_setup(setup: dict[str, Any]) -> "live_core.LiveCoreCo
       compose_file (default None — uses -p <project> only)
       mongo_uri (default "mongodb://127.0.0.1:27017/")
       mongo_db (default "open5gs")
-      timeout_s (default 10.0)
+      timeout_s (default 30.0)
     """
     from benchmark.benchmark_api import live_core  # local import to keep module-load cheap
     block = setup.get("live_core") or {}
@@ -57,7 +57,7 @@ def _live_core_config_from_setup(setup: dict[str, Any]) -> "live_core.LiveCoreCo
         compose_file=block.get("compose_file"),
         mongo_uri=str(block.get("mongo_uri", "mongodb://127.0.0.1:27017/")),
         mongo_db=str(block.get("mongo_db", "open5gs")),
-        timeout_s=float(block.get("timeout_s", 10.0)),
+        timeout_s=float(block.get("timeout_s", 30.0)),
     )
 
 
