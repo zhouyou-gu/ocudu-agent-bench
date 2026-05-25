@@ -55,15 +55,16 @@ services:
       - ./configs/ue_zmq.conf:/etc/srsue/ue_zmq.conf:ro
     depends_on:
       - gnb
-    # srsUE expects a network namespace named 'ue1' (per ue_zmq.conf [gw].netns).
-    # Create it inside the container before starting srsue.
+    # The image's default entrypoint is [srsue], which clashes with our
+    # bash bootstrap. Override to /bin/bash so `command:` below runs as a
+    # shell. The shell then creates the ue1 netns required by [gw] in
+    # ue_zmq.conf and waits briefly for the gnb to bind ZMQ before exec'ing
+    # srsue itself.
+    entrypoint: ["/bin/bash", "-c"]
     command:
-      - /bin/bash
-      - -c
       - |
         set -e
         mkdir -p /run/netns
         ip netns add ue1 2>/dev/null || true
-        # Give the gnb a moment to bind ZMQ before we connect.
         sleep 4
         exec srsue /etc/srsue/ue_zmq.conf
