@@ -75,7 +75,7 @@ smf:
     - s_nssai:
         - sst: 1
           dnn:
-            - internet
+            - srsapn
 
 amf:
   sbi:
