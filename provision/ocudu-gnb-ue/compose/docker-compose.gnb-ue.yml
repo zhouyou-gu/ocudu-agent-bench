@@ -51,9 +51,7 @@ services:
     command:
       - /bin/sh
       - -c
-      - |
-        touch /tmp/gnb_stdin
-        exec tail -F /tmp/gnb_stdin 2>/dev/null | gnb -c /etc/ocudu/gnb_zmq.yaml
+      - "touch /tmp/gnb_stdin && exec stdbuf -oL tail -F /tmp/gnb_stdin 2>/dev/null | gnb -c /etc/ocudu/gnb_zmq.yaml"
 
   ue:
     image: gnb-srsue-direct/srsue:release_23_11
