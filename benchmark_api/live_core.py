@@ -148,8 +148,10 @@ def _load_subscriber_document(row: dict[str, str]) -> dict[str, Any]:
     Raises ValueError (from subscriber_document) on validation failure —
     the caller (upsert_subscriber) wraps that in LiveCoreError.
     """
+    # __file__ = .../benchmark/benchmark_api/live_core.py
+    # parents[0]=benchmark_api/, parents[1]=benchmark/  ← anchor here.
     seeder_path = (
-        Path(__file__).resolve().parents[2]
+        Path(__file__).resolve().parents[1]
         / "provision"
         / "open5gs-core"
         / "compose"
