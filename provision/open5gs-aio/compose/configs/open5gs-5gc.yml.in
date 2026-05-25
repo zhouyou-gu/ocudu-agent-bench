@@ -19,7 +19,7 @@
 # 4G NFs (mme/sgwc/sgwu/hss/pcrf) are disabled via global.parameter so
 # this is a pure 5G SA core.
 
-db_uri: mongodb://10.53.1.10/open5gs
+db_uri: mongodb://${MONGODB_IP}/open5gs
 
 logger:
   level: info
@@ -65,8 +65,8 @@ smf:
       - address: 127.0.0.4
         port: 9090
   session:
-    - subnet: 10.45.0.0/16
-      gateway: 10.45.0.1
+    - subnet: ${UE_IP_RANGE}
+      gateway: ${UE_GATEWAY_IP}
   dns:
     - 8.8.8.8
     - 1.1.1.1
@@ -87,7 +87,7 @@ amf:
         - uri: http://127.0.0.22:7777
   ngap:
     server:
-      - address: 10.53.1.2
+      - address: ${OPEN5GS_IP}
   guami:
     - plmn_id:
         mcc: 001
@@ -123,10 +123,11 @@ upf:
       - address: 127.0.0.7
   gtpu:
     server:
-      - address: 10.53.1.2
+      - address: ${OPEN5GS_IP}
+        advertise: ${UPF_ADVERTISE_IP}
   session:
-    - subnet: 10.45.0.0/16
-      gateway: 10.45.0.1
+    - subnet: ${UE_IP_RANGE}
+      gateway: ${UE_GATEWAY_IP}
 
 nrf:
   sbi:
