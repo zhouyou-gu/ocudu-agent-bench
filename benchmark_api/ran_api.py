@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from benchmark.benchmark_api.api_catalog import descriptor_for_action, validate_api_selection
-from benchmark.benchmark_api.runtime_setup import RuntimeHandle, LIVE_CORE_ADAPTER
+from benchmark.benchmark_api.runtime_setup import RuntimeHandle, LIVE_CORE_ADAPTER, LIVE_OCUDU_ADAPTER
 from benchmark.benchmark_api.simulated_ocudu import apply_simulated_action
 from benchmark.benchmark_api.types import RanActionType, RanObservationSource, SafeErrorClass
 
@@ -51,6 +51,7 @@ def read_evidence(
     if RanObservationSource.PING in selected:
         evidence["ping"] = dict(state.get("ping", {}))
     if RanObservationSource.JSON_METRICS in selected:
+        # TODO: refresh metrics evidence via live_ocudu.read_metrics when JSON_METRICS in selected
         evidence["metrics"] = dict(state.get("metrics", {}))
     if RanObservationSource.WEBSOCKET_CONTROL_OUTCOMES in selected:
         evidence["websocket_control_outcomes"] = [
@@ -226,6 +227,14 @@ def dispatch_runtime_action(runtime: RuntimeHandle, action_id: str, action: dict
             private_request=None,
             completed_at_s=time.time(),
         )
+    if runtime.runtime_adapter == LIVE_OCUDU_ADAPTER and action_type in _WS_BACKED_ACTIONS:
+        return _dispatch_live_ocudu_action(
+            runtime=runtime,
+            action_id=action_id,
+            action_type=action_type,
+            action=action,
+            descriptor=descriptor,
+        )
     if runtime.runtime_adapter == LIVE_CORE_ADAPTER and action_type in {
         RanActionType.RESTART_CORE_NF,
         RanActionType.UPDATE_CORE_UE_REGISTRATION,
@@ -255,6 +264,71 @@ def dispatch_runtime_action(runtime: RuntimeHandle, action_id: str, action: dict
         private_request=request,
         completed_at_s=time.time(),
     )
+
+
+_WS_BACKED_ACTIONS: frozenset[RanActionType] = frozenset({
+    RanActionType.SET_PRB_POLICY_RATIO_WS,
+    RanActionType.SET_SSB_BLOCK_POWER_WS,
+    RanActionType.TRIGGER_HANDOVER_CLI,
+    RanActionType.TRIGGER_CONDITIONAL_HANDOVER_CLI,
+    RanActionType.SET_CFO_CLI,
+    RanActionType.SET_TX_TIME_OFFSET_CLI,
+})
+
+
+def _live_ocudu_cfg_from_runtime(runtime: RuntimeHandle) -> "live_ocudu.LiveOcuduConfig":
+    """Build a LiveOcuduConfig from a RuntimeHandle. Mirrors
+    _live_core_cfg_from_runtime: reads runtime.state['live_ocudu_cfg'] if
+    present, else defaults. (Non-default plumbing through RuntimeHandle is
+    a follow-up.)"""
+    from benchmark.benchmark_api import live_ocudu
+    block = runtime.state.get("live_ocudu_cfg") or {}
+    return live_ocudu.LiveOcuduConfig(
+        ws_url=str(block.get("ws_url", "ws://127.0.0.1:8001/")),
+        connect_timeout_s=float(block.get("connect_timeout_s", 5.0)),
+        recv_timeout_s=float(block.get("recv_timeout_s", 3.0)),
+    )
+
+
+def _dispatch_live_ocudu_action(
+    runtime: RuntimeHandle,
+    *,
+    action_id: str,
+    action_type: RanActionType,
+    action: dict[str, Any],
+    descriptor: Any,
+) -> DispatchResult:
+    """Send a WS-backed action through live_ocudu.send_command and map the
+    result back into a DispatchResult.
+
+    Catches live_ocudu.LiveOcuduError -> RUNTIME_UNAVAILABLE. Other unexpected
+    exceptions propagate."""
+    from benchmark.benchmark_api import live_ocudu
+    cfg = _live_ocudu_cfg_from_runtime(runtime)
+    request = build_request(action_type, action)
+    try:
+        ack = live_ocudu.send_command(cfg, request)
+        return DispatchResult(
+            action_id=action_id,
+            dispatched=True,
+            accepted=True,
+            backend=descriptor.backend.value,
+            safe_error_class=None,
+            safe_message=f"{action_type.value} accepted at {ack.get('timestamp', '?')}",
+            private_request=request,
+            completed_at_s=time.time(),
+        )
+    except live_ocudu.LiveOcuduError as exc:
+        return DispatchResult(
+            action_id=action_id,
+            dispatched=True,
+            accepted=False,
+            backend=descriptor.backend.value,
+            safe_error_class=SafeErrorClass.RUNTIME_UNAVAILABLE,
+            safe_message=exc.safe_message,
+            private_request=request,
+            completed_at_s=time.time(),
+        )
 
 
 def _live_core_cfg_from_runtime(runtime: RuntimeHandle) -> "live_core.LiveCoreConfig":

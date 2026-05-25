@@ -25,7 +25,8 @@ class RuntimeHandle:
 
 SIMULATED_ADAPTER = "simulated_ocudu"
 LIVE_CORE_ADAPTER = "live_core"
-KNOWN_ADAPTERS = (SIMULATED_ADAPTER, LIVE_CORE_ADAPTER)
+LIVE_OCUDU_ADAPTER = "live_ocudu"
+KNOWN_ADAPTERS = (SIMULATED_ADAPTER, LIVE_CORE_ADAPTER, LIVE_OCUDU_ADAPTER)
 
 
 def default_core_ue_registration() -> dict[str, Any]:
@@ -38,6 +39,23 @@ def default_core_ue_registration() -> dict[str, Any]:
         "sd": None,
         "auth_profile_id": "ue1_test_profile",
     }
+
+
+def _live_ocudu_config_from_setup(setup: dict[str, Any]) -> "live_ocudu.LiveOcuduConfig":
+    """Build a LiveOcuduConfig from a task `setup` dict's optional `live_ocudu` block.
+
+    Recognized keys under setup["live_ocudu"]:
+      ws_url (default "ws://127.0.0.1:8001/")
+      connect_timeout_s (default 5.0)
+      recv_timeout_s (default 3.0)
+    """
+    from benchmark.benchmark_api import live_ocudu  # local import to keep module-load cheap
+    block = setup.get("live_ocudu") or {}
+    return live_ocudu.LiveOcuduConfig(
+        ws_url=str(block.get("ws_url", "ws://127.0.0.1:8001/")),
+        connect_timeout_s=float(block.get("connect_timeout_s", 5.0)),
+        recv_timeout_s=float(block.get("recv_timeout_s", 3.0)),
+    )
 
 
 def _live_core_config_from_setup(setup: dict[str, Any]) -> "live_core.LiveCoreConfig":
@@ -110,6 +128,7 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
         ready = True
         blocking_reason = None
         live_core_state = None
+        live_ocudu_ready = False
     elif runtime_adapter == LIVE_CORE_ADAPTER:
         # Lazy import — live_core does subprocess + (lazy) pymongo at module load
         from benchmark.benchmark_api import live_core
@@ -124,10 +143,23 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
             live_core_state = live_core.read_runtime(cfg)
         else:
             live_core_state = None
+        live_ocudu_ready = False
+    elif runtime_adapter == LIVE_OCUDU_ADAPTER:
+        from benchmark.benchmark_api import live_ocudu
+        cfg = _live_ocudu_config_from_setup(setup)
+        readiness_result = live_ocudu.readiness(cfg)
+        ready = bool(readiness_result["ready"])
+        blocking_reason = (
+            None if ready
+            else "live_ocudu readiness failed: " + ", ".join(readiness_result.get("failures", []))
+        )
+        live_core_state = None       # live_ocudu has no core_runtime contribution
+        live_ocudu_ready = ready
     else:
         ready = False
         blocking_reason = f"runtime adapter is not available: {runtime_adapter}"
         live_core_state = None
+        live_ocudu_ready = False
 
     # --- backend capabilities ---
     if runtime_adapter == LIVE_CORE_ADAPTER:
@@ -136,6 +168,15 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
             "ocudu_cli": False,
             "core_control": ready,
             "json_metrics": False,
+            "e2_kpm": False,
+            "e2_control": False,
+        }
+    elif runtime_adapter == LIVE_OCUDU_ADAPTER:
+        backend_block = {
+            "websocket": ready,
+            "ocudu_cli": ready,
+            "core_control": False,
+            "json_metrics": ready,
             "e2_kpm": False,
             "e2_control": False,
         }
@@ -232,7 +273,7 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
         setup_metadata={
             "runtime": runtime,
             "runtime_adapter": runtime_adapter,
-            "live_ocudu": False,
+            "live_ocudu": runtime_adapter == LIVE_OCUDU_ADAPTER and ready,
             "live_core": runtime_adapter == LIVE_CORE_ADAPTER and ready,
             "components": list(components),
             "created_at": now,

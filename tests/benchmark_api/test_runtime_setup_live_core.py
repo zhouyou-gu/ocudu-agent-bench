@@ -256,12 +256,13 @@ class CleanupRuntimeLiveCoreTests(unittest.TestCase):
 
 
 class KnownAdaptersTests(unittest.TestCase):
-    """KNOWN_ADAPTERS contains exactly the two expected adapter names."""
+    """KNOWN_ADAPTERS contains the expected adapter names."""
 
     def test_known_adapters_contains_both(self):
         self.assertIn(SIMULATED_ADAPTER, KNOWN_ADAPTERS)
         self.assertIn(LIVE_CORE_ADAPTER, KNOWN_ADAPTERS)
-        self.assertEqual(len(KNOWN_ADAPTERS), 2)
+        # KNOWN_ADAPTERS may contain additional adapters (e.g. live_ocudu) added in later slices
+        self.assertGreaterEqual(len(KNOWN_ADAPTERS), 2)
 
 
 if __name__ == "__main__":
