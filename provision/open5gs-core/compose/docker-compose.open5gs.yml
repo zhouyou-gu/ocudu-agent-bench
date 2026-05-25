@@ -10,9 +10,12 @@
 # Image choice: gradiant publishes the upstream Open5GS 2.7.x release as a
 # single monolithic image (gradiant/open5gs:2.7.7) containing every NF binary
 # at /opt/open5gs/bin/open5gs-<nf>d. We reuse the same image across all 10 NF
-# services and override `entrypoint:` per service so each container still runs
-# exactly one NF — preserving the split-NF integration contract (spec §9)
-# without depending on the per-NF gradiant images, which stopped at 2.2.5.
+# services and select the NF via `command:` (the image's /entrypoint.sh execs
+# `$@` so the first command arg is the NF binary; the script also handles
+# UPF's TUN device creation as root). UPF additionally needs user: root +
+# /dev/net/tun + IPV4/6_TUN_* env vars for `ip tuntap add ogstun`. SMF and
+# AMF carry user: root so the cap_add: [NET_ADMIN] is effective for the
+# future tc-netem stimulus (spec §9).
 
 name: open5gs
 
@@ -69,8 +72,7 @@ services:
     <<: *nf-defaults
     image: gradiant/open5gs:2.7.7
     container_name: open5gs-nrf
-    entrypoint: ["/opt/open5gs/bin/open5gs-nrfd"]
-    command: ["-c", "/opt/open5gs/etc/open5gs/nrf.yaml"]
+    command: ["/opt/open5gs/bin/open5gs-nrfd", "-c", "/opt/open5gs/etc/open5gs/nrf.yaml"]
     networks:
       ran:
         ipv4_address: 10.53.1.4
@@ -88,8 +90,7 @@ services:
     <<: *nf-defaults
     image: gradiant/open5gs:2.7.7
     container_name: open5gs-scp
-    entrypoint: ["/opt/open5gs/bin/open5gs-scpd"]
-    command: ["-c", "/opt/open5gs/etc/open5gs/scp.yaml"]
+    command: ["/opt/open5gs/bin/open5gs-scpd", "-c", "/opt/open5gs/etc/open5gs/scp.yaml"]
     networks:
       ran:
         ipv4_address: 10.53.1.5
@@ -107,8 +108,7 @@ services:
     <<: *nf-defaults
     image: gradiant/open5gs:2.7.7
     container_name: open5gs-ausf
-    entrypoint: ["/opt/open5gs/bin/open5gs-ausfd"]
-    command: ["-c", "/opt/open5gs/etc/open5gs/ausf.yaml"]
+    command: ["/opt/open5gs/bin/open5gs-ausfd", "-c", "/opt/open5gs/etc/open5gs/ausf.yaml"]
     networks:
       ran:
         ipv4_address: 10.53.1.6
@@ -126,8 +126,7 @@ services:
     <<: *nf-defaults
     image: gradiant/open5gs:2.7.7
     container_name: open5gs-udm
-    entrypoint: ["/opt/open5gs/bin/open5gs-udmd"]
-    command: ["-c", "/opt/open5gs/etc/open5gs/udm.yaml"]
+    command: ["/opt/open5gs/bin/open5gs-udmd", "-c", "/opt/open5gs/etc/open5gs/udm.yaml"]
     networks:
       ran:
         ipv4_address: 10.53.1.7
@@ -145,8 +144,7 @@ services:
     <<: *nf-defaults
     image: gradiant/open5gs:2.7.7
     container_name: open5gs-udr
-    entrypoint: ["/opt/open5gs/bin/open5gs-udrd"]
-    command: ["-c", "/opt/open5gs/etc/open5gs/udr.yaml"]
+    command: ["/opt/open5gs/bin/open5gs-udrd", "-c", "/opt/open5gs/etc/open5gs/udr.yaml"]
     networks:
       ran:
         ipv4_address: 10.53.1.8
@@ -164,8 +162,7 @@ services:
     <<: *nf-defaults
     image: gradiant/open5gs:2.7.7
     container_name: open5gs-pcf
-    entrypoint: ["/opt/open5gs/bin/open5gs-pcfd"]
-    command: ["-c", "/opt/open5gs/etc/open5gs/pcf.yaml"]
+    command: ["/opt/open5gs/bin/open5gs-pcfd", "-c", "/opt/open5gs/etc/open5gs/pcf.yaml"]
     networks:
       ran:
         ipv4_address: 10.53.1.9
@@ -183,8 +180,7 @@ services:
     <<: *nf-defaults
     image: gradiant/open5gs:2.7.7
     container_name: open5gs-bsf
-    entrypoint: ["/opt/open5gs/bin/open5gs-bsfd"]
-    command: ["-c", "/opt/open5gs/etc/open5gs/bsf.yaml"]
+    command: ["/opt/open5gs/bin/open5gs-bsfd", "-c", "/opt/open5gs/etc/open5gs/bsf.yaml"]
     networks:
       ran:
         ipv4_address: 10.53.1.11
@@ -202,9 +198,16 @@ services:
     <<: *nf-defaults
     image: gradiant/open5gs:2.7.7
     container_name: open5gs-upf
-    entrypoint: ["/opt/open5gs/bin/open5gs-upfd"]
-    command: ["-c", "/opt/open5gs/etc/open5gs/upf.yaml"]
+    command: ["/opt/open5gs/bin/open5gs-upfd", "-c", "/opt/open5gs/etc/open5gs/upf.yaml"]
     cap_add: [NET_ADMIN]
+    user: root
+    devices:
+      - /dev/net/tun
+    environment:
+      IPV4_TUN_ADDR: 10.45.0.1/16
+      IPV6_TUN_ADDR: cafe::1/64
+      IPV4_TUN_SUBNET: 10.45.0.0/16
+      ENABLE_NAT: "true"
     networks:
       ran:
         ipv4_address: 10.53.1.12
@@ -222,9 +225,9 @@ services:
     <<: *nf-defaults
     image: gradiant/open5gs:2.7.7
     container_name: open5gs-smf
-    entrypoint: ["/opt/open5gs/bin/open5gs-smfd"]
-    command: ["-c", "/opt/open5gs/etc/open5gs/smf.yaml"]
+    command: ["/opt/open5gs/bin/open5gs-smfd", "-c", "/opt/open5gs/etc/open5gs/smf.yaml"]
     cap_add: [NET_ADMIN]
+    user: root
     networks:
       ran:
         ipv4_address: 10.53.1.3
@@ -243,9 +246,9 @@ services:
     <<: *nf-defaults
     image: gradiant/open5gs:2.7.7
     container_name: open5gs-amf
-    entrypoint: ["/opt/open5gs/bin/open5gs-amfd"]
-    command: ["-c", "/opt/open5gs/etc/open5gs/amf.yaml"]
+    command: ["/opt/open5gs/bin/open5gs-amfd", "-c", "/opt/open5gs/etc/open5gs/amf.yaml"]
     cap_add: [NET_ADMIN]
+    user: root
     networks:
       ran:
         ipv4_address: 10.53.1.2
