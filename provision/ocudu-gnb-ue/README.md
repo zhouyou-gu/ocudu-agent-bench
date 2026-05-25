@@ -97,10 +97,35 @@ Any drift in any of these breaks attach.
   Fix by running `docker run --rm -v $(pwd):/work alpine rm -rf /work/<path>`
   before resyncing.
 
+## OCUDU remote control WebSocket (port 8001)
+
+The gNB compose enables `remote_control` and publishes port 8001 to host
+loopback. The [`live_ocudu`](../../benchmark_api/live_ocudu.py) adapter
+connects to `ws://127.0.0.1:8001/` to dispatch actions and read metrics.
+
+Set `E.runtime_adapter = "live_ocudu"` in a task manifest to route
+actions through this transport:
+
+| Action type | Routed live? | Notes |
+|---|---|---|
+| `SET_PRB_POLICY_RATIO_WS` | ✅ via `rrm_policy_ratio_set` | tested 2026-05-25 |
+| `SET_SSB_BLOCK_POWER_WS` | ✅ via `ssb_set` | tested 2026-05-25 |
+| `TRIGGER_HANDOVER_CLI` | ❌ falls through to simulated | OCUDU `ho` is stdin-only |
+| `TRIGGER_CONDITIONAL_HANDOVER_CLI` | ❌ falls through to simulated | OCUDU `cho` is stdin-only |
+| `SET_CFO_CLI` | ❌ falls through to simulated | OCUDU `cfo` is stdin-only |
+| `SET_TX_TIME_OFFSET_CLI` | ❌ falls through to simulated | OCUDU `tx_time_offset` is stdin-only |
+
+OCUDU's remote_control WebSocket dispatcher only registers handlers for
+`rrm_policy_ratio_set`, `ssb_set`, `metrics_subscribe`,
+`metrics_unsubscribe`, `quit`. The four CLI commands live in
+`*_cmdline_commands.h` and would need a separate stdin / pseudo-TTY
+mechanism to wire live — noted as a follow-up.
+
+Metrics evidence reads use `live_ocudu.read_metrics(cfg, count=N)`.
+
 ## Not in this slice
 
-* OCUDU WebSocket remote control + the live transport `live_ocudu`
-  adapter for PRB/SSB/handover actions
+* Stdin / pseudo-TTY mechanism for the four CLI-only OCUDU commands
 * FlexRIC / E2 control
 * Multiple UEs, mobility, handover scenarios
 * Portable (Docker Hub) rebuilds of `ocudu/gnb` and `srsue`
