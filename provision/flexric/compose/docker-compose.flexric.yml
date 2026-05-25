@@ -28,7 +28,12 @@ networks:
 
 services:
   flexric:
-    image: skillful-ran/flexric-bench:br-flexric-1a3903a7-kpm-v5-ocudu-26_04
+    # Uses the locally-rebuilt image with src/lib/e2ap/v3_01/dec/e2ap_msg_dec_asn.c
+    # line 1284's unconditional "Untested code" assert removed so RIC Control
+    # Failure responses from the gNB decode + propagate instead of crashing
+    # the RIC with SIGABRT. Built from FlexRIC fork branch
+    # patch-control-failure-decoder (commit d415e0c on top of dc668ed).
+    image: skillful-ran/flexric-bench:patch-control-failure
     container_name: flexric-ric
     pull_policy: missing
     restart: "no"
