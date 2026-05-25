@@ -36,13 +36,24 @@ services:
       ran:
         ipv4_address: 10.53.1.20
     # Expose the OCUDU remote_control WebSocket on host loopback so the
-    # live_ocudu adapter (running on the host) can drive PRB / SSB /
-    # handover / CFO / TX-time actions and read metrics frames.
+    # live_ocudu adapter (running on the host) can drive PRB / SSB actions
+    # and read metrics frames.
     ports:
       - "127.0.0.1:8001:8001/tcp"
     volumes:
       - ./configs/gnb_zmq.yaml:/etc/ocudu/gnb_zmq.yaml:ro
-    command: ["gnb", "-c", "/etc/ocudu/gnb_zmq.yaml"]
+    # Run gnb with stdin attached to a FIFO at /tmp/gnb_stdin so the
+    # live_ocudu adapter can send the four OCUDU cmdline_command actions
+    # (ho / cho / cfo / tx_time_offset) -- those are stdin-only, not WS.
+    # exec 3> keeps a persistent writer side so the FIFO doesn't EOF when
+    # no docker exec is currently writing.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        mkfifo /tmp/gnb_stdin
+        exec 3> /tmp/gnb_stdin
+        exec gnb -c /etc/ocudu/gnb_zmq.yaml < /tmp/gnb_stdin
 
   ue:
     image: gnb-srsue-direct/srsue:release_23_11
