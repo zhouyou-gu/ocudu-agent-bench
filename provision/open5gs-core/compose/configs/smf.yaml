@@ -14,6 +14,8 @@ smf:
     client:
       nrf:
         - uri: http://10.53.1.4:7777
+      scp:
+        - uri: http://10.53.1.5:7777
   pfcp:
     server:
       - address: 0.0.0.0
