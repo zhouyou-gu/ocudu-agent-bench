@@ -5,10 +5,10 @@ Covers:
   - SET_PRB_POLICY_RATIO_WS happy path (WS-backed)
   - SET_SSB_BLOCK_POWER_WS happy path (WS-backed)
   - TRIGGER_HANDOVER_CLI / TRIGGER_CONDITIONAL_HANDOVER_CLI / SET_CFO_CLI /
-    SET_TX_TIME_OFFSET_CLI: OCUDU exposes these only on stdin, NOT on the
-    remote_control WebSocket (live smoke 2026-05-25 returned "Unknown
-    command type"). They fall through to apply_simulated_action when
-    adapter=live_ocudu — send_command must NOT be called for them.
+    SET_TX_TIME_OFFSET_CLI: OCUDU exposes these only on stdin; routed through
+    live_ocudu.dispatch_cli_action when adapter=live_ocudu. send_command must
+    NOT be called for them.
+  - LiveOcuduError from dispatch_cli_action → RUNTIME_UNAVAILABLE, accepted=False
   - LiveOcuduError → RUNTIME_UNAVAILABLE, accepted=False
   - Non-WS action (RESTART_CORE_NF) on live_ocudu → backend gate blocks
   - WS action on simulated adapter → simulated path, send_command not called
@@ -226,47 +226,68 @@ class SetSsbBlockPowerWsHappyPath(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 3. CLI-style actions fall through to simulated on live_ocudu adapter
+# 3. CLI-backed actions are dispatched via dispatch_cli_action on live_ocudu
 # ---------------------------------------------------------------------------
 # Per the 2026-05-25 live smoke, OCUDU's remote_control WebSocket dispatcher
 # (apps/services/remote_control/remote_server.cpp) only registers handlers
 # for `rrm_policy_ratio_set`, `ssb_set`, `metrics_subscribe`,
 # `metrics_unsubscribe`, and `quit`. The `ho`, `cho`, `cfo`, and
 # `tx_time_offset` commands live in *_cmdline_commands.h and are stdin-only.
-# When the live_ocudu adapter is active, those actions must fall through to
-# apply_simulated_action — live_ocudu.send_command must NOT be called.
+# When the live_ocudu adapter is active, those actions are routed through
+# live_ocudu.dispatch_cli_action — send_command must NOT be called.
 
-class CliActionsFallThroughToSimulated(unittest.TestCase):
+_CLI_OK_RESULT = {"ok": True, "line": "cfo 0 -1250.0", "stdout_tail": ""}
 
-    def _assert_fallthrough(self, action):
+
+class CliActionsDispatchedViaCli(unittest.TestCase):
+
+    def _assert_cli_dispatch(self, action, expected_action_type_value: str | None = None):
+        """Assert dispatch_cli_action is called once and result is dispatched+accepted."""
         handle = _make_live_ocudu_handle()
-        with patch("benchmark.benchmark_api.live_ocudu.send_command") as mock_sc:
+        with patch("benchmark.benchmark_api.live_ocudu.send_command") as mock_sc, \
+             patch("benchmark.benchmark_api.live_ocudu.dispatch_cli_action",
+                   return_value=_CLI_OK_RESULT) as mock_cli:
             result = dispatch_runtime_action(handle, "act-1", action)
         mock_sc.assert_not_called()
-        # The simulated path returns dispatched=True for actions whose backend
-        # gate is satisfied by the live_ocudu backend block (websocket=True,
-        # ocudu_cli=True). Just confirm we didn't crash and didn't hit live WS.
+        mock_cli.assert_called_once()
+        # action_type_value is the second positional arg to dispatch_cli_action
+        if expected_action_type_value is not None:
+            self.assertEqual(mock_cli.call_args[0][1], expected_action_type_value)
         self.assertTrue(result.dispatched)
+        self.assertTrue(result.accepted)
+        self.assertIsNone(result.safe_error_class)
 
-    def test_ho_falls_through(self):
-        self._assert_fallthrough(_HO_ACTION)
+    def test_ho_dispatched_via_cli(self):
+        self._assert_cli_dispatch(_HO_ACTION, "TRIGGER_HANDOVER_CLI")
 
-    def test_cho_falls_through(self):
-        self._assert_fallthrough(_CHO_ACTION)
+    def test_cho_dispatched_via_cli(self):
+        self._assert_cli_dispatch(_CHO_ACTION, "TRIGGER_CONDITIONAL_HANDOVER_CLI")
 
-    def test_cfo_falls_through(self):
-        self._assert_fallthrough(_CFO_ACTION)
+    def test_cfo_dispatched_via_cli(self):
+        self._assert_cli_dispatch(_CFO_ACTION, "SET_CFO_CLI")
 
-    def test_tx_time_offset_falls_through(self):
-        self._assert_fallthrough(_TX_TIME_ACTION)
+    def test_tx_time_offset_dispatched_via_cli(self):
+        self._assert_cli_dispatch(_TX_TIME_ACTION, "SET_TX_TIME_OFFSET_CLI")
 
     def test_build_request_still_produces_ho_payload(self):
         """build_request itself is unchanged — it produces the expected ho payload
-        regardless of dispatch routing. Useful when a future stdin-based CLI
-        transport is added."""
+        regardless of dispatch routing."""
         request = build_request(RanActionType.TRIGGER_HANDOVER_CLI, _HO_ACTION)
         self.assertEqual(request["cmd"], "ho")
         self.assertEqual(request["argv"], [1, "0x4601", 2])
+
+    def test_cli_error_returns_runtime_unavailable(self):
+        """LiveOcuduError from dispatch_cli_action → dispatched=True, accepted=False,
+        RUNTIME_UNAVAILABLE."""
+        handle = _make_live_ocudu_handle()
+        exc = LiveOcuduError("gnb rejected 'cfo 0 -1250.0': Invalid cfo command structure.")
+        with patch("benchmark.benchmark_api.live_ocudu.dispatch_cli_action",
+                   side_effect=exc):
+            result = dispatch_runtime_action(handle, "act-1", _CFO_ACTION)
+        self.assertTrue(result.dispatched)
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.safe_error_class, SafeErrorClass.RUNTIME_UNAVAILABLE)
+        self.assertIn("Invalid cfo command structure", result.safe_message)
 
 
 # ---------------------------------------------------------------------------

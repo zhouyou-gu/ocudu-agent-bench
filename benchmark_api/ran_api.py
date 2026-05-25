@@ -235,6 +235,14 @@ def dispatch_runtime_action(runtime: RuntimeHandle, action_id: str, action: dict
             action=action,
             descriptor=descriptor,
         )
+    if runtime.runtime_adapter == LIVE_OCUDU_ADAPTER and action_type in _CLI_BACKED_ACTIONS:
+        return _dispatch_live_ocudu_cli_action(
+            runtime=runtime,
+            action_id=action_id,
+            action_type=action_type,
+            action=action,
+            descriptor=descriptor,
+        )
     if runtime.runtime_adapter == LIVE_CORE_ADAPTER and action_type in {
         RanActionType.RESTART_CORE_NF,
         RanActionType.UPDATE_CORE_UE_REGISTRATION,
@@ -270,12 +278,21 @@ def dispatch_runtime_action(runtime: RuntimeHandle, action_id: str, action: dict
 # registers these two cmd handlers. The other gnb commands (`ho`, `cho`, `cfo`,
 # `tx_time_offset`) are stdin-only `cmdline_command` subclasses — the WS dispatcher
 # returns "Unknown command type" if asked. Live smoke 2026-05-25 confirmed this on
-# 5090pc against ocudu/gnb:latest (commit 2563975). Wiring CLI-only actions through
-# the live transport would need a stdin/docker-attach mechanism (follow-up slice).
-# Until then they fall through to apply_simulated_action when adapter=live_ocudu.
+# 5090pc against ocudu/gnb:latest (commit 2563975).
 _WS_BACKED_ACTIONS: frozenset[RanActionType] = frozenset({
     RanActionType.SET_PRB_POLICY_RATIO_WS,
     RanActionType.SET_SSB_BLOCK_POWER_WS,
+})
+
+# OCUDU stdin-CLI cmdline_command actions (registered in *_cmdline_commands.h,
+# NOT in the remote_control WS dispatcher). Routed through live_ocudu.send_cli
+# which writes the CLI line into the gnb's stdin FIFO via `docker exec` and
+# reads docker logs for an "Invalid ..." error response.
+_CLI_BACKED_ACTIONS: frozenset[RanActionType] = frozenset({
+    RanActionType.TRIGGER_HANDOVER_CLI,
+    RanActionType.TRIGGER_CONDITIONAL_HANDOVER_CLI,
+    RanActionType.SET_CFO_CLI,
+    RanActionType.SET_TX_TIME_OFFSET_CLI,
 })
 
 
@@ -290,6 +307,10 @@ def _live_ocudu_cfg_from_runtime(runtime: RuntimeHandle) -> "live_ocudu.LiveOcud
         ws_url=str(block.get("ws_url", "ws://127.0.0.1:8001/")),
         connect_timeout_s=float(block.get("connect_timeout_s", 5.0)),
         recv_timeout_s=float(block.get("recv_timeout_s", 3.0)),
+        container_name=str(block.get("container_name", "ocudu-gnb")),
+        stdin_file_path=str(block.get("stdin_file_path", "/tmp/gnb_stdin")),
+        cli_response_wait_s=float(block.get("cli_response_wait_s", 1.5)),
+        cli_subprocess_timeout_s=float(block.get("cli_subprocess_timeout_s", 10.0)),
     )
 
 
@@ -318,6 +339,49 @@ def _dispatch_live_ocudu_action(
             backend=descriptor.backend.value,
             safe_error_class=None,
             safe_message=f"{action_type.value} accepted at {ack.get('timestamp', '?')}",
+            private_request=request,
+            completed_at_s=time.time(),
+        )
+    except live_ocudu.LiveOcuduError as exc:
+        return DispatchResult(
+            action_id=action_id,
+            dispatched=True,
+            accepted=False,
+            backend=descriptor.backend.value,
+            safe_error_class=SafeErrorClass.RUNTIME_UNAVAILABLE,
+            safe_message=exc.safe_message,
+            private_request=request,
+            completed_at_s=time.time(),
+        )
+
+
+def _dispatch_live_ocudu_cli_action(
+    runtime: RuntimeHandle,
+    *,
+    action_id: str,
+    action_type: RanActionType,
+    action: dict[str, Any],
+    descriptor: Any,
+) -> DispatchResult:
+    """Route a CLI-backed action through live_ocudu.dispatch_cli_action.
+
+    Writes the command line to the gnb's stdin FIFO via docker exec and
+    checks docker logs for an "Invalid ..." response.
+
+    LiveOcuduError -> RUNTIME_UNAVAILABLE. Other exceptions propagate.
+    """
+    from benchmark.benchmark_api import live_ocudu
+    cfg = _live_ocudu_cfg_from_runtime(runtime)
+    request = build_request(action_type, action)
+    try:
+        result = live_ocudu.dispatch_cli_action(cfg, action_type.value, action)
+        return DispatchResult(
+            action_id=action_id,
+            dispatched=True,
+            accepted=True,
+            backend=descriptor.backend.value,
+            safe_error_class=None,
+            safe_message=f"{action_type.value} sent via CLI: {result.get('line', '')}",
             private_request=request,
             completed_at_s=time.time(),
         )

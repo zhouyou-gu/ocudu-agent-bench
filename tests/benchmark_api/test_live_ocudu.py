@@ -22,8 +22,12 @@ from benchmark.benchmark_api.live_ocudu import (
     LiveOcuduConfig,
     LiveOcuduError,
     _open_ws,
+    _docker_logs_tail,
+    _write_stdin_line,
+    dispatch_cli_action,
     read_metrics,
     readiness,
+    send_cli,
     send_command,
 )
 
@@ -449,6 +453,198 @@ class ConnectionCleanupTests(unittest.TestCase):
         )
         self.assertTrue(unsubscribe_sent, f"metrics_unsubscribe not sent; calls: {send_calls}")
         ws.close.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 8. CLI / stdin transport tests
+# ---------------------------------------------------------------------------
+
+
+_CLI_CFG = LiveOcuduConfig(
+    container_name="ocudu-gnb",
+    stdin_file_path="/tmp/gnb_stdin",
+    cli_response_wait_s=0.0,   # no real sleep in tests
+    cli_subprocess_timeout_s=5.0,
+)
+
+
+class LiveOcuduCliTests(unittest.TestCase):
+    """CLI transport: _run_subprocess is patched; no real docker calls."""
+
+    # ------------------------------------------------------------------
+    # send_cli
+    # ------------------------------------------------------------------
+
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
+    @patch("benchmark.benchmark_api.live_ocudu.time")
+    def test_send_cli_happy_path_returns_ok(self, mock_time, mock_run):
+        """send_cli happy path: subprocess returns 0; result ok=True, line matches."""
+        # _run_subprocess is called twice: once for _write_stdin_line (docker exec),
+        # once for _docker_logs_tail (docker logs).
+        mock_run.return_value = (0, "", "")
+        mock_time.sleep = lambda s: None  # suppress real sleep
+
+        result = send_cli(_CLI_CFG, "cfo 0 -1250")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["line"], "cfo 0 -1250")
+        # Two subprocess calls: docker exec + docker logs
+        self.assertEqual(mock_run.call_count, 2)
+
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
+    @patch("benchmark.benchmark_api.live_ocudu.time")
+    def test_send_cli_invalid_in_stdout_raises(self, mock_time, mock_run):
+        """send_cli raises LiveOcuduError when 'Invalid' appears in docker logs output."""
+        mock_time.sleep = lambda s: None
+        # exec succeeds; logs returns an "Invalid" error line
+        mock_run.side_effect = [
+            (0, "", ""),                               # docker exec
+            (0, "Invalid cfo command structure. Usage: cfo <sector> <hz>\n", ""),  # docker logs
+        ]
+
+        with self.assertRaises(LiveOcuduError) as ctx:
+            send_cli(_CLI_CFG, "cfo bad")
+        self.assertIn("Invalid", ctx.exception.safe_message)
+
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
+    @patch("benchmark.benchmark_api.live_ocudu.time")
+    def test_send_cli_usage_in_stdout_raises(self, mock_time, mock_run):
+        """send_cli raises LiveOcuduError when 'Usage:' appears in docker logs output."""
+        mock_time.sleep = lambda s: None
+        mock_run.side_effect = [
+            (0, "", ""),
+            (0, "Usage: cfo <sector_id> <cfo_hz>\n", ""),
+        ]
+
+        with self.assertRaises(LiveOcuduError) as ctx:
+            send_cli(_CLI_CFG, "cfo")
+        self.assertIn("Usage:", ctx.exception.safe_message)
+
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
+    def test_send_cli_newline_in_line_raises_before_subprocess(self, mock_run):
+        """send_cli raises LiveOcuduError without calling subprocess if line has a newline."""
+        with self.assertRaises(LiveOcuduError) as ctx:
+            send_cli(_CLI_CFG, "cfo 0 -1250\ninjected")
+        mock_run.assert_not_called()
+        self.assertIn("newline", ctx.exception.safe_message)
+
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
+    @patch("benchmark.benchmark_api.live_ocudu.time")
+    def test_send_cli_shell_escapes_single_quote(self, mock_time, mock_run):
+        """send_cli correctly escapes embedded single quotes before building the sh -c command."""
+        mock_time.sleep = lambda s: None
+        mock_run.return_value = (0, "", "")
+
+        # A line with a single quote embedded
+        send_cli(_CLI_CFG, "log all info'extra")
+
+        # Inspect the docker exec call (first call_args)
+        exec_call_argv = mock_run.call_args_list[0][0][0]
+        # The argv should be: docker exec ocudu-gnb sh -c "echo '...' >> ..."
+        # Verify the shell command uses the '\''-escaped form of the single quote
+        sh_cmd = exec_call_argv[-1]  # last element is the sh -c argument
+        self.assertIn("'\\''" , sh_cmd)
+
+    # ------------------------------------------------------------------
+    # _docker_logs_tail
+    # ------------------------------------------------------------------
+
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
+    def test_docker_logs_tail_with_since_iso_passes_since_flag(self, mock_run):
+        """_docker_logs_tail with since_iso passes --since to docker logs."""
+        mock_run.return_value = (0, "some output\n", "")
+
+        result = _docker_logs_tail(_CLI_CFG, since_iso="2026-05-25T10:00:00.000000Z")
+
+        argv = mock_run.call_args[0][0]
+        self.assertIn("--since", argv)
+        self.assertIn("2026-05-25T10:00:00.000000Z", argv)
+        self.assertNotIn("--tail", argv)
+        self.assertIn("some output", result)
+
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
+    def test_docker_logs_tail_without_since_passes_tail_200(self, mock_run):
+        """_docker_logs_tail without since_iso passes --tail 200."""
+        mock_run.return_value = (0, "line1\nline2\n", "")
+
+        _docker_logs_tail(_CLI_CFG)
+
+        argv = mock_run.call_args[0][0]
+        self.assertIn("--tail", argv)
+        self.assertIn("200", argv)
+        self.assertNotIn("--since", argv)
+
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
+    def test_docker_logs_tail_nonzero_return_raises(self, mock_run):
+        """_docker_logs_tail raises LiveOcuduError when docker logs returns non-zero."""
+        mock_run.return_value = (1, "", "No such container: ocudu-gnb")
+
+        with self.assertRaises(LiveOcuduError) as ctx:
+            _docker_logs_tail(_CLI_CFG)
+        self.assertIn("docker logs", ctx.exception.safe_message)
+
+    # ------------------------------------------------------------------
+    # dispatch_cli_action — line building
+    # ------------------------------------------------------------------
+
+    @patch("benchmark.benchmark_api.live_ocudu.send_cli")
+    def test_dispatch_cfo_builds_correct_line(self, mock_send):
+        """dispatch_cli_action(SET_CFO_CLI) builds 'cfo 0 -1250' and calls send_cli."""
+        mock_send.return_value = {"ok": True, "line": "cfo 0 -1250", "stdout_tail": ""}
+
+        result = dispatch_cli_action(_CLI_CFG, "SET_CFO_CLI", {"sector_id": 0, "cfo_hz": -1250})
+
+        mock_send.assert_called_once()
+        line_arg = mock_send.call_args[0][1]
+        self.assertEqual(line_arg, "cfo 0 -1250")
+
+    @patch("benchmark.benchmark_api.live_ocudu.send_cli")
+    def test_dispatch_tx_time_offset_builds_correct_line(self, mock_send):
+        """dispatch_cli_action(SET_TX_TIME_OFFSET_CLI) builds 'tx_time_offset 0 7.5'."""
+        mock_send.return_value = {"ok": True, "line": "tx_time_offset 0 7.5", "stdout_tail": ""}
+
+        dispatch_cli_action(_CLI_CFG, "SET_TX_TIME_OFFSET_CLI",
+                            {"sector_id": 0, "tx_time_offset_us": 7.5})
+
+        line_arg = mock_send.call_args[0][1]
+        self.assertEqual(line_arg, "tx_time_offset 0 7.5")
+
+    @patch("benchmark.benchmark_api.live_ocudu.send_cli")
+    def test_dispatch_ho_defaults_plmn_and_tac(self, mock_send):
+        """dispatch_cli_action(TRIGGER_HANDOVER_CLI) defaults target_plmn='00101', target_tac=1."""
+        mock_send.return_value = {"ok": True, "line": "ho 1 0x4601 2 00101 1", "stdout_tail": ""}
+
+        dispatch_cli_action(_CLI_CFG, "TRIGGER_HANDOVER_CLI",
+                            {"serving_pci": 1, "rnti": "0x4601", "target_pci": 2})
+
+        line_arg = mock_send.call_args[0][1]
+        self.assertEqual(line_arg, "ho 1 0x4601 2 00101 1")
+
+    @patch("benchmark.benchmark_api.live_ocudu.send_cli")
+    def test_dispatch_cho_builds_correct_line_with_timeout(self, mock_send):
+        """dispatch_cli_action(TRIGGER_CONDITIONAL_HANDOVER_CLI) includes target pcis + timeout."""
+        mock_send.return_value = {
+            "ok": True, "line": "cho 1 0x4601 2 3 timeout 10", "stdout_tail": ""
+        }
+
+        dispatch_cli_action(_CLI_CFG, "TRIGGER_CONDITIONAL_HANDOVER_CLI", {
+            "serving_pci": 1, "rnti": "0x4601", "target_pcis": [2, 3], "timeout_s": 10,
+        })
+
+        line_arg = mock_send.call_args[0][1]
+        self.assertEqual(line_arg, "cho 1 0x4601 2 3 timeout 10")
+
+    def test_dispatch_unknown_action_type_raises(self):
+        """dispatch_cli_action raises LiveOcuduError for an unsupported action type."""
+        with self.assertRaises(LiveOcuduError) as ctx:
+            dispatch_cli_action(_CLI_CFG, "SET_PRB_POLICY_RATIO_WS", {})
+        self.assertIn("does not support", ctx.exception.safe_message)
+
+    def test_dispatch_cfo_missing_sector_id_raises(self):
+        """dispatch_cli_action raises LiveOcuduError when a required field is missing."""
+        with self.assertRaises(LiveOcuduError) as ctx:
+            dispatch_cli_action(_CLI_CFG, "SET_CFO_CLI", {"cfo_hz": -1250})
+        self.assertIn("missing required field", ctx.exception.safe_message)
 
 
 if __name__ == "__main__":
