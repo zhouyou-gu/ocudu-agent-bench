@@ -67,7 +67,7 @@ services:
       - /bin/sh
       - -c
       - |
-        flexric-ric -c /usr/local/etc/flexric/flexric.conf > /tmp/ric.log 2>&1 &
+        stdbuf -oL -eL flexric-ric -c /usr/local/etc/flexric/flexric.conf > /tmp/ric.log 2>&1 &
         RIC_PID=$$!
         (
           DEADLINE=$$(( $$(date +%s) + 120 ))
@@ -76,7 +76,7 @@ services:
             sleep 2
           done
           while kill -0 $$RIC_PID 2>/dev/null; do
-            /usr/local/bin/flexric/xApp/c/xapp_oran_moni -c /etc/xapp/xapp_oran_sm.conf >> /tmp/xapp.log 2>&1
+            stdbuf -oL -eL /usr/local/bin/flexric/xApp/c/xapp_oran_moni -c /etc/xapp/xapp_oran_sm.conf >> /tmp/xapp.log 2>&1
             sleep 5
           done
         ) &
