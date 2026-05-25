@@ -40,8 +40,11 @@ docker compose -f "$GNB_UE_COMPOSE" logs --no-color ue 2>/dev/null \
   | grep -qiE 'PDU session establishment successful|PDU Session Establishment Accept|Random Access Complete.*ra-rnti|Network attach successful' \
   || { echo "check 4 FAIL: ue has not completed network attach"; exit 1; }
 
-# 5. ue can ping the SMF session gateway from inside its netns
-docker compose -f "$GNB_UE_COMPOSE" exec -T ue ip netns exec ue1 ping -c 2 -W 3 10.45.1.1 >/dev/null 2>&1 \
-  || { echo "check 5 FAIL: ue cannot ping 10.45.1.1"; exit 1; }
+# 5. ue can ping the SMF session gateway from inside its netns.
+# Gateway is 10.45.0.1 (per the AIO open5gs-5gc.yml.in UE_GATEWAY_IP and
+# the SMF session config). Older srsRAN ZMQ refs used 10.45.1.1; the
+# AIO stack uses /16 subnet with .1 as gateway.
+docker compose -f "$GNB_UE_COMPOSE" exec -T ue ip netns exec ue1 ping -c 2 -W 3 10.45.0.1 >/dev/null 2>&1 \
+  || { echo "check 5 FAIL: ue cannot ping 10.45.0.1"; exit 1; }
 
 echo "ocudu gnb + srsue attached and ping ok"
