@@ -52,22 +52,35 @@ services:
       - flexric-kpm:/var/log/flexric
     environment:
       FLEXRIC_KPM_V05_JSONL: "/var/log/flexric/kpm.jsonl"
-    # Run the RIC + the monitor xApp together: start the RIC in the
-    # background, wait a few seconds for it to listen on the E42 port,
-    # then start the xApp which issues the KPM subscription that makes
-    # the gNB emit indications. wait keeps the container alive while
-    # either child is running.
+    # Run the RIC + a continuously-restarted monitor xApp.
+    # Sequence:
+    #   1. start nearRT-RIC in the background
+    #   2. in a background sub-shell: wait for an E2 SETUP-REQUEST in the
+    #      RIC log (gNB has connected), then loop forever starting the
+    #      xApp (which issues the KPM subscription that makes the gNB
+    #      emit indications). If the xApp ever exits (it's a test binary
+    #      that may exit after some indications), restart it after 5s so
+    #      the subscription is re-established and JSONL keeps flowing.
+    #   3. wait only on the RIC PID -- the container stays alive as long
+    #      as the RIC is alive; xApp churn doesn't shut it down.
     command:
       - /bin/sh
       - -c
       - |
         flexric-ric -c /usr/local/etc/flexric/flexric.conf > /tmp/ric.log 2>&1 &
         RIC_PID=$$!
-        sleep 5
-        /usr/local/bin/flexric/xApp/c/xapp_oran_moni -c /etc/xapp/xapp_oran_sm.conf > /tmp/xapp.log 2>&1 &
-        XAPP_PID=$$!
-        echo "ric pid=$$RIC_PID, xapp pid=$$XAPP_PID"
-        wait
+        (
+          DEADLINE=$$(( $$(date +%s) + 120 ))
+          while [ "$$(date +%s)" -lt "$$DEADLINE" ]; do
+            grep -q "SETUP-REQUEST from" /tmp/ric.log && break
+            sleep 2
+          done
+          while kill -0 $$RIC_PID 2>/dev/null; do
+            /usr/local/bin/flexric/xApp/c/xapp_oran_moni -c /etc/xapp/xapp_oran_sm.conf >> /tmp/xapp.log 2>&1
+            sleep 5
+          done
+        ) &
+        wait $$RIC_PID
 
 volumes:
   flexric-kpm: {}
