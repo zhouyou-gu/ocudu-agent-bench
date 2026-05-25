@@ -1,0 +1,69 @@
+# OCUDU gNB + srsUE pair (software-only ZMQ).
+# Joins the existing open5gs_ran network created by
+# benchmark/provision/open5gs-core/compose/docker-compose.open5gs.yml,
+# so the gNB can reach AMF NGAP at 10.53.1.2:38412 with no host networking.
+#
+# Bring up:  docker compose -f docker-compose.gnb-ue.yml up -d
+# Verify:    bash ../tests/check_attach_ping.sh
+# Tear down: docker compose -f docker-compose.gnb-ue.yml down
+#
+# Prerequisite: open5gs stack must already be running (so the external
+# network open5gs_ran exists and the AMF is reachable).
+#
+# Image notes:
+#   * ocudu/gnb:latest is a 3.34 GB locally built OCUDU release image.
+#   * gnb-srsue-direct/srsue:release_23_11 is a locally built srsUE 23.11
+#     runtime image; both already present on 5090pc. A portable rebuild
+#     of either is a follow-up slice (see benchmark/provision/docker/).
+
+name: ocudu_gnb_ue
+
+networks:
+  ran:
+    external: true
+    name: open5gs_ran
+
+services:
+
+  gnb:
+    image: ocudu/gnb:latest
+    container_name: ocudu-gnb
+    pull_policy: missing
+    restart: "no"
+    privileged: true
+    cap_add: [SYS_NICE, SYS_PTRACE]
+    networks:
+      ran:
+        ipv4_address: 10.53.1.20
+    volumes:
+      - ./configs/gnb_zmq.yaml:/etc/ocudu/gnb_zmq.yaml:ro
+    command: ["gnb", "-c", "/etc/ocudu/gnb_zmq.yaml"]
+
+  ue:
+    image: gnb-srsue-direct/srsue:release_23_11
+    container_name: srsue-zmq
+    pull_policy: missing
+    restart: "no"
+    privileged: true
+    cap_add: [NET_ADMIN]
+    devices:
+      - /dev/net/tun
+    networks:
+      ran:
+        ipv4_address: 10.53.1.21
+    volumes:
+      - ./configs/ue_zmq.conf:/etc/srsue/ue_zmq.conf:ro
+    depends_on:
+      - gnb
+    # srsUE expects a network namespace named 'ue1' (per ue_zmq.conf [gw].netns).
+    # Create it inside the container before starting srsue.
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        mkdir -p /run/netns
+        ip netns add ue1 2>/dev/null || true
+        # Give the gnb a moment to bind ZMQ before we connect.
+        sleep 4
+        exec srsue /etc/srsue/ue_zmq.conf

@@ -1,0 +1,60 @@
+# OCUDU gNB — software-only ZMQ build, talking to:
+#   * AMF at 10.53.1.2:38412 inside the open5gs_ran docker network
+#   * srsUE peer at 10.53.1.21 via ZMQ tx/rx ports 2000/2001
+#
+# Adapted from the validated OCUDU ZMQ reference for B210/FDD/srsUE.
+# PLMN / TAC / SST aligned with benchmark/provision/open5gs-core/configs/amf.yaml
+# (PLMN 00101, TAC 1, SST 1).
+
+cu_cp:
+  amf:
+    addrs: 10.53.1.2
+    port: 38412
+    bind_addrs: 10.53.1.20
+    supported_tracking_areas:
+      - tac: 1
+        plmn_list:
+          - plmn: "00101"
+            tai_slice_support_list:
+              - sst: 1
+
+ru_sdr:
+  device_driver: zmq
+  # gnb listens on tcp://*:2000 (UE will rx from 10.53.1.20:2000),
+  # gnb rx connects to UE's tx endpoint at 10.53.1.21:2001.
+  device_args: tx_port=tcp://*:2000,rx_port=tcp://10.53.1.21:2001,base_srate=23.04e6
+  clock: default
+  srate: 23.04
+  tx_gain: 75
+  rx_gain: 75
+
+cell_cfg:
+  dl_arfcn: 368500
+  band: 3
+  channel_bandwidth_MHz: 20
+  common_scs: 15
+  plmn: "00101"
+  tac: 1
+  pdcch:
+    dedicated:
+      ss2_type: common
+      dci_format_0_1_and_1_1: false
+    common:
+      ss0_index: 0
+      coreset0_index: 12
+  prach:
+    prach_config_index: 1
+  pdsch:
+    mcs_table: qam64
+  pusch:
+    mcs_table: qam64
+
+log:
+  filename: /tmp/gnb.log
+  all_level: info
+
+pcap:
+  mac_enable: disable
+  mac_filename: /tmp/gnb_mac.pcap
+  ngap_enable: enable
+  ngap_filename: /tmp/gnb_ngap.pcap
