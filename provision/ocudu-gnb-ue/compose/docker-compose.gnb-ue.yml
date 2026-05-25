@@ -35,6 +35,11 @@ services:
     networks:
       ran:
         ipv4_address: 10.53.1.20
+    # Expose the OCUDU remote_control WebSocket on host loopback so the
+    # live_ocudu adapter (running on the host) can drive PRB / SSB /
+    # handover / CFO / TX-time actions and read metrics frames.
+    ports:
+      - "127.0.0.1:8001:8001/tcp"
     volumes:
       - ./configs/gnb_zmq.yaml:/etc/ocudu/gnb_zmq.yaml:ro
     command: ["gnb", "-c", "/etc/ocudu/gnb_zmq.yaml"]

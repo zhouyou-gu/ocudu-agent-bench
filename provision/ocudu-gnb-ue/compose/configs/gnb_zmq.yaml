@@ -58,3 +58,17 @@ pcap:
   mac_filename: /tmp/gnb_mac.pcap
   ngap_enable: enable
   ngap_filename: /tmp/gnb_ngap.pcap
+
+# Remote control WebSocket on 0.0.0.0:8001 inside the container, exposed
+# to the host via compose ports. Consumed by the live_ocudu adapter.
+remote_control:
+  enabled: true
+  bind_addr: 0.0.0.0
+  port: 8001
+
+# Metrics streamed to remote_control subscribers as JSON frames (the
+# live_ocudu adapter uses metrics_subscribe to read evidence). Also
+# emit to stdout for human debugging.
+metrics:
+  autostart_stdout_metrics: true
+  enable_json: true
