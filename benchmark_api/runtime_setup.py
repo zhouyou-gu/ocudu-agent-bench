@@ -88,6 +88,9 @@ def _live_e2_config_from_setup(setup: dict[str, Any]) -> "live_e2.LiveE2Config":
       jsonl_path (default "/var/log/flexric/kpm.jsonl")
       subprocess_timeout_s (default 10.0)
       min_records_for_ready (default 1)
+      rc_du_xapp_path (default "/opt/flexric/build/examples/xApp/c/control/ocudu-rc-du-prb-control")
+      rc_du_xapp_conf (default "/etc/xapp/xapp_oran_sm.conf")
+      rc_du_xapp_timeout_s (default 30.0)
     """
     from benchmark.benchmark_api import live_e2  # local import to keep module-load cheap
     block = setup.get("live_e2") or {}
@@ -96,6 +99,12 @@ def _live_e2_config_from_setup(setup: dict[str, Any]) -> "live_e2.LiveE2Config":
         jsonl_path=str(block.get("jsonl_path", "/var/log/flexric/kpm.jsonl")),
         subprocess_timeout_s=float(block.get("subprocess_timeout_s", 10.0)),
         min_records_for_ready=int(block.get("min_records_for_ready", 1)),
+        rc_du_xapp_path=str(block.get(
+            "rc_du_xapp_path",
+            "/opt/flexric/build/examples/xApp/c/control/ocudu-rc-du-prb-control",
+        )),
+        rc_du_xapp_conf=str(block.get("rc_du_xapp_conf", "/etc/xapp/xapp_oran_sm.conf")),
+        rc_du_xapp_timeout_s=float(block.get("rc_du_xapp_timeout_s", 30.0)),
     )
 
 
@@ -218,7 +227,10 @@ def instantiate_runtime(setup: dict[str, Any], run_id: str) -> RuntimeHandle:
             "core_control": False,
             "json_metrics": False,
             "e2_kpm": ready,
-            "e2_control": False,   # CCC + RC come in a later slice (Phase 2b)
+            "e2_control": ready,   # SET_PRB_POLICY_RATIO_RC_DU via the OCUDU RC-DU
+                                   # control xApp inside FlexRIC. CCC (RIC style 2
+                                   # action 6 via CCC SM) remains blocked because
+                                   # OCUDU gnb segfaults on e2sm_ccc_enabled.
         }
     else:
         backend_block = {

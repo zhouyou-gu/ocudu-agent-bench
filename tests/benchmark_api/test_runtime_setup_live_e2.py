@@ -145,11 +145,11 @@ class LiveE2BackendBlockTests(unittest.TestCase):
 
         backend = handle.state["backend"]
         self.assertTrue(backend["e2_kpm"], "e2_kpm should be True when live_e2 is ready")
+        self.assertTrue(backend["e2_control"], "e2_control should be True when live_e2 is ready (RC-DU xApp)")
         self.assertFalse(backend["websocket"])
         self.assertFalse(backend["ocudu_cli"])
         self.assertFalse(backend["core_control"])
         self.assertFalse(backend["json_metrics"])
-        self.assertFalse(backend["e2_control"])
 
     def test_backend_flags_all_false_when_not_ready(self):
         failures = ["container_running: not running"]

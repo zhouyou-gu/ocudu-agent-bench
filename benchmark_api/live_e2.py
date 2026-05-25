@@ -50,6 +50,10 @@ class LiveE2Config:
     # readiness considers the stack healthy if the JSONL has at least
     # this many records — guards against "container up but no indications yet"
     min_records_for_ready: int = 1
+    # NEW: RC-DU control xApp dispatch (Phase 2b)
+    rc_du_xapp_path: str = "/opt/flexric/build/examples/xApp/c/control/ocudu-rc-du-prb-control"
+    rc_du_xapp_conf: str = "/etc/xapp/xapp_oran_sm.conf"
+    rc_du_xapp_timeout_s: float = 30.0  # xApp takes ~1-3s to init RIC + send + cleanup
 
 
 class LiveE2Error(RuntimeError):
@@ -237,3 +241,69 @@ def latest_kpm_measurements(cfg: LiveE2Config) -> dict[str, Any] | None:
         if isinstance(m, dict) and "name" in m and "value" in m:
             flat[m["name"]] = m["value"]
     return flat
+
+
+def dispatch_rc_du_prb_policy(
+    cfg: LiveE2Config,
+    *,
+    du_ue_id: int,
+    plmn: str = "00101",
+    sst: int = 1,
+    sd: int | None = None,
+    min_prb_policy_ratio: int | None = None,
+    max_prb_policy_ratio: int | None = None,
+) -> dict[str, Any]:
+    """Dispatch SET_PRB_POLICY_RATIO_RC_DU via the ocudu-rc-du-prb-control xApp
+    inside the FlexRIC container.
+
+    Required: du_ue_id (the gNB-assigned DU UE ID, NOT the RNTI).
+    Optional: plmn, sst, sd (defaults match the standard OCUDU+srsUE ZMQ test
+    triplet); min/max ratio (xApp will use its built-in defaults if omitted).
+
+    Returns the parsed JSON dict from the xApp. Always contains "accepted"
+    (bool) and "action_type". On success also contains "outcome", "ran_function_id",
+    "control_name", "control_style", "control_action", "request" subfields.
+
+    Raises LiveE2Error if:
+      * docker exec fails (container missing, etc.)
+      * subprocess timeout
+      * xApp stdout has no parseable JSON line (highly unexpected since --json
+        always emits structured output)
+
+    Does NOT raise on accepted=false — the caller (ran_api dispatch) is
+    responsible for mapping that to a non-accepted DispatchResult.
+    """
+    argv = [
+        "docker", "exec", cfg.container_name,
+        cfg.rc_du_xapp_path,
+        "--json",
+        "--conf", cfg.rc_du_xapp_conf,
+        "--du-ue-id", str(du_ue_id),
+        "--plmn", str(plmn),
+        "--sst", str(sst),
+    ]
+    if sd is not None:
+        argv.extend(["--sd", str(sd)])
+    if min_prb_policy_ratio is not None:
+        argv.extend(["--min-prb-policy-ratio", str(min_prb_policy_ratio)])
+    if max_prb_policy_ratio is not None:
+        argv.extend(["--max-prb-policy-ratio", str(max_prb_policy_ratio)])
+
+    code, out, err = _run_subprocess(argv, timeout=cfg.rc_du_xapp_timeout_s)
+    # The xApp's structured JSON is the LAST line starting with `{`.
+    # Earlier lines are FlexRIC stdout noise from the xApp's startup.
+    combined = (out or "") + (err or "")
+    json_lines = [line for line in combined.splitlines() if line.startswith("{")]
+    if not json_lines:
+        raise LiveE2Error(
+            f"ocudu-rc-du-prb-control produced no JSON line "
+            f"(code={code}, stderr_tail={(err or '').splitlines()[-3:]})"
+        )
+    last_json = json_lines[-1]
+    try:
+        return json.loads(last_json)
+    except json.JSONDecodeError as exc:
+        raise LiveE2Error(
+            f"ocudu-rc-du-prb-control returned unparseable JSON: {last_json!r}",
+            cause=exc,
+        ) from exc

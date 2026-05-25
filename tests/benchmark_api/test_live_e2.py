@@ -17,6 +17,7 @@ from benchmark.benchmark_api.live_e2 import (
     readiness,
     read_kpm,
     latest_kpm_measurements,
+    dispatch_rc_du_prb_policy,
 )
 
 _DEFAULT_CFG = LiveE2Config()
@@ -367,6 +368,159 @@ class CommandConstructionTests(unittest.TestCase):
         tail_n_idx = argv.index("-n")
         self.assertEqual(argv[tail_n_idx + 1], "7")
         self.assertIn("/var/log/flexric/kpm.jsonl", argv)
+
+
+# ---------------------------------------------------------------------------
+# 6. LiveE2DispatchRcDuTests
+# ---------------------------------------------------------------------------
+
+_SUCCESS_JSON = json.dumps({
+    "accepted": True,
+    "action_type": "SET_PRB_POLICY_RATIO_RC_DU",
+    "ran_function_id": 3,
+    "control_name": "slice-level PRB quota",
+    "control_style": 2,
+    "control_action": 6,
+    "request": {},
+    "outcome": {
+        "acknowledged": True,
+        "evidence": "OCUDU E2SM-RC control acknowledged",
+    },
+})
+
+_FAILURE_JSON = json.dumps({
+    "action_type": "SET_PRB_POLICY_RATIO_RC_DU",
+    "accepted": False,
+    "error": "no E2 node found with the given du_ue_id",
+})
+
+
+class LiveE2DispatchRcDuTests(unittest.TestCase):
+    """dispatch_rc_du_prb_policy: happy path, failure path, error handling, argv."""
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_happy_path_returns_accepted_true(self, mock_run):
+        """Success JSON → result["accepted"] is True."""
+        mock_run.return_value = (0, _SUCCESS_JSON + "\n", "")
+        result = dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0)
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["action_type"], "SET_PRB_POLICY_RATIO_RC_DU")
+        self.assertEqual(result["outcome"]["evidence"], "OCUDU E2SM-RC control acknowledged")
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_failure_path_returns_accepted_false(self, mock_run):
+        """Failure JSON → result["accepted"] is False, result["error"] present."""
+        mock_run.return_value = (4, _FAILURE_JSON + "\n", "")
+        result = dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=999)
+        self.assertFalse(result["accepted"])
+        self.assertIn("error", result)
+        self.assertIn("du_ue_id", result["error"])
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_subprocess_timeout_propagates(self, mock_run):
+        """LiveE2Error from _run_subprocess (timeout) propagates out."""
+        mock_run.side_effect = LiveE2Error("subprocess timed out: docker exec flexric-ric ...")
+        with self.assertRaises(LiveE2Error) as ctx:
+            dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0)
+        self.assertIn("timed out", ctx.exception.safe_message)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_no_json_line_in_output_raises(self, mock_run):
+        """No line starting with '{' → LiveE2Error with 'no JSON line'."""
+        mock_run.return_value = (1, "Error response from daemon: No such container", "")
+        with self.assertRaises(LiveE2Error) as ctx:
+            dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0)
+        self.assertIn("no JSON line", ctx.exception.safe_message)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_garbage_output_no_json_line(self, mock_run):
+        """Purely non-JSON output → LiveE2Error('no JSON line')."""
+        mock_run.return_value = (0, "garbage output\nmore garbage", "")
+        with self.assertRaises(LiveE2Error) as ctx:
+            dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0)
+        self.assertIn("no JSON line", ctx.exception.safe_message)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_malformed_json_line_raises(self, mock_run):
+        """Line starts with '{' but is not valid JSON → LiveE2Error('unparseable JSON')."""
+        mock_run.return_value = (0, "{not_valid_json\n", "")
+        with self.assertRaises(LiveE2Error) as ctx:
+            dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0)
+        self.assertIn("unparseable JSON", ctx.exception.safe_message)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_argv_construction_base(self, mock_run):
+        """argv includes docker exec, container, xapp path, --json, --conf, --du-ue-id, --plmn, --sst."""
+        mock_run.return_value = (0, _SUCCESS_JSON, "")
+        cfg = LiveE2Config(
+            container_name="flexric-ric",
+            rc_du_xapp_path="/opt/flexric/build/examples/xApp/c/control/ocudu-rc-du-prb-control",
+            rc_du_xapp_conf="/etc/xapp/xapp_oran_sm.conf",
+        )
+        dispatch_rc_du_prb_policy(cfg, du_ue_id=7, plmn="00101", sst=1)
+        argv = mock_run.call_args[0][0]
+        self.assertEqual(argv[0], "docker")
+        self.assertEqual(argv[1], "exec")
+        self.assertIn("flexric-ric", argv)
+        self.assertIn("/opt/flexric/build/examples/xApp/c/control/ocudu-rc-du-prb-control", argv)
+        self.assertIn("--json", argv)
+        self.assertIn("--conf", argv)
+        self.assertIn("/etc/xapp/xapp_oran_sm.conf", argv)
+        self.assertIn("--du-ue-id", argv)
+        du_idx = argv.index("--du-ue-id")
+        self.assertEqual(argv[du_idx + 1], "7")
+        self.assertIn("--plmn", argv)
+        self.assertIn("--sst", argv)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_optional_sd_included_when_provided(self, mock_run):
+        """When sd is provided, argv contains --sd <value>."""
+        mock_run.return_value = (0, _SUCCESS_JSON, "")
+        dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0, sd=255)
+        argv = mock_run.call_args[0][0]
+        self.assertIn("--sd", argv)
+        sd_idx = argv.index("--sd")
+        self.assertEqual(argv[sd_idx + 1], "255")
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_optional_min_max_included_when_provided(self, mock_run):
+        """When min/max provided, argv contains --min-prb-policy-ratio and --max-prb-policy-ratio."""
+        mock_run.return_value = (0, _SUCCESS_JSON, "")
+        dispatch_rc_du_prb_policy(
+            _DEFAULT_CFG, du_ue_id=0,
+            min_prb_policy_ratio=10,
+            max_prb_policy_ratio=90,
+        )
+        argv = mock_run.call_args[0][0]
+        self.assertIn("--min-prb-policy-ratio", argv)
+        self.assertIn("--max-prb-policy-ratio", argv)
+        min_idx = argv.index("--min-prb-policy-ratio")
+        max_idx = argv.index("--max-prb-policy-ratio")
+        self.assertEqual(argv[min_idx + 1], "10")
+        self.assertEqual(argv[max_idx + 1], "90")
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_optional_flags_excluded_when_none(self, mock_run):
+        """When sd/min/max are None (defaults), those flags are absent from argv."""
+        mock_run.return_value = (0, _SUCCESS_JSON, "")
+        dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0)
+        argv = mock_run.call_args[0][0]
+        self.assertNotIn("--sd", argv)
+        self.assertNotIn("--min-prb-policy-ratio", argv)
+        self.assertNotIn("--max-prb-policy-ratio", argv)
+
+    @patch("benchmark.benchmark_api.live_e2._run_subprocess")
+    def test_leading_noise_json_at_end_parsed(self, mock_run):
+        """Stdout with FlexRIC startup noise before JSON → last JSON line is parsed."""
+        noise = (
+            "FlexRIC initializing...\n"
+            "Connecting to RIC at 127.0.0.1:36421\n"
+            "E2 setup complete\n"
+        )
+        mock_run.return_value = (0, noise + _SUCCESS_JSON + "\n", "")
+        result = dispatch_rc_du_prb_policy(_DEFAULT_CFG, du_ue_id=0)
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["action_type"], "SET_PRB_POLICY_RATIO_RC_DU")
 
 
 if __name__ == "__main__":

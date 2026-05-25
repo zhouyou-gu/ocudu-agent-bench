@@ -280,6 +280,14 @@ def dispatch_runtime_action(runtime: RuntimeHandle, action_id: str, action: dict
             action=action,
             descriptor=descriptor,
         )
+    if runtime.runtime_adapter == LIVE_E2_ADAPTER and action_type == RanActionType.SET_PRB_POLICY_RATIO_RC_DU:
+        return _dispatch_live_e2_rc_du_action(
+            runtime=runtime,
+            action_id=action_id,
+            action_type=action_type,
+            action=action,
+            descriptor=descriptor,
+        )
     request = build_request(action_type, action)
     simulated = apply_simulated_action(
         runtime,
@@ -351,6 +359,12 @@ def _live_e2_cfg_from_runtime(runtime: RuntimeHandle) -> "live_e2.LiveE2Config":
         jsonl_path=str(block.get("jsonl_path", "/var/log/flexric/kpm.jsonl")),
         subprocess_timeout_s=float(block.get("subprocess_timeout_s", 10.0)),
         min_records_for_ready=int(block.get("min_records_for_ready", 1)),
+        rc_du_xapp_path=str(block.get(
+            "rc_du_xapp_path",
+            "/opt/flexric/build/examples/xApp/c/control/ocudu-rc-du-prb-control",
+        )),
+        rc_du_xapp_conf=str(block.get("rc_du_xapp_conf", "/etc/xapp/xapp_oran_sm.conf")),
+        rc_du_xapp_timeout_s=float(block.get("rc_du_xapp_timeout_s", 30.0)),
     )
 
 
@@ -534,6 +548,74 @@ def _dispatch_live_core_action(
             private_request=request,
             completed_at_s=completed_at_s_now(),
         )
+
+
+def _dispatch_live_e2_rc_du_action(
+    runtime: RuntimeHandle,
+    *,
+    action_id: str,
+    action_type: RanActionType,
+    action: dict[str, Any],
+    descriptor: Any,
+) -> DispatchResult:
+    """Route SET_PRB_POLICY_RATIO_RC_DU through live_e2.dispatch_rc_du_prb_policy.
+
+    Maps the xApp's structured JSON to a DispatchResult:
+      - accepted=true  -> dispatched=True, accepted=True
+      - accepted=false -> dispatched=True, accepted=False, RUNTIME_UNAVAILABLE
+    LiveE2Error -> dispatched=True, accepted=False, RUNTIME_UNAVAILABLE.
+    """
+    from benchmark.benchmark_api import live_e2
+    cfg = _live_e2_cfg_from_runtime(runtime)
+    request = build_request(action_type, action)
+    try:
+        result = live_e2.dispatch_rc_du_prb_policy(
+            cfg,
+            du_ue_id=int(action["du_ue_id"]),
+            plmn=str(action.get("plmn", "00101")),
+            sst=int(action.get("sst", 1)),
+            sd=action.get("sd"),
+            min_prb_policy_ratio=action.get("min_prb_policy_ratio"),
+            max_prb_policy_ratio=action.get("max_prb_policy_ratio"),
+        )
+    except live_e2.LiveE2Error as exc:
+        return DispatchResult(
+            action_id=action_id,
+            dispatched=True,
+            accepted=False,
+            backend=descriptor.backend.value,
+            safe_error_class=SafeErrorClass.RUNTIME_UNAVAILABLE,
+            safe_message=exc.safe_message,
+            private_request=request,
+            completed_at_s=time.time(),
+        )
+
+    accepted = bool(result.get("accepted"))
+    if accepted:
+        outcome = result.get("outcome", {})
+        evidence = outcome.get("evidence", "")
+        safe_message = f"SET_PRB_POLICY_RATIO_RC_DU acknowledged: {evidence}"
+        return DispatchResult(
+            action_id=action_id,
+            dispatched=True,
+            accepted=True,
+            backend=descriptor.backend.value,
+            safe_error_class=None,
+            safe_message=safe_message,
+            private_request=request,
+            completed_at_s=time.time(),
+        )
+    error = result.get("error", "control rejected")
+    return DispatchResult(
+        action_id=action_id,
+        dispatched=True,
+        accepted=False,
+        backend=descriptor.backend.value,
+        safe_error_class=SafeErrorClass.RUNTIME_UNAVAILABLE,
+        safe_message=f"SET_PRB_POLICY_RATIO_RC_DU rejected: {error}",
+        private_request=request,
+        completed_at_s=time.time(),
+    )
 
 
 def build_request(action_type: RanActionType, action: dict[str, Any]) -> dict[str, Any]:
