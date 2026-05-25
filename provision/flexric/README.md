@@ -103,18 +103,59 @@ it crashes the RIC.
 
 | Image | Size | Source |
 |---|---|---|
-| `skillful-ran/flexric-bench:br-flexric-1a3903a7-kpm-v5-ocudu-26_04` | 1.37 GB | Locally built on 5090pc from the **FlexRIC fork at [github.com/zhouyou-gu/flexric-ocudu-kpm-v05](https://github.com/zhouyou-gu/flexric-ocudu-kpm-v05)** (also pinned in `.config` under `sources.flexric-ocudu-repo`). The fork carries OCUDU KPM v05 + custom OCUDU-specific control xApps (`examples/xApp/c/control/ocudu_ccc_prb_control.c` + `ocudu_rc_du_prb_control.cpp`) and patches FlexRIC core (`src/xApp/{e42_xapp.c, msg_handler_xapp.c, sync_ui.c}`) to return structured E2 control failures instead of crashing. Portable Docker Hub rebuild is a follow-up. |
+| `skillful-ran/flexric-bench:br-flexric-1a3903a7-kpm-v5-ocudu-26_04` | 1.37 GB | Original locally-built image (Phase 2a baseline). Built on 5090pc from the FlexRIC fork at [github.com/zhouyou-gu/flexric-ocudu-kpm-v05](https://github.com/zhouyou-gu/flexric-ocudu-kpm-v05) (pinned in `.config` under `sources.flexric-ocudu-repo`). Carries OCUDU KPM v05 + custom OCUDU-specific control xApps (`examples/xApp/c/control/ocudu_ccc_prb_control.c` + `ocudu_rc_du_prb_control.cpp`) and patches FlexRIC core (`src/xApp/{e42_xapp.c, msg_handler_xapp.c, sync_ui.c}`) to return structured E2 control failures instead of crashing. |
+| **`skillful-ran/flexric-bench:patch-control-failure`** | 1.37 GB | **Used by current compose (Phase 2b).** Same image + two more patches on a local branch `patch-control-failure-decoder`: removes the `"Untested code"` assert in `e2ap_msg_dec_asn.c:1284` so RIC Control Failures decode, and implements `e2ap_handle_control_failure_ric` at `msg_handler_ric.c:370`. Branch not yet pushed to the GitHub fork. |
 
-## Phase 2b — E2 control (not in this slice)
+## Phase 2b — E2 control (RC live, CCC blocked)
 
-The compose ships the monitor xApp binary; the control xApps for CCC
-(`SET_PRB_POLICY_RATIO_CCC`) and RC (`SET_PRB_POLICY_RATIO_RC_DU`) have
-C source at `/opt/flexric/examples/xApp/c/{control,kpm_rc}/` inside the
-image but no prebuilt binaries. Wiring those needs:
+### SET_PRB_POLICY_RATIO_RC_DU ✅ live
 
-1. Build the control xApp binaries (extend the image's Dockerfile or
-   build on first compose-up via a multi-stage build).
-2. Sidecar daemon that exposes a TCP RPC to receive
-   `SET_PRB_POLICY_RATIO_CCC` / `SET_PRB_POLICY_RATIO_RC_DU` payloads
-   and forwards via the xApp's control_*_sm API.
-3. Wire into `live_e2.dispatch_action(...)` + `ran_api` dispatch branch.
+Dispatched via `live_e2.dispatch_rc_du_prb_policy`, which runs the
+fork''s `ocudu_rc_du_prb_control` xApp inside this container:
+
+```python
+from benchmark.benchmark_api import live_e2
+cfg = live_e2.LiveE2Config()
+result = live_e2.dispatch_rc_du_prb_policy(
+    cfg, du_ue_id=0, plmn="00101", sst=1, sd=0xFFFFFF,
+    min_prb_policy_ratio=30, max_prb_policy_ratio=70,
+)
+# {"accepted": true, "action_type": "SET_PRB_POLICY_RATIO_RC_DU",
+#  "ran_function_id": 3, "control_style": 2, "control_action": 6,
+#  "outcome": {"acknowledged": true,
+#              "evidence": "OCUDU E2SM-RC control acknowledged"}}
+```
+
+`du_ue_id` **must be the gNB-assigned DU UE ID** (typically `0` for
+the first attached UE), NOT the RNTI (`0x4601`). Wrong `du_ue_id`
+triggers the gNB''s `RICcontrolFailure` path which, even with the two
+FlexRIC patches in the rebuilt image, still asserts in a deeper layer
+(the iApp→xApp forwarding code). The happy path is fully robust; the
+failure path crashes the RIC and needs another patch. For benchmark
+dispatch with well-formed actions this is a non-issue.
+
+### SET_PRB_POLICY_RATIO_CCC ❌ blocked at OCUDU
+
+Setting `e2sm_ccc_enabled: true` in `gnb_zmq.yaml` causes the OCUDU
+gNB to SIGSEGV immediately at startup (`Segmentation fault (core
+dumped)`, exit 139). The CCC service-model source exists in OCUDU at
+`lib/e2/e2sm/e2sm_ccc/` but is not safely available in
+`ocudu/gnb:latest` (commit `2563975`). The `ocudu_ccc_prb_control`
+xApp is already built and ready in
+`/opt/flexric/build/examples/xApp/c/control/`; re-enable when a newer
+OCUDU build fixes the segfault.
+
+## Rebuilding the patched FlexRIC image
+
+```bash
+export OCUDU_ASN1_ROOT=~/ocudu-gpu-channel-workspace/ocudu
+cd ~/skillful-ran-workspace/.benchmark-workspace/external/flexric-ocudu-kpm-v05
+git checkout patch-control-failure-decoder
+BUILD_CONTEXT=$(./tools/prepare_ocudu_kpm_v05_context.sh)
+docker build -f $BUILD_CONTEXT/flexric/docker/ocudu-kpm-v05/Dockerfile \
+    --build-arg FLEXRIC_REF=patch-control-failure-decoder \
+    -t skillful-ran/flexric-bench:patch-control-failure \
+    $BUILD_CONTEXT
+```
+
+Build takes ~3 min with warm ccache, ~10 min cold.
