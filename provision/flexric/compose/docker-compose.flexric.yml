@@ -1,0 +1,54 @@
+# FlexRIC nearRT-RIC service for E2 observation (and later, E2 control).
+# Joins the existing open5gs_ran docker network so the OCUDU gNB at 10.53.1.20
+# can reach the RIC's E2 listener at SCTP 36421.
+#
+# The image is purpose-built for OCUDU KPM v05: when FLEXRIC_KPM_V05_JSONL is
+# set, the RIC's KPM indication decoder appends decoded JSONL records to that
+# path. We bind-mount that path to the host so the live_e2 adapter can read it.
+#
+# Bring up:  docker compose -f docker-compose.flexric.yml up -d
+# Tear down: docker compose -f docker-compose.flexric.yml down
+#
+# Prerequisites:
+#   1. AIO open5gs core OR split-NF core is already up (the gNB needs to
+#      attach to AMF before E2 setup makes sense to test end-to-end).
+#   2. OCUDU gNB compose is up (and its gnb_zmq.yaml has the e2: block set
+#      to addrs: 10.53.1.30 + enable_du_e2 + e2sm_kpm_enabled).
+#
+# Image dep: skillful-ran/flexric-bench:br-flexric-1a3903a7-kpm-v5-ocudu-26_04
+# (locally built on 5090pc; ~1.37 GB). See OCUDU_KPM_V05.md inside the image
+# for the build recipe.
+
+name: flexric
+
+networks:
+  ran:
+    external: true
+    name: open5gs_ran
+
+services:
+  flexric:
+    image: skillful-ran/flexric-bench:br-flexric-1a3903a7-kpm-v5-ocudu-26_04
+    container_name: flexric-ric
+    pull_policy: missing
+    restart: "no"
+    networks:
+      ran:
+        ipv4_address: 10.53.1.30
+    volumes:
+      # Custom ric.conf binds on 0.0.0.0 so the gNB (outside the container)
+      # can reach the E2 listener.
+      - ./configs/ric.conf:/usr/local/etc/flexric/flexric.conf:ro
+      # JSONL output dir for decoded OCUDU KPM v05 indications.
+      - flexric-kpm:/var/log/flexric
+    environment:
+      # The OCUDU KPM v05 decoder appends one JSON object per line to this
+      # path as KPM indications arrive. live_e2.read_kpm() tails this file.
+      FLEXRIC_KPM_V05_JSONL: "/var/log/flexric/kpm.jsonl"
+    command:
+      - flexric-ric
+      - -c
+      - /usr/local/etc/flexric/flexric.conf
+
+volumes:
+  flexric-kpm: {}

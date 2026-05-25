@@ -72,3 +72,17 @@ remote_control:
 metrics:
   autostart_stdout_metrics: true
   enable_json: true
+
+# E2 agent → nearRT-RIC at 10.53.1.30:36421 (FlexRIC service on the same
+# open5gs_ran network). The live_e2 adapter reads decoded KPM v05
+# indications from the RIC container's /var/log/flexric/kpm.jsonl.
+# DU/CU-CP/CU-UP all advertised + KPM and RC service models enabled.
+e2:
+  enable_cu_cp_e2: true
+  enable_cu_up_e2: true
+  enable_du_e2: true
+  addrs: 10.53.1.30
+  port: 36421
+  bind_addrs: 10.53.1.20
+  e2sm_kpm_enabled: true
+  e2sm_rc_enabled: true
