@@ -199,12 +199,15 @@ services:
     image: gradiant/open5gs:2.7.7
     container_name: open5gs-upf
     command: ["/opt/open5gs/bin/open5gs-upfd", "-c", "/opt/open5gs/etc/open5gs/upf.yaml"]
-    cap_add: [NET_ADMIN]
+    # privileged is required: the gradiant entrypoint runs
+    # "sysctl -w net.ipv6.conf.all.disable_ipv6=0" with set -eo pipefail;
+    # cap_add: [NET_ADMIN] and sysctls: both fail to grant write access to
+    # net.ipv6 namespace-scoped keys on this kernel. privileged provides
+    # full SYS_ADMIN which makes the write succeed.
+    privileged: true
     user: root
     devices:
       - /dev/net/tun
-    sysctls:
-      - net.ipv6.conf.all.disable_ipv6=0
     environment:
       IPV4_TUN_ADDR: 10.45.0.1/16
       IPV6_TUN_ADDR: cafe::1/64
