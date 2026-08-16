@@ -1,0 +1,159 @@
+{
+  "id": "compound_grid_core_vs_backhaul_v1",
+  "version": 1,
+  "G": "Infer from symptoms that the latent cause is core rather than backhaul, then apply one core fix.",
+  "E": {
+    "runtime_adapter": "simulated_ocudu",
+    "runtime": "ocudu_zmq_open5gs",
+    "components": [
+      "ocudu_websocket",
+      "ocudu_cli",
+      "open5gs",
+      "srsue_zmq"
+    ]
+  },
+  "U": {
+    "steps": 4,
+    "timing_policy": {
+      "clock_mode": "fixed_tick",
+      "step_interval_s": 0.01,
+      "decision_deadline_s": 0.01
+    },
+    "events": [
+      {
+        "kind": "docker_zmq_runtime_launch",
+        "phase": "pre_observation",
+        "parameters": {},
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "metrics_staleness_mask",
+        "phase": "pre_observation",
+        "parameters": {
+          "stale_until_step": 0
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "pre_observation",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "in_step",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "core_latency_profile",
+        "phase": "pre_observation",
+        "parameters": {
+          "latency_ms": 80.0,
+          "jitter_ms": 15.0,
+          "loss_rate": 0.1,
+          "degraded_nf": "open5gs"
+        },
+        "start_step": 3,
+        "end_step": 4
+      },
+      {
+        "kind": "backhaul_impairment",
+        "phase": "pre_observation",
+        "parameters": {
+          "delay_ms": 2.0,
+          "loss_rate": 0.0,
+          "throughput_mbps": 900.0
+        },
+        "start_step": 1,
+        "end_step": 4
+      }
+    ]
+  },
+  "I": {
+    "api_kinds": [
+      "core_nf_lifecycle_control",
+      "ocudu_json_metrics"
+    ],
+    "allowed_actions": [
+      "RESTART_CORE_NF"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "backhaul_runtime",
+      "core_runtime",
+      "websocket_control_outcomes"
+    ],
+    "allow_no_action": true,
+    "observation_detail": "diagnosis_symptoms"
+  },
+  "J": {
+    "scoring_rule": "latent_congestion_vs_coverage",
+    "raw_metrics": [
+      "temporal_action_sequence_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "critical_metrics": [
+      "temporal_action_sequence_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "success_threshold": 1.0,
+    "oracle_requirements": [
+      "backhaul_runtime",
+      "core_runtime"
+    ],
+    "expected_action_type": "RESTART_CORE_NF",
+    "max_actions": 1,
+    "require_evidence_before_action": true,
+    "temporal_expectations": [
+      {
+        "step_id": 1,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 2,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 3,
+        "action_type": "RESTART_CORE_NF"
+      },
+      {
+        "step_id": 4,
+        "action_type": "NO_ACTION"
+      }
+    ]
+  },
+  "allowed_observation_context": [
+    "task_id",
+    "step_id",
+    "backend"
+  ],
+  "public_constraints": [
+    "Use only task-selected APIs and avoid repeated control after accepted repair."
+  ],
+  "M": {
+    "task_set": "compound",
+    "family": "core",
+    "role": "compound"
+  }
+}

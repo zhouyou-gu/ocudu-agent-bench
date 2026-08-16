@@ -1,0 +1,173 @@
+{
+  "id": "compound_grid_congestion_vs_backhaul_v1",
+  "version": 1,
+  "G": "Infer from symptoms that the latent cause is congestion rather than backhaul, then apply one congestion fix.",
+  "E": {
+    "runtime_adapter": "simulated_ocudu",
+    "runtime": "ocudu_zmq_open5gs",
+    "components": [
+      "ocudu_websocket",
+      "ocudu_cli",
+      "open5gs",
+      "srsue_zmq"
+    ]
+  },
+  "U": {
+    "steps": 4,
+    "timing_policy": {
+      "clock_mode": "fixed_tick",
+      "step_interval_s": 0.01,
+      "decision_deadline_s": 0.01
+    },
+    "events": [
+      {
+        "kind": "docker_zmq_runtime_launch",
+        "phase": "pre_observation",
+        "parameters": {},
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "metrics_staleness_mask",
+        "phase": "pre_observation",
+        "parameters": {
+          "stale_until_step": 0
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "pre_observation",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "in_step",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 4
+      },
+      {
+        "kind": "slice_demand_shift",
+        "phase": "pre_observation",
+        "parameters": {
+          "sst": 1,
+          "demand_level": "high",
+          "active_ues": 7,
+          "queue_pressure": 0.34,
+          "prb_utilization": 0.9,
+          "min_prb_policy_ratio": 30,
+          "max_prb_policy_ratio": 88
+        },
+        "start_step": 3,
+        "end_step": 4
+      },
+      {
+        "kind": "traffic_load_profile",
+        "phase": "in_step",
+        "parameters": {
+          "profile": "high",
+          "packet_rate_pps": 800.0,
+          "active_ues": 7
+        },
+        "start_step": 3,
+        "end_step": 4
+      },
+      {
+        "kind": "backhaul_impairment",
+        "phase": "pre_observation",
+        "parameters": {
+          "delay_ms": 2.0,
+          "loss_rate": 0.0,
+          "throughput_mbps": 900.0
+        },
+        "start_step": 1,
+        "end_step": 4
+      }
+    ]
+  },
+  "I": {
+    "api_kinds": [
+      "ocudu_websocket_prb_policy",
+      "ocudu_json_metrics"
+    ],
+    "allowed_actions": [
+      "SET_PRB_POLICY_RATIO_WS"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "backhaul_runtime",
+      "slice_runtime",
+      "websocket_control_outcomes"
+    ],
+    "allow_no_action": true,
+    "observation_detail": "diagnosis_symptoms"
+  },
+  "J": {
+    "scoring_rule": "latent_congestion_vs_coverage",
+    "raw_metrics": [
+      "temporal_action_sequence_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "critical_metrics": [
+      "temporal_action_sequence_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "success_threshold": 1.0,
+    "oracle_requirements": [
+      "backhaul_runtime",
+      "slice_runtime"
+    ],
+    "expected_action_type": "SET_PRB_POLICY_RATIO_WS",
+    "max_actions": 1,
+    "require_evidence_before_action": true,
+    "temporal_expectations": [
+      {
+        "step_id": 1,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 2,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 3,
+        "action_type": "SET_PRB_POLICY_RATIO_WS"
+      },
+      {
+        "step_id": 4,
+        "action_type": "NO_ACTION"
+      }
+    ]
+  },
+  "allowed_observation_context": [
+    "task_id",
+    "step_id",
+    "backend"
+  ],
+  "public_constraints": [
+    "Use only task-selected APIs and avoid repeated control after accepted repair."
+  ],
+  "M": {
+    "task_set": "compound",
+    "family": "diagnosis",
+    "role": "compound"
+  }
+}

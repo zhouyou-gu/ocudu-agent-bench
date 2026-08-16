@@ -1,0 +1,171 @@
+{
+  "id": "compound_grid2_backhaul_vs_coverage_vs_congestion_v1",
+  "version": 1,
+  "G": "Infer quickly that the latent cause is backhaul rather than coverage or congestion, then take no RAN action.",
+  "E": {
+    "runtime_adapter": "simulated_ocudu",
+    "runtime": "ocudu_zmq_open5gs",
+    "components": [
+      "ocudu_websocket",
+      "ocudu_cli",
+      "open5gs",
+      "srsue_zmq"
+    ]
+  },
+  "U": {
+    "steps": 3,
+    "timing_policy": {
+      "clock_mode": "fixed_tick",
+      "step_interval_s": 0.01,
+      "decision_deadline_s": 0.01
+    },
+    "events": [
+      {
+        "kind": "docker_zmq_runtime_launch",
+        "phase": "pre_observation",
+        "parameters": {},
+        "apply_steps": [
+          1
+        ]
+      },
+      {
+        "kind": "metrics_staleness_mask",
+        "phase": "pre_observation",
+        "parameters": {
+          "stale_until_step": 0
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "pre_observation",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "ue_ping_traffic",
+        "phase": "in_step",
+        "parameters": {
+          "packets": 3
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "backhaul_impairment",
+        "phase": "pre_observation",
+        "parameters": {
+          "delay_ms": 75.0,
+          "loss_rate": 0.3,
+          "throughput_mbps": 15.0
+        },
+        "start_step": 2,
+        "end_step": 3
+      },
+      {
+        "kind": "radio_condition_profile",
+        "phase": "pre_observation",
+        "parameters": {
+          "profile": "nominal",
+          "sinr_db": 19.0,
+          "cqi": 11
+        },
+        "start_step": 1,
+        "end_step": 3
+      },
+      {
+        "kind": "slice_demand_shift",
+        "phase": "pre_observation",
+        "parameters": {
+          "sst": 1,
+          "demand_level": "nominal",
+          "active_ues": 6,
+          "min_prb_policy_ratio": 34,
+          "max_prb_policy_ratio": 92
+        },
+        "start_step": 1,
+        "end_step": 3
+      }
+    ]
+  },
+  "I": {
+    "api_kinds": [
+      "ocudu_websocket_prb_policy",
+      "ocudu_websocket_ssb_power",
+      "ocudu_json_metrics"
+    ],
+    "allowed_actions": [
+      "SET_PRB_POLICY_RATIO_WS",
+      "SET_SSB_BLOCK_POWER_WS"
+    ],
+    "observation_sources": [
+      "ping",
+      "json_metrics",
+      "backhaul_runtime",
+      "radio_runtime",
+      "slice_runtime",
+      "websocket_control_outcomes"
+    ],
+    "allow_no_action": true,
+    "observation_detail": "diagnosis_symptoms"
+  },
+  "J": {
+    "scoring_rule": "latent_congestion_vs_coverage",
+    "raw_metrics": [
+      "temporal_action_sequence_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "critical_metrics": [
+      "temporal_action_sequence_match",
+      "valid_action_accepted_rate",
+      "action_budget_ok",
+      "ping_success_ratio",
+      "metrics_continuity",
+      "clean_teardown"
+    ],
+    "success_threshold": 1.0,
+    "oracle_requirements": [
+      "backhaul_runtime",
+      "radio_runtime",
+      "slice_runtime"
+    ],
+    "expected_action_type": "NO_ACTION",
+    "max_actions": 0,
+    "require_evidence_before_action": true,
+    "temporal_expectations": [
+      {
+        "step_id": 1,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 2,
+        "action_type": "NO_ACTION"
+      },
+      {
+        "step_id": 3,
+        "action_type": "NO_ACTION"
+      }
+    ]
+  },
+  "allowed_observation_context": [
+    "task_id",
+    "step_id",
+    "backend"
+  ],
+  "public_constraints": [
+    "Use only task-selected APIs and avoid repeated control after accepted repair."
+  ],
+  "M": {
+    "task_set": "compound",
+    "family": "isolation",
+    "role": "compound"
+  }
+}
