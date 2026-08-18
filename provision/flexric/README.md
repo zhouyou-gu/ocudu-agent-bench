@@ -168,20 +168,14 @@ accepts RAN function ID 4 (`ORAN-E2SM-CCC`), and the gnb logs
 
 ## Rebuilding the patched FlexRIC image
 
-Set `REPO_ROOT` to this repo's checkout and `OCUDU_ASN1_ROOT` to a checkout
-of the OCUDU source (needed for the KPM v05 ASN.1 sources). The FlexRIC
-fork is expected at `$REPO_ROOT/.benchmark-workspace/external/flexric-ocudu-kpm-v05`
-(clone from <https://github.com/zhouyou-gu/flexric-ocudu-kpm-v05>).
-
 ```bash
-export REPO_ROOT=$(git rev-parse --show-toplevel)
-export OCUDU_ASN1_ROOT=/path/to/ocudu                 # OCUDU source checkout
-cd "$REPO_ROOT/.benchmark-workspace/external/flexric-ocudu-kpm-v05"
-git checkout main                                     # fork main HEAD has all 3 patches
+export OCUDU_ASN1_ROOT=~/ocudu-gpu-channel-workspace/ocudu
+cd ~/skillful-ran-workspace/.benchmark-workspace/external/flexric-ocudu-kpm-v05
+git checkout patch-control-failure-decoder
 BUILD_CONTEXT=$(./tools/prepare_ocudu_kpm_v05_context.sh)
 docker build -f $BUILD_CONTEXT/flexric/docker/ocudu-kpm-v05/Dockerfile \
-    --build-arg FLEXRIC_REF=main \
-    -t skillful-ran/flexric-bench:patch-iapp-control-failure \
+    --build-arg FLEXRIC_REF=patch-control-failure-decoder \
+    -t skillful-ran/flexric-bench:patch-control-failure \
     $BUILD_CONTEXT
 ```
 

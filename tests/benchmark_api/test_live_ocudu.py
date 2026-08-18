@@ -1,4 +1,4 @@
-"""Unit tests for benchmark_api.live_ocudu.
+"""Unit tests for benchmark.benchmark_api.live_ocudu.
 
 All WebSocket I/O is mocked via _open_ws — no live gNB required.
 Tests are organised into 7 groups matching the spec:
@@ -18,7 +18,7 @@ import json
 import unittest
 from unittest.mock import MagicMock, call, patch
 
-from benchmark_api.live_ocudu import (
+from benchmark.benchmark_api.live_ocudu import (
     LiveOcuduConfig,
     LiveOcuduError,
     _open_ws,
@@ -118,7 +118,7 @@ class OpenWsErrorMappingTests(unittest.TestCase):
 class SendCommandHappyPathTests(unittest.TestCase):
     """send_command opens WS, sends request, returns parsed ack."""
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_rrm_policy_ratio_set_returns_ack(self, mock_open):
         request = {
             "cmd": "rrm_policy_ratio_set",
@@ -138,7 +138,7 @@ class SendCommandHappyPathTests(unittest.TestCase):
         ws.send.assert_called_once_with(json.dumps(request))
         self.assertEqual(result["cmd"], "rrm_policy_ratio_set")
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_ssb_set_returns_ack(self, mock_open):
         request = {
             "cmd": "ssb_set",
@@ -151,7 +151,7 @@ class SendCommandHappyPathTests(unittest.TestCase):
         result = send_command(_DEFAULT_CFG, request)
         self.assertEqual(result["cmd"], "ssb_set")
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_ho_returns_ack(self, mock_open):
         request = {"cmd": "ho", "argv": [1, 0xC350, 2]}
         ack = {"cmd": "ho", "timestamp": "2026-05-25T00:00:00Z"}
@@ -161,7 +161,7 @@ class SendCommandHappyPathTests(unittest.TestCase):
         result = send_command(_DEFAULT_CFG, request)
         self.assertEqual(result["cmd"], "ho")
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_cfo_returns_ack(self, mock_open):
         request = {"cmd": "cfo", "argv": [0, 100.5]}
         ack = {"cmd": "cfo", "timestamp": "2026-05-25T00:00:00Z"}
@@ -180,7 +180,7 @@ class SendCommandHappyPathTests(unittest.TestCase):
 class SendCommandErrorPathTests(unittest.TestCase):
     """send_command raises LiveOcuduError on protocol and transport errors."""
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_response_with_wrong_cmd_raises(self, mock_open):
         """Response whose 'cmd' doesn't match the request raises LiveOcuduError."""
         request = {"cmd": "rrm_policy_ratio_set", "policies": {}}
@@ -192,7 +192,7 @@ class SendCommandErrorPathTests(unittest.TestCase):
             send_command(_DEFAULT_CFG, request)
         self.assertIn("cmd mismatch", ctx.exception.safe_message.lower())
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_response_with_error_field_raises(self, mock_open):
         """Response containing an 'error' field raises LiveOcuduError."""
         request = {"cmd": "ho", "argv": [1, 0xC350, 999]}
@@ -204,7 +204,7 @@ class SendCommandErrorPathTests(unittest.TestCase):
             send_command(_DEFAULT_CFG, request)
         self.assertIn("unknown target cell", ctx.exception.safe_message)
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_recv_timeout_raises_live_ocudu_error(self, mock_open):
         """If recv() times out, LiveOcuduError is raised."""
         request = {"cmd": "cfo", "argv": [0, 50.0]}
@@ -215,7 +215,7 @@ class SendCommandErrorPathTests(unittest.TestCase):
             send_command(_DEFAULT_CFG, request)
         self.assertIn("timeout", ctx.exception.safe_message.lower())
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_non_json_response_raises_live_ocudu_error(self, mock_open):
         """Non-JSON response raises LiveOcuduError."""
         request = {"cmd": "ssb_set", "cells": []}
@@ -228,7 +228,7 @@ class SendCommandErrorPathTests(unittest.TestCase):
 
     def test_request_missing_cmd_raises_before_opening_ws(self):
         """If request has no 'cmd' key, LiveOcuduError before any WS I/O."""
-        with patch("benchmark_api.live_ocudu._open_ws") as mock_open:
+        with patch("benchmark.benchmark_api.live_ocudu._open_ws") as mock_open:
             with self.assertRaises(LiveOcuduError) as ctx:
                 send_command(_DEFAULT_CFG, {"policies": {}})
             mock_open.assert_not_called()
@@ -260,7 +260,7 @@ _FRAME_3 = {
 class ReadMetricsHappyPathTests(unittest.TestCase):
     """read_metrics collects frames, excluding the subscribe ack."""
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_count_3_returns_3_frames_excluding_ack(self, mock_open):
         """count=3: subscribe ack + 3 metric frames → 3 frames returned (no ack)."""
         ws = _make_ws_mock(_SUBSCRIBE_ACK, _FRAME_1, _FRAME_2, _FRAME_3, _UNSUBSCRIBE_ACK)
@@ -273,7 +273,7 @@ class ReadMetricsHappyPathTests(unittest.TestCase):
         self.assertEqual(frames[1], _FRAME_2)
         self.assertEqual(frames[2], _FRAME_3)
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_timeout_cuts_early_returns_partial_list(self, mock_open):
         """count=10 but timeout after 2 frames → returns 2 frames, no raise."""
         ws = _make_ws_mock(
@@ -288,7 +288,7 @@ class ReadMetricsHappyPathTests(unittest.TestCase):
 
         self.assertEqual(len(frames), 2)
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_count_0_returns_empty_list(self, mock_open):
         """count=0 → no metric recv calls beyond the subscribe ack."""
         ws = _make_ws_mock(_SUBSCRIBE_ACK, _UNSUBSCRIBE_ACK)
@@ -307,7 +307,7 @@ class ReadMetricsHappyPathTests(unittest.TestCase):
 class ReadMetricsEdgeCaseTests(unittest.TestCase):
     """read_metrics handles malformed frames, bad ack, and connection failure."""
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_malformed_json_frame_skipped_silently(self, mock_open):
         """Frames that cannot be JSON-decoded are skipped; good frames returned.
 
@@ -322,7 +322,7 @@ class ReadMetricsEdgeCaseTests(unittest.TestCase):
         self.assertEqual(len(frames), 1)
         self.assertEqual(frames[0], _FRAME_2)
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_subscribe_ack_with_wrong_cmd_raises(self, mock_open):
         """If the subscribe ack has the wrong cmd, LiveOcuduError is raised."""
         bad_ack = {"cmd": "something_else", "timestamp": "2026-05-25T00:00:00Z"}
@@ -332,7 +332,7 @@ class ReadMetricsEdgeCaseTests(unittest.TestCase):
         with self.assertRaises(LiveOcuduError):
             read_metrics(_DEFAULT_CFG, count=1)
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_connection_failure_raises_live_ocudu_error(self, mock_open):
         """Connection failure propagates as LiveOcuduError."""
         mock_open.side_effect = LiveOcuduError("could not connect to ws://127.0.0.1:8001/: refused")
@@ -350,7 +350,7 @@ class ReadMetricsEdgeCaseTests(unittest.TestCase):
 class ReadinessTests(unittest.TestCase):
     """readiness() performs connect + subscribe + metric frame check."""
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_all_green_returns_ready_true(self, mock_open):
         """All 3 checks pass → ready=True, failures=[]."""
         ws = _make_ws_mock(_SUBSCRIBE_ACK, _FRAME_1)
@@ -364,7 +364,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertTrue(result["checks"]["subscribe_ack"])
         self.assertTrue(result["checks"]["metric_frame"])
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_connection_failure_gives_ready_false(self, mock_open):
         """Connection failure → ready=False, 'connect' listed in failures."""
         mock_open.side_effect = LiveOcuduError("could not connect: refused")
@@ -376,7 +376,7 @@ class ReadinessTests(unittest.TestCase):
         failure_str = " ".join(result["failures"])
         self.assertIn("connect", failure_str)
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_subscribe_ack_ok_but_no_metric_frame_gives_ready_false(self, mock_open):
         """Subscribe ack arrives but metric frame times out → ready=False, metric_frame listed."""
         ws = _make_ws_mock(_SUBSCRIBE_ACK, TimeoutError("no metric"))
@@ -391,7 +391,7 @@ class ReadinessTests(unittest.TestCase):
         failure_str = " ".join(result["failures"])
         self.assertIn("metric_frame", failure_str)
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_subscribe_ack_and_metric_frame_gives_ready_true(self, mock_open):
         """subscribe ack + metric frame within timeout → ready=True."""
         ws = _make_ws_mock(_SUBSCRIBE_ACK, _FRAME_1)
@@ -411,7 +411,7 @@ class ReadinessTests(unittest.TestCase):
 class ConnectionCleanupTests(unittest.TestCase):
     """WS .close() is always called, even on error paths."""
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_send_command_closes_ws_on_success(self, mock_open):
         """send_command calls ws.close() after a successful exchange."""
         request = {"cmd": "cfo", "argv": [0, 100.0]}
@@ -423,7 +423,7 @@ class ConnectionCleanupTests(unittest.TestCase):
 
         ws.close.assert_called_once()
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_send_command_closes_ws_on_error(self, mock_open):
         """send_command calls ws.close() even when LiveOcuduError is raised."""
         request = {"cmd": "ho", "argv": [1, 0xC350, 999]}
@@ -436,7 +436,7 @@ class ConnectionCleanupTests(unittest.TestCase):
 
         ws.close.assert_called_once()
 
-    @patch("benchmark_api.live_ocudu._open_ws")
+    @patch("benchmark.benchmark_api.live_ocudu._open_ws")
     def test_read_metrics_sends_unsubscribe_and_closes_on_exception(self, mock_open):
         """read_metrics sends metrics_unsubscribe and closes WS even when a recv raises."""
         # After subscribe ack, mid-stream exception occurs
@@ -475,8 +475,8 @@ class LiveOcuduCliTests(unittest.TestCase):
     # send_cli
     # ------------------------------------------------------------------
 
-    @patch("benchmark_api.live_ocudu._run_subprocess")
-    @patch("benchmark_api.live_ocudu.time")
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
+    @patch("benchmark.benchmark_api.live_ocudu.time")
     def test_send_cli_happy_path_returns_ok(self, mock_time, mock_run):
         """send_cli happy path: subprocess returns 0; result ok=True, line matches."""
         # _run_subprocess is called twice: once for _write_stdin_line (docker exec),
@@ -491,8 +491,8 @@ class LiveOcuduCliTests(unittest.TestCase):
         # Two subprocess calls: docker exec + docker logs
         self.assertEqual(mock_run.call_count, 2)
 
-    @patch("benchmark_api.live_ocudu._run_subprocess")
-    @patch("benchmark_api.live_ocudu.time")
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
+    @patch("benchmark.benchmark_api.live_ocudu.time")
     def test_send_cli_invalid_in_stdout_raises(self, mock_time, mock_run):
         """send_cli raises LiveOcuduError when 'Invalid' appears in docker logs output."""
         mock_time.sleep = lambda s: None
@@ -506,8 +506,8 @@ class LiveOcuduCliTests(unittest.TestCase):
             send_cli(_CLI_CFG, "cfo bad")
         self.assertIn("Invalid", ctx.exception.safe_message)
 
-    @patch("benchmark_api.live_ocudu._run_subprocess")
-    @patch("benchmark_api.live_ocudu.time")
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
+    @patch("benchmark.benchmark_api.live_ocudu.time")
     def test_send_cli_usage_in_stdout_raises(self, mock_time, mock_run):
         """send_cli raises LiveOcuduError when 'Usage:' appears in docker logs output."""
         mock_time.sleep = lambda s: None
@@ -520,7 +520,7 @@ class LiveOcuduCliTests(unittest.TestCase):
             send_cli(_CLI_CFG, "cfo")
         self.assertIn("Usage:", ctx.exception.safe_message)
 
-    @patch("benchmark_api.live_ocudu._run_subprocess")
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
     def test_send_cli_newline_in_line_raises_before_subprocess(self, mock_run):
         """send_cli raises LiveOcuduError without calling subprocess if line has a newline."""
         with self.assertRaises(LiveOcuduError) as ctx:
@@ -528,8 +528,8 @@ class LiveOcuduCliTests(unittest.TestCase):
         mock_run.assert_not_called()
         self.assertIn("newline", ctx.exception.safe_message)
 
-    @patch("benchmark_api.live_ocudu._run_subprocess")
-    @patch("benchmark_api.live_ocudu.time")
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
+    @patch("benchmark.benchmark_api.live_ocudu.time")
     def test_send_cli_shell_escapes_single_quote(self, mock_time, mock_run):
         """send_cli correctly escapes embedded single quotes before building the sh -c command."""
         mock_time.sleep = lambda s: None
@@ -549,7 +549,7 @@ class LiveOcuduCliTests(unittest.TestCase):
     # _docker_logs_tail
     # ------------------------------------------------------------------
 
-    @patch("benchmark_api.live_ocudu._run_subprocess")
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
     def test_docker_logs_tail_with_since_iso_passes_since_flag(self, mock_run):
         """_docker_logs_tail with since_iso passes --since to docker logs."""
         mock_run.return_value = (0, "some output\n", "")
@@ -562,7 +562,7 @@ class LiveOcuduCliTests(unittest.TestCase):
         self.assertNotIn("--tail", argv)
         self.assertIn("some output", result)
 
-    @patch("benchmark_api.live_ocudu._run_subprocess")
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
     def test_docker_logs_tail_without_since_passes_tail_200(self, mock_run):
         """_docker_logs_tail without since_iso passes --tail 200."""
         mock_run.return_value = (0, "line1\nline2\n", "")
@@ -574,7 +574,7 @@ class LiveOcuduCliTests(unittest.TestCase):
         self.assertIn("200", argv)
         self.assertNotIn("--since", argv)
 
-    @patch("benchmark_api.live_ocudu._run_subprocess")
+    @patch("benchmark.benchmark_api.live_ocudu._run_subprocess")
     def test_docker_logs_tail_nonzero_return_raises(self, mock_run):
         """_docker_logs_tail raises LiveOcuduError when docker logs returns non-zero."""
         mock_run.return_value = (1, "", "No such container: ocudu-gnb")
@@ -587,7 +587,7 @@ class LiveOcuduCliTests(unittest.TestCase):
     # dispatch_cli_action — line building
     # ------------------------------------------------------------------
 
-    @patch("benchmark_api.live_ocudu.send_cli")
+    @patch("benchmark.benchmark_api.live_ocudu.send_cli")
     def test_dispatch_cfo_builds_correct_line(self, mock_send):
         """dispatch_cli_action(SET_CFO_CLI) builds 'cfo 0 -1250' and calls send_cli."""
         mock_send.return_value = {"ok": True, "line": "cfo 0 -1250", "stdout_tail": ""}
@@ -598,7 +598,7 @@ class LiveOcuduCliTests(unittest.TestCase):
         line_arg = mock_send.call_args[0][1]
         self.assertEqual(line_arg, "cfo 0 -1250")
 
-    @patch("benchmark_api.live_ocudu.send_cli")
+    @patch("benchmark.benchmark_api.live_ocudu.send_cli")
     def test_dispatch_tx_time_offset_builds_correct_line(self, mock_send):
         """dispatch_cli_action(SET_TX_TIME_OFFSET_CLI) builds 'tx_time_offset 0 7.5'."""
         mock_send.return_value = {"ok": True, "line": "tx_time_offset 0 7.5", "stdout_tail": ""}
@@ -609,7 +609,7 @@ class LiveOcuduCliTests(unittest.TestCase):
         line_arg = mock_send.call_args[0][1]
         self.assertEqual(line_arg, "tx_time_offset 0 7.5")
 
-    @patch("benchmark_api.live_ocudu.send_cli")
+    @patch("benchmark.benchmark_api.live_ocudu.send_cli")
     def test_dispatch_ho_defaults_plmn_and_tac(self, mock_send):
         """dispatch_cli_action(TRIGGER_HANDOVER_CLI) defaults target_plmn='00101', target_tac=1."""
         mock_send.return_value = {"ok": True, "line": "ho 1 0x4601 2 00101 1", "stdout_tail": ""}
@@ -620,7 +620,7 @@ class LiveOcuduCliTests(unittest.TestCase):
         line_arg = mock_send.call_args[0][1]
         self.assertEqual(line_arg, "ho 1 0x4601 2 00101 1")
 
-    @patch("benchmark_api.live_ocudu.send_cli")
+    @patch("benchmark.benchmark_api.live_ocudu.send_cli")
     def test_dispatch_cho_builds_correct_line_with_timeout(self, mock_send):
         """dispatch_cli_action(TRIGGER_CONDITIONAL_HANDOVER_CLI) includes target pcis + timeout."""
         mock_send.return_value = {

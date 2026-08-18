@@ -8,7 +8,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from benchmark_api.task_definition import AgentVisibleTask
+from benchmark.benchmark_api.task_definition import AgentVisibleTask
 
 
 class AgentCallable(Protocol):

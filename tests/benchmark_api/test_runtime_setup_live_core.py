@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import MagicMock, patch, call
 from typing import Any
 
-from benchmark_api.runtime_setup import (
+from benchmark.benchmark_api.runtime_setup import (
     instantiate_runtime,
     cleanup_runtime,
     RuntimeHandle,
@@ -68,8 +68,8 @@ class AdapterSelectionTests(unittest.TestCase):
         """simulated_ocudu → ready=True; live_core is never imported or called."""
         # We import live_core functions here to patch them; if the simulated path
         # is correct they should never be invoked.
-        with patch("benchmark_api.live_core.readiness") as mock_readiness, \
-             patch("benchmark_api.live_core.read_runtime") as mock_read_rt:
+        with patch("benchmark.benchmark_api.live_core.readiness") as mock_readiness, \
+             patch("benchmark.benchmark_api.live_core.read_runtime") as mock_read_rt:
             handle = instantiate_runtime(_SIM_SETUP, "r-sim")
         self.assertTrue(handle.ready)
         self.assertIsNone(handle.setup_metadata.get("blocking_reason"))
@@ -78,9 +78,9 @@ class AdapterSelectionTests(unittest.TestCase):
 
     def test_live_core_ready_true(self):
         """live_core adapter + readiness ready=True → handle.ready==True, metadata correct."""
-        with patch("benchmark_api.live_core.readiness",
+        with patch("benchmark.benchmark_api.live_core.readiness",
                    return_value=_make_readiness(True)) as mock_readiness, \
-             patch("benchmark_api.live_core.read_runtime",
+             patch("benchmark.benchmark_api.live_core.read_runtime",
                    return_value=dict(_SENTINEL_RUNTIME)) as mock_read_rt:
             handle = instantiate_runtime(_LIVE_CORE_SETUP, "r-lc-ok")
 
@@ -93,9 +93,9 @@ class AdapterSelectionTests(unittest.TestCase):
     def test_live_core_ready_false_blocking_reason(self):
         """live_core adapter + readiness ready=False → handle.ready==False, blocking_reason lists failures."""
         failures = ["compose_running: exited 1", "mongo_loopback: timeout"]
-        with patch("benchmark_api.live_core.readiness",
+        with patch("benchmark.benchmark_api.live_core.readiness",
                    return_value=_make_readiness(False, failures=failures)), \
-             patch("benchmark_api.live_core.read_runtime") as mock_read_rt:
+             patch("benchmark.benchmark_api.live_core.read_runtime") as mock_read_rt:
             handle = instantiate_runtime(_LIVE_CORE_SETUP, "r-lc-fail")
 
         self.assertFalse(handle.ready)
@@ -125,9 +125,9 @@ class LiveCoreBackendBlockTests(unittest.TestCase):
     """When live_core adapter is ready, only core_control is True; rest are False."""
 
     def test_backend_flags_when_live_core_ready(self):
-        with patch("benchmark_api.live_core.readiness",
+        with patch("benchmark.benchmark_api.live_core.readiness",
                    return_value=_make_readiness(True)), \
-             patch("benchmark_api.live_core.read_runtime",
+             patch("benchmark.benchmark_api.live_core.read_runtime",
                    return_value=dict(_SENTINEL_RUNTIME)):
             handle = instantiate_runtime(_LIVE_CORE_SETUP, "r-backend")
 
@@ -151,9 +151,9 @@ class LiveCoreCoreRuntimeTests(unittest.TestCase):
     def test_ready_true_core_runtime_equals_sentinel(self):
         """When live_core is ready, state['core_runtime'] is the read_runtime result."""
         sentinel = dict(_SENTINEL_RUNTIME)
-        with patch("benchmark_api.live_core.readiness",
+        with patch("benchmark.benchmark_api.live_core.readiness",
                    return_value=_make_readiness(True)), \
-             patch("benchmark_api.live_core.read_runtime",
+             patch("benchmark.benchmark_api.live_core.read_runtime",
                    return_value=sentinel):
             handle = instantiate_runtime(_LIVE_CORE_SETUP, "r-core-ok")
 
@@ -161,9 +161,9 @@ class LiveCoreCoreRuntimeTests(unittest.TestCase):
 
     def test_ready_false_core_runtime_uses_simulated_fallback(self):
         """When live_core readiness fails, core_runtime falls back to simulated bootstrap (running=False)."""
-        with patch("benchmark_api.live_core.readiness",
+        with patch("benchmark.benchmark_api.live_core.readiness",
                    return_value=_make_readiness(False, failures=["compose_running: error"])), \
-             patch("benchmark_api.live_core.read_runtime") as mock_read_rt:
+             patch("benchmark.benchmark_api.live_core.read_runtime") as mock_read_rt:
             handle = instantiate_runtime(_LIVE_CORE_SETUP, "r-core-fail")
 
         mock_read_rt.assert_not_called()
@@ -189,7 +189,7 @@ class LiveCoreConfigPlumbingTests(unittest.TestCase):
 
     def test_default_setup_yields_default_config(self):
         """No 'live_core' block in setup → defaults are used."""
-        from benchmark_api.live_core import LiveCoreConfig
+        from benchmark.benchmark_api.live_core import LiveCoreConfig
         cfg = _live_core_config_from_setup({})
         self.assertEqual(cfg.compose_project, "open5gs")
         self.assertIsNone(cfg.compose_file)
@@ -199,7 +199,7 @@ class LiveCoreConfigPlumbingTests(unittest.TestCase):
 
     def test_live_core_block_overrides_fields(self):
         """setup['live_core'] overrides reflect in LiveCoreConfig fields."""
-        from benchmark_api.live_core import LiveCoreConfig
+        from benchmark.benchmark_api.live_core import LiveCoreConfig
         setup = {
             "live_core": {
                 "compose_project": "my_project",
@@ -230,16 +230,16 @@ class CleanupRuntimeLiveCoreTests(unittest.TestCase):
 
         live_core is not called — compose stays running.
         """
-        with patch("benchmark_api.live_core.readiness",
+        with patch("benchmark.benchmark_api.live_core.readiness",
                    return_value=_make_readiness(True)), \
-             patch("benchmark_api.live_core.read_runtime",
+             patch("benchmark.benchmark_api.live_core.read_runtime",
                    return_value=dict(_SENTINEL_RUNTIME)):
             handle = instantiate_runtime(_LIVE_CORE_SETUP, "r-cleanup")
 
         # Patch the entire live_core module at the runtime_setup import seam
         # so we can verify no teardown call goes through.
-        with patch("benchmark_api.live_core.restart_nf") as mock_restart, \
-             patch("benchmark_api.live_core.apply_tc_netem") as mock_tc:
+        with patch("benchmark.benchmark_api.live_core.restart_nf") as mock_restart, \
+             patch("benchmark.benchmark_api.live_core.apply_tc_netem") as mock_tc:
             result = cleanup_runtime(handle)
 
         self.assertTrue(handle.closed)

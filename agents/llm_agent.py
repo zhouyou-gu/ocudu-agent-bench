@@ -25,8 +25,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from agents.backends import LLMBackend, LLMTransportError
-from agents.prompt import build_messages, parse_decision
+from benchmark.agents.backends import LLMBackend, LLMTransportError
+from benchmark.agents.prompt import build_messages, parse_decision
 
 
 @dataclass

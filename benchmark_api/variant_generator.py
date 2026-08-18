@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from benchmark_api.task_definition import PrivateTask, clone_task_with_overrides
+from benchmark.benchmark_api.task_definition import PrivateTask, clone_task_with_overrides
 
 
 DIAGNOSTIC_METRICS = (

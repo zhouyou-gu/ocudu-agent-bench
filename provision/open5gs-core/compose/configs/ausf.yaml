@@ -4,7 +4,7 @@ logger:
 ausf:
   sbi:
     server:
-      - address: 0.0.0.0
+      - address: 10.53.1.6
         port: 7777
     client:
       nrf:

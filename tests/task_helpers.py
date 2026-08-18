@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from benchmark_api.task_catalog import load_task_for_suite
-from benchmark_api.task_definition import PrivateTask
+from benchmark.benchmark_api.task_catalog import load_task_for_suite
+from benchmark.benchmark_api.task_definition import PrivateTask
 
 
 def load_checked_in_task(task_id: str) -> PrivateTask:

@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from benchmark_api.runtime_setup import RuntimeHandle, SIMULATED_ADAPTER, core_ue_registration_state
-from benchmark_api.types import RanActionType, SafeErrorClass
+from benchmark.benchmark_api.runtime_setup import RuntimeHandle, SIMULATED_ADAPTER, core_ue_registration_state
+from benchmark.benchmark_api.types import RanActionType, SafeErrorClass
 
 
 @dataclass(frozen=True)

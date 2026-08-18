@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from benchmark_api.task_catalog import load_tasks_for_suite
-from tests.emulated_agents.profiles import PROFILE_NAMES
-from tests.emulated_agents.scenarios import (
+from benchmark.benchmark_api.task_catalog import load_tasks_for_suite
+from benchmark.tests.emulated_agents.profiles import PROFILE_NAMES
+from benchmark.tests.emulated_agents.scenarios import (
     EmulatedRunSpec,
     checked_in_specs,
     generated_legacy_spec,

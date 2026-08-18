@@ -12,7 +12,7 @@ from pathlib import Path
 import shlex
 from typing import Any
 
-from benchmark_api.config import SiteConfig
+from benchmark.benchmark_api.config import SiteConfig
 
 
 class RemoteCommandError(RuntimeError):

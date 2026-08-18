@@ -1,7 +1,7 @@
 import unittest
 
-from benchmark_api.api_catalog import build_api_projection, load_api_catalog
-from benchmark_api.types import RanActionType, RanApiKind
+from benchmark.benchmark_api.api_catalog import build_api_projection, load_api_catalog
+from benchmark.benchmark_api.types import RanActionType, RanApiKind
 
 
 class ApiCatalogTests(unittest.TestCase):

@@ -4,15 +4,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from benchmark_api.config import SiteConfig, RuntimeConfig
-from benchmark_api.remote import RemoteManager
+from benchmark.benchmark_api.config import SiteConfig, RuntimeConfig
+from benchmark.benchmark_api.remote import RemoteManager
 
 
 class RemoteTests(unittest.TestCase):
     def test_remote_check_without_probe_does_not_open_ssh(self) -> None:
         manager = RemoteManager(SiteConfig(ssh_target="user@example", runtime=RuntimeConfig(workspace="~/bench")))
 
-        with patch("benchmark_api.remote.subprocess.run") as run:
+        with patch("benchmark.benchmark_api.remote.subprocess.run") as run:
             result = manager.check(probe=False)
 
         self.assertEqual(result["status"], "configured")
@@ -37,7 +37,7 @@ class RemoteTests(unittest.TestCase):
                 stdout="<f+++++++++ README.md\n",
                 stderr="",
             )
-            with patch("benchmark_api.remote.subprocess.run", return_value=completed) as run:
+            with patch("benchmark.benchmark_api.remote.subprocess.run", return_value=completed) as run:
                 result = manager.sync_benchmark(local, dry_run=True)
 
         command = run.call_args.args[0]

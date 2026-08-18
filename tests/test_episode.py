@@ -4,11 +4,11 @@ import time
 import unittest
 from pathlib import Path
 
-import benchmark_api.episode as episode_module
-from benchmark_api.controller import BaselineController
-from benchmark_api.episode import EpisodeConfig, run_episode
-from benchmark_api.task_catalog import load_tasks_for_suite
-from benchmark_api.trace import TraceRecorder
+import benchmark.benchmark_api.episode as episode_module
+from benchmark.benchmark_api.controller import BaselineController
+from benchmark.benchmark_api.episode import EpisodeConfig, run_episode
+from benchmark.benchmark_api.task_catalog import load_tasks_for_suite
+from benchmark.benchmark_api.trace import TraceRecorder
 
 
 class EpisodeTests(unittest.TestCase):
@@ -129,7 +129,7 @@ class EpisodeTests(unittest.TestCase):
             tasks_dir = Path(tmpdir)
             task_dir = tasks_dir / "base" / "restraint" / "unit_timeout_v1"
             task_dir.mkdir(parents=True)
-            manifest = json.loads(Path("task_sets/base/restraint/base_restraint_minimal_intervention_budget_v1/task.json").read_text(encoding="utf-8"))
+            manifest = json.loads(Path("benchmark/task_sets/base/restraint/base_restraint_minimal_intervention_budget_v1/task.json").read_text(encoding="utf-8"))
             manifest["id"] = "unit_timeout_v1"
             manifest["M"] = {"task_set": "base", "family": "restraint", "role": "primary"}
             manifest["U"]["steps"] = 1

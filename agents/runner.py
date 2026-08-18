@@ -1,6 +1,6 @@
 """Episode runner and CLI for the real-LLM agent harness.
 
-Why this module exists separately from :mod:`benchmark_api.episode`:
+Why this module exists separately from :mod:`benchmark.benchmark_api.episode`:
 the checked-in task manifests set ``U.timing_policy.decision_deadline_s`` to
 0.01 seconds (the deterministic baselines respond in microseconds). Any real
 LLM call takes seconds, so we need to clone the selected task with a relaxed
@@ -28,30 +28,30 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from benchmark_api.action import handle_agent_decision
-from benchmark_api.agent_api_wrapper import AgentApiWrapper
-from benchmark_api.conformance import run_readiness_checks
-from benchmark_api.feedback import build_feedback
-from benchmark_api.observation import build_observation
-from benchmark_api.runtime_setup import cleanup_runtime, instantiate_runtime
-from benchmark_api.scoring import score_episode
-from benchmark_api.stimulus import (
+from benchmark.benchmark_api.action import handle_agent_decision
+from benchmark.benchmark_api.agent_api_wrapper import AgentApiWrapper
+from benchmark.benchmark_api.conformance import run_readiness_checks
+from benchmark.benchmark_api.feedback import build_feedback
+from benchmark.benchmark_api.observation import build_observation
+from benchmark.benchmark_api.runtime_setup import cleanup_runtime, instantiate_runtime
+from benchmark.benchmark_api.scoring import score_episode
+from benchmark.benchmark_api.stimulus import (
     apply_pre_observation,
     expand_stimulus_plan,
     finish_in_step,
     start_in_step,
 )
-from benchmark_api.task_catalog import load_task_for_suite
-from benchmark_api.task_definition import (
+from benchmark.benchmark_api.task_catalog import load_task_for_suite
+from benchmark.benchmark_api.task_definition import (
     PrivateTask,
     agent_visible_task,
     clone_task_with_overrides,
     task_provenance,
 )
-from benchmark_api.trace import TraceRecorder
+from benchmark.benchmark_api.trace import TraceRecorder
 
-from agents.backends import LLMBackend, build_backend
-from agents.llm_agent import LLMAgent
+from benchmark.agents.backends import LLMBackend, build_backend
+from benchmark.agents.llm_agent import LLMAgent
 
 
 @dataclass(frozen=True)
@@ -91,7 +91,7 @@ def relax_task_clock(task: PrivateTask, decision_deadline_s: float, step_interva
 def run_agent_episode(task: PrivateTask, agent, config: RealAgentConfig) -> dict[str, Any]:
     """Run one episode against an already-loaded (and clock-relaxed) task.
 
-    Mirrors :func:`benchmark_api.episode.run_episode`. Kept here so
+    Mirrors :func:`benchmark.benchmark_api.episode.run_episode`. Kept here so
     the harness can use a cloned task without touching the core runner.
     """
 
@@ -120,7 +120,7 @@ def run_agent_episode(task: PrivateTask, agent, config: RealAgentConfig) -> dict
             "task_provenance": provenance,
             "started_at_s": started_at,
             "agent_session_id": f"{config.run_id}-session",
-            "agent_harness": "agents",
+            "agent_harness": "benchmark.agents",
             "decision_deadline_s": stimulus_plan.timing_policy.decision_deadline_s,
             "step_interval_s": stimulus_plan.timing_policy.step_interval_s,
         },

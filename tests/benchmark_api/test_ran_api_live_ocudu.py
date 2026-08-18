@@ -21,10 +21,10 @@ import unittest
 from unittest.mock import MagicMock, patch, call
 from typing import Any
 
-from benchmark_api.live_ocudu import LiveOcuduConfig, LiveOcuduError
-from benchmark_api.ran_api import dispatch_runtime_action, build_request
-from benchmark_api.runtime_setup import RuntimeHandle, LIVE_OCUDU_ADAPTER, SIMULATED_ADAPTER
-from benchmark_api.types import RanActionType, SafeErrorClass
+from benchmark.benchmark_api.live_ocudu import LiveOcuduConfig, LiveOcuduError
+from benchmark.benchmark_api.ran_api import dispatch_runtime_action, build_request
+from benchmark.benchmark_api.runtime_setup import RuntimeHandle, LIVE_OCUDU_ADAPTER, SIMULATED_ADAPTER
+from benchmark.benchmark_api.types import RanActionType, SafeErrorClass
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ class SetPrbPolicyWsHappyPath(unittest.TestCase):
     def test_dispatched_accepted_safe_message_contains_timestamp(self):
         handle = _make_live_ocudu_handle()
         ack = _ok_ack("rrm_policy_ratio_set", "2026-05-25T10:00:00Z")
-        with patch("benchmark_api.live_ocudu.send_command", return_value=ack) as mock_sc:
+        with patch("benchmark.benchmark_api.live_ocudu.send_command", return_value=ack) as mock_sc:
             result = dispatch_runtime_action(handle, "act-1", _PRB_ACTION)
         mock_sc.assert_called_once()
         self.assertTrue(result.dispatched)
@@ -201,7 +201,7 @@ class SetPrbPolicyWsHappyPath(unittest.TestCase):
     def test_send_command_called_with_correct_cmd(self):
         handle = _make_live_ocudu_handle()
         ack = _ok_ack("rrm_policy_ratio_set")
-        with patch("benchmark_api.live_ocudu.send_command", return_value=ack) as mock_sc:
+        with patch("benchmark.benchmark_api.live_ocudu.send_command", return_value=ack) as mock_sc:
             dispatch_runtime_action(handle, "act-1", _PRB_ACTION)
         sent_request = mock_sc.call_args[0][1]
         self.assertEqual(sent_request["cmd"], "rrm_policy_ratio_set")
@@ -216,7 +216,7 @@ class SetSsbBlockPowerWsHappyPath(unittest.TestCase):
     def test_dispatched_accepted(self):
         handle = _make_live_ocudu_handle()
         ack = _ok_ack("ssb_set", "2026-05-25T11:00:00Z")
-        with patch("benchmark_api.live_ocudu.send_command", return_value=ack) as mock_sc:
+        with patch("benchmark.benchmark_api.live_ocudu.send_command", return_value=ack) as mock_sc:
             result = dispatch_runtime_action(handle, "act-1", _SSB_ACTION)
         mock_sc.assert_called_once()
         self.assertTrue(result.dispatched)
@@ -244,8 +244,8 @@ class CliActionsDispatchedViaCli(unittest.TestCase):
     def _assert_cli_dispatch(self, action, expected_action_type_value: str | None = None):
         """Assert dispatch_cli_action is called once and result is dispatched+accepted."""
         handle = _make_live_ocudu_handle()
-        with patch("benchmark_api.live_ocudu.send_command") as mock_sc, \
-             patch("benchmark_api.live_ocudu.dispatch_cli_action",
+        with patch("benchmark.benchmark_api.live_ocudu.send_command") as mock_sc, \
+             patch("benchmark.benchmark_api.live_ocudu.dispatch_cli_action",
                    return_value=_CLI_OK_RESULT) as mock_cli:
             result = dispatch_runtime_action(handle, "act-1", action)
         mock_sc.assert_not_called()
@@ -281,7 +281,7 @@ class CliActionsDispatchedViaCli(unittest.TestCase):
         RUNTIME_UNAVAILABLE."""
         handle = _make_live_ocudu_handle()
         exc = LiveOcuduError("gnb rejected 'cfo 0 -1250.0': Invalid cfo command structure.")
-        with patch("benchmark_api.live_ocudu.dispatch_cli_action",
+        with patch("benchmark.benchmark_api.live_ocudu.dispatch_cli_action",
                    side_effect=exc):
             result = dispatch_runtime_action(handle, "act-1", _CFO_ACTION)
         self.assertTrue(result.dispatched)
@@ -300,7 +300,7 @@ class LiveOcuduErrorHandling(unittest.TestCase):
         """LiveOcuduError from send_command → dispatched=True, accepted=False, RUNTIME_UNAVAILABLE."""
         handle = _make_live_ocudu_handle()
         exc = LiveOcuduError("ws closed unexpectedly")
-        with patch("benchmark_api.live_ocudu.send_command", side_effect=exc):
+        with patch("benchmark.benchmark_api.live_ocudu.send_command", side_effect=exc):
             result = dispatch_runtime_action(handle, "act-1", _PRB_ACTION)
         self.assertTrue(result.dispatched)
         self.assertFalse(result.accepted)
@@ -311,7 +311,7 @@ class LiveOcuduErrorHandling(unittest.TestCase):
         """LiveOcuduError on another WS-backed action (SSB) also surfaces as RUNTIME_UNAVAILABLE."""
         handle = _make_live_ocudu_handle()
         exc = LiveOcuduError("connection timeout")
-        with patch("benchmark_api.live_ocudu.send_command", side_effect=exc):
+        with patch("benchmark.benchmark_api.live_ocudu.send_command", side_effect=exc):
             result = dispatch_runtime_action(handle, "act-1", _SSB_ACTION)
         self.assertTrue(result.dispatched)
         self.assertFalse(result.accepted)
@@ -332,7 +332,7 @@ class NonWsActionOnLiveOcuduAdapter(unittest.TestCase):
         """
         # live_ocudu handle has core_control=False, so the backend gate blocks it
         handle = _make_live_ocudu_handle()
-        with patch("benchmark_api.live_ocudu.send_command") as mock_sc:
+        with patch("benchmark.benchmark_api.live_ocudu.send_command") as mock_sc:
             result = dispatch_runtime_action(handle, "act-1", _RESTART_NF_ACTION)
         mock_sc.assert_not_called()
         # Backend gate fires before any dispatch
@@ -350,7 +350,7 @@ class WsActionOnSimulatedAdapter(unittest.TestCase):
     def test_prb_action_on_simulated_adapter_does_not_call_send_command(self):
         """SET_PRB_POLICY_RATIO_WS on simulated_ocudu uses simulated path; send_command not called."""
         handle = _make_simulated_handle()
-        with patch("benchmark_api.live_ocudu.send_command") as mock_sc:
+        with patch("benchmark.benchmark_api.live_ocudu.send_command") as mock_sc:
             result = dispatch_runtime_action(handle, "act-1", _PRB_ACTION)
         mock_sc.assert_not_called()
         # Simulated path should dispatch successfully
@@ -367,7 +367,7 @@ class NoActionTests(unittest.TestCase):
     def test_no_action_on_live_ocudu_adapter(self):
         """NO_ACTION always returns dispatched=False, accepted=True regardless of adapter."""
         handle = _make_live_ocudu_handle()
-        with patch("benchmark_api.live_ocudu.send_command") as mock_sc:
+        with patch("benchmark.benchmark_api.live_ocudu.send_command") as mock_sc:
             result = dispatch_runtime_action(handle, "act-1", _NO_ACTION)
         mock_sc.assert_not_called()
         self.assertFalse(result.dispatched)

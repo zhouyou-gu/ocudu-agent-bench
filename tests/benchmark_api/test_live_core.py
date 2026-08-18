@@ -1,4 +1,4 @@
-"""Unit tests for benchmark_api.live_core.
+"""Unit tests for benchmark.benchmark_api.live_core.
 
 All subprocess and pymongo I/O is mocked — no docker or live mongo required.
 """
@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import MagicMock, patch, call
 from typing import Any
 
-from benchmark_api.live_core import (
+from benchmark.benchmark_api.live_core import (
     LiveCoreConfig,
     LiveCoreError,
     _compose_args,
@@ -96,7 +96,7 @@ class ComposeArgsTests(unittest.TestCase):
 class RestartNfSubprocessTests(unittest.TestCase):
     """restart_nf invokes the correct docker compose command."""
 
-    @patch("benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
     def test_restart_nf_correct_argv(self, mock_run):
         mock_run.return_value = _ok_proc()
         result = restart_nf(_DEFAULT_CFG, "amf")
@@ -106,7 +106,7 @@ class RestartNfSubprocessTests(unittest.TestCase):
         self.assertIn("restart", argv)
         self.assertIn("amf", argv)
 
-    @patch("benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
     def test_restart_nf_passes_timeout(self, mock_run):
         mock_run.return_value = _ok_proc()
         cfg = LiveCoreConfig(timeout_s=15.0)
@@ -114,7 +114,7 @@ class RestartNfSubprocessTests(unittest.TestCase):
         _, kwargs = mock_run.call_args
         self.assertAlmostEqual(kwargs["timeout"], 15.0)
 
-    @patch("benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
     def test_restart_nf_returns_ok_shape(self, mock_run):
         mock_run.return_value = _ok_proc()
         result = restart_nf(_DEFAULT_CFG, "upf")
@@ -126,7 +126,7 @@ class RestartNfSubprocessTests(unittest.TestCase):
 class ApplyTcNetemSubprocessTests(unittest.TestCase):
     """apply_tc_netem invokes tc qdisc replace with the right arguments."""
 
-    @patch("benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
     def test_tc_netem_argv_contains_correct_params(self, mock_run):
         mock_run.return_value = _ok_proc(stdout="qdisc netem 8001: dev eth0 root ...")
         apply_tc_netem(_DEFAULT_CFG, "amf", delay_ms=5, jitter_ms=2, loss_rate=0.01, dev="eth0")
@@ -141,7 +141,7 @@ class ApplyTcNetemSubprocessTests(unittest.TestCase):
         loss_idx = replace_call_argv.index("loss")
         self.assertIn("1.0%", replace_call_argv[loss_idx + 1])
 
-    @patch("benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
     def test_tc_netem_loss_rate_converted_to_percent(self, mock_run):
         mock_run.return_value = _ok_proc(stdout="qdisc netem ...")
         apply_tc_netem(_DEFAULT_CFG, "smf", delay_ms=10, loss_rate=0.05)
@@ -150,7 +150,7 @@ class ApplyTcNetemSubprocessTests(unittest.TestCase):
         # 0.05 -> 5.0%
         self.assertIn("5.0%", replace_argv[loss_idx + 1])
 
-    @patch("benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
     def test_tc_netem_uses_exec_T_nf(self, mock_run):
         mock_run.return_value = _ok_proc(stdout="qdisc info")
         apply_tc_netem(_DEFAULT_CFG, "upf", delay_ms=0)
@@ -159,7 +159,7 @@ class ApplyTcNetemSubprocessTests(unittest.TestCase):
         self.assertIn("-T", replace_argv)
         self.assertIn("upf", replace_argv)
 
-    @patch("benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
     def test_tc_netem_returns_correct_shape(self, mock_run):
         mock_run.return_value = _ok_proc(stdout="qdisc netem 8001: root")
         result = apply_tc_netem(_DEFAULT_CFG, "amf", delay_ms=20, loss_rate=0.1)
@@ -178,21 +178,21 @@ class ApplyTcNetemSubprocessTests(unittest.TestCase):
 class RestartNfErrorTests(unittest.TestCase):
     """restart_nf raises LiveCoreError on failure."""
 
-    @patch("benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
     def test_nonzero_exit_raises_live_core_error(self, mock_run):
         mock_run.return_value = _fail_proc(stderr="Error response from daemon: No such container")
         with self.assertRaises(LiveCoreError) as ctx:
             restart_nf(_DEFAULT_CFG, "amf")
         self.assertIn("Error response from daemon", ctx.exception.safe_message)
 
-    @patch("benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
     def test_timeout_raises_live_core_error_with_timeout_message(self, mock_run):
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=["docker"], timeout=10.0)
         with self.assertRaises(LiveCoreError) as ctx:
             restart_nf(_DEFAULT_CFG, "amf")
         self.assertIn("timed out", ctx.exception.safe_message.lower())
 
-    @patch("benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
     def test_live_core_error_carries_cause(self, mock_run):
         exc = subprocess.TimeoutExpired(cmd=["docker"], timeout=5.0)
         mock_run.side_effect = exc
@@ -204,7 +204,7 @@ class RestartNfErrorTests(unittest.TestCase):
 class ApplyTcNetemErrorTests(unittest.TestCase):
     """apply_tc_netem raises LiveCoreError on failure."""
 
-    @patch("benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
     def test_nonzero_exit_raises_live_core_error(self, mock_run):
         mock_run.return_value = _fail_proc(rc=1, stderr="RTNETLINK answers: Operation not permitted")
         with self.assertRaises(LiveCoreError) as ctx:
@@ -212,7 +212,7 @@ class ApplyTcNetemErrorTests(unittest.TestCase):
         self.assertIsInstance(ctx.exception, LiveCoreError)
         self.assertIn("RTNETLINK", ctx.exception.safe_message)
 
-    @patch("benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
     def test_timeout_raises_live_core_error(self, mock_run):
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=["docker"], timeout=10.0)
         with self.assertRaises(LiveCoreError):
@@ -222,8 +222,8 @@ class ApplyTcNetemErrorTests(unittest.TestCase):
 class UpsertSubscriberErrorTests(unittest.TestCase):
     """upsert_subscriber raises LiveCoreError for validation and mongo failures."""
 
-    @patch("benchmark_api.live_core._load_subscriber_document")
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._load_subscriber_document")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_empty_imsi_raises_live_core_error(self, mock_mc, mock_load_doc):
         # subscriber_document raises ValueError for empty imsi; upsert_subscriber wraps it
         mock_load_doc.side_effect = ValueError("invalid imsi: ''")
@@ -236,8 +236,8 @@ class UpsertSubscriberErrorTests(unittest.TestCase):
             upsert_subscriber(_DEFAULT_CFG, reg)
         self.assertIn("imsi", ctx.exception.safe_message.lower())
 
-    @patch("benchmark_api.live_core._load_subscriber_document")
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._load_subscriber_document")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_mongo_connection_failure_raises_live_core_error(self, mock_mc, mock_load_doc):
         mock_doc = {
             "imsi": "001010000000001",
@@ -266,7 +266,7 @@ class UpsertSubscriberErrorTests(unittest.TestCase):
 class ReadSubscriberErrorTests(unittest.TestCase):
     """read_subscriber raises LiveCoreError on mongo failure."""
 
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_mongo_failure_raises_live_core_error(self, mock_mc):
         mock_coll = MagicMock()
         mock_coll.find_one.side_effect = _MongoTimeoutError("timeout")
@@ -283,8 +283,8 @@ class ReadSubscriberErrorTests(unittest.TestCase):
 class ReadinessNoRaiseTests(unittest.TestCase):
     """readiness() must not raise even when all checks fail."""
 
-    @patch("benchmark_api.live_core._run_subprocess")
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_readiness_does_not_raise_on_all_failures(self, mock_mc, mock_run):
         mock_run.return_value = _fail_proc(rc=1, stderr="compose error")
         mock_mc.side_effect = _MongoTimeoutError("no mongo")
@@ -293,8 +293,8 @@ class ReadinessNoRaiseTests(unittest.TestCase):
         self.assertIn("ready", result)
         self.assertFalse(result["ready"])
 
-    @patch("benchmark_api.live_core._run_subprocess")
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_readiness_returns_five_checks(self, mock_mc, mock_run):
         mock_run.return_value = _fail_proc(rc=1)
         mock_mc.side_effect = Exception("fail")
@@ -304,8 +304,8 @@ class ReadinessNoRaiseTests(unittest.TestCase):
                          "subscriber_present", "mongo_loopback"}
         self.assertEqual(set(checks.keys()), expected_keys)
 
-    @patch("benchmark_api.live_core._run_subprocess")
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_readiness_returns_failures_list(self, mock_mc, mock_run):
         mock_run.return_value = _fail_proc(rc=1, stderr="error")
         mock_mc.side_effect = Exception("fail")
@@ -314,8 +314,8 @@ class ReadinessNoRaiseTests(unittest.TestCase):
         self.assertIsInstance(result["failures"], list)
         self.assertGreater(len(result["failures"]), 0)
 
-    @patch("benchmark_api.live_core._run_subprocess")
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_readiness_failure_labels_include_check_name(self, mock_mc, mock_run):
         mock_run.return_value = _fail_proc(rc=1, stderr="no container")
         mock_mc.side_effect = Exception("fail")
@@ -331,8 +331,8 @@ class ReadinessNoRaiseTests(unittest.TestCase):
 class ReadinessAllPassTests(unittest.TestCase):
     """When all checks pass, readiness returns ready=True and empty failures."""
 
-    @patch("benchmark_api.live_core._run_subprocess")
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_all_checks_pass_returns_ready_true(self, mock_mc, mock_run):
         # compose ps running
         # amf_sctp_bound: ss/netstat shows sctp
@@ -366,8 +366,8 @@ class ReadinessAllPassTests(unittest.TestCase):
         self.assertTrue(result["ready"], f"Expected ready=True, got failures: {result['failures']}")
         self.assertEqual(result["failures"], [])
 
-    @patch("benchmark_api.live_core._run_subprocess")
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_compose_ps_failure_gives_compose_running_false(self, mock_mc, mock_run):
         def _side(argv, **kw):
             return (1, "", "no such project")
@@ -478,8 +478,8 @@ class ToSubscriberCsvRowTests(unittest.TestCase):
 class ReadRuntimeTests(unittest.TestCase):
     """read_runtime returns the documented core_runtime schema shape."""
 
-    @patch("benchmark_api.live_core._run_subprocess")
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def _run_read_runtime(self, mock_mc, mock_run, *,
                           ps_services_stdout="amf\nsmf\nupf\n",
                           ps_format_stdout='[{"Service":"amf","State":"running"},{"Service":"smf","State":"running"},{"Service":"upf","State":"running"}]',
@@ -539,8 +539,8 @@ class ReadRuntimeTests(unittest.TestCase):
         reg = result["ue_registration"]
         self.assertEqual(reg.get("status"), "unknown")
 
-    @patch("benchmark_api.live_core._run_subprocess")
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_compose_ps_failure_gives_empty_available_nfs(self, mock_mc, mock_run):
         mock_run.return_value = (1, "", "compose error")
         mock_coll = MagicMock()
@@ -554,8 +554,8 @@ class ReadRuntimeTests(unittest.TestCase):
         self.assertEqual(result["available_nfs"], [])
         self.assertTrue(len(result["errors"]) > 0)
 
-    @patch("benchmark_api.live_core._run_subprocess")
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._run_subprocess")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_subscriber_lookup_failure_populates_errors(self, mock_mc, mock_run):
         def _side(argv, **kw):
             cmd_str = " ".join(argv)
@@ -611,8 +611,8 @@ class LiveCoreErrorTests(unittest.TestCase):
 class UpsertSubscriberHappyPathTests(unittest.TestCase):
     """upsert_subscriber returns expected shape on success."""
 
-    @patch("benchmark_api.live_core._load_subscriber_document")
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._load_subscriber_document")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_returns_ok_shape(self, mock_mc, mock_load_doc):
         mock_doc = {
             "imsi": "001010000000001",
@@ -659,7 +659,7 @@ class UpsertSubscriberHappyPathTests(unittest.TestCase):
 class ReadSubscriberTests(unittest.TestCase):
     """read_subscriber returns doc without _id, or None when not found."""
 
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_returns_none_when_not_found(self, mock_mc):
         mock_coll = MagicMock()
         mock_coll.find_one.return_value = None
@@ -672,7 +672,7 @@ class ReadSubscriberTests(unittest.TestCase):
         result = read_subscriber(_DEFAULT_CFG, "999990000000000")
         self.assertIsNone(result)
 
-    @patch("benchmark_api.live_core._mongo_client")
+    @patch("benchmark.benchmark_api.live_core._mongo_client")
     def test_returns_doc_without_id_field(self, mock_mc):
         mock_coll = MagicMock()
         mock_coll.find_one.return_value = {

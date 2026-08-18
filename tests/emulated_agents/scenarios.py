@@ -6,10 +6,10 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from benchmark_api.episode import EpisodeConfig, run_episode
-from benchmark_api.task_catalog import GENERATED_SUITES, load_tasks_for_suite
-from benchmark_api.task_definition import PrivateTask
-from tests.emulated_agents.profiles import EmulatedProfileAgent
+from benchmark.benchmark_api.episode import EpisodeConfig, run_episode
+from benchmark.benchmark_api.task_catalog import GENERATED_SUITES, load_tasks_for_suite
+from benchmark.benchmark_api.task_definition import PrivateTask
+from benchmark.tests.emulated_agents.profiles import EmulatedProfileAgent
 
 
 PRIVATE_TRACE_TOKENS = (

@@ -11,7 +11,7 @@ udm:
       key: /opt/open5gs/etc/open5gs/hnet/secp256r1-2.key
   sbi:
     server:
-      - address: 0.0.0.0
+      - address: 10.53.1.7
         port: 7777
     client:
       nrf:

@@ -9,9 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from benchmark_api.api_catalog import build_api_projection, validate_api_selection
-from benchmark_api.stimulus import targeted_steps_for_event, validate_stimulus_parameters
-from benchmark_api.types import (
+from benchmark.benchmark_api.api_catalog import build_api_projection, validate_api_selection
+from benchmark.benchmark_api.stimulus import targeted_steps_for_event, validate_stimulus_parameters
+from benchmark.benchmark_api.types import (
     IMPLEMENTED_STIMULUS_DRIVERS,
     RanActionType,
     RanObservationSource,

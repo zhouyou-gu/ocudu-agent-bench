@@ -1,6 +1,6 @@
 """Multi-model sweep runner for the real-LLM agent harness.
 
-Drives ``agents.runner`` over a set of models served one at a time by
+Drives ``benchmark.agents.runner`` over a set of models served one at a time by
 vLLM on a remote box. Reachable through an SSH host alias (default ``park-lab``)
 and an SSH-forwarded local port (default ``127.0.0.1:8000``).
 
@@ -38,9 +38,9 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.backends import build_backend
-from agents.runner import RealAgentConfig, run_with_real_agent
-from benchmark_api.task_catalog import load_tasks_for_suite
+from benchmark.agents.backends import build_backend
+from benchmark.agents.runner import RealAgentConfig, run_with_real_agent
+from benchmark.benchmark_api.task_catalog import load_tasks_for_suite
 
 
 DEFAULT_SSH_HOST = "park-lab"

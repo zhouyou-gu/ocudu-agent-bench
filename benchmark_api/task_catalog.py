@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from benchmark_api.task_definition import PrivateTask, load_task_file
-from benchmark_api.variant_generator import generate_variant_tasks
+from benchmark.benchmark_api.task_definition import PrivateTask, load_task_file
+from benchmark.benchmark_api.variant_generator import generate_variant_tasks
 
 
 TASK_SETS_DIR = Path(__file__).resolve().parents[1] / "task_sets"

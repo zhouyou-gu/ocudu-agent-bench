@@ -17,7 +17,7 @@ docker compose -f "$COMPOSE_FILE" exec -T amf ss -ln 2>/dev/null | grep -q ':384
   || { echo "check 2 FAIL: AMF SCTP 38412 not bound"; exit 1; }
 
 # 3. AMF log contains successful NF registration with NRF
-docker compose -f "$COMPOSE_FILE" logs --no-color amf 2>/dev/null | grep -qiE '(NF registered|NF Profile|registered to NRF)' \
+docker compose -f "$COMPOSE_FILE" logs --no-color amf 2>/dev/null | grep -iE '(NF registered|NF Profile|registered to NRF)' >/dev/null \
   || { echo "check 3 FAIL: AMF has not registered with NRF"; exit 1; }
 
 # 4. seeded subscriber queryable via mongo

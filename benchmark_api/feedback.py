@@ -5,8 +5,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from benchmark_api.action import ActionRecord
-from benchmark_api.types import RanActionType
+from benchmark.benchmark_api.action import ActionRecord
+from benchmark.benchmark_api.types import RanActionType
 
 
 def build_feedback(action_record: ActionRecord) -> dict[str, Any]:
